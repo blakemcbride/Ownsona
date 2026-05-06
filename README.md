@@ -9,6 +9,8 @@
 [![PostgreSQL: 16](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-336791)](https://www.postgresql.org)
 [![Built on: Kiss](https://img.shields.io/badge/Built%20on-Kiss-brightgreen)](https://kissweb.org)
 
+The main home for this code is <https://github.com/blakemcbride/Ownsona>.
+
 ## One memory, every LLM
 
 Today, teaching an LLM about your work, your family, your projects, or
