@@ -1,0 +1,15 @@
+[Unit]
+Description=Ownsona daily filesystem + PostgreSQL backup to /mnt/backups (s3fs)
+Documentation=file:/usr/local/sbin/ownsona-backup.sh
+After=postgresql.service network-online.target
+Wants=postgresql.service network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/ownsona-backup.sh
+
+# Backups should not crowd out the running MCP server.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Ownsona backup daily at 03:00
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+# Spread out cron-like jobs across a 5-minute window.
+RandomizedDelaySec=300
+# If the system was off at 03:00, run as soon as it comes back up.
+Persistent=true
+Unit=ownsona-backup.service
+
+[Install]
+WantedBy=timers.target

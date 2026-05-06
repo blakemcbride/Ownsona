@@ -1,0 +1,40 @@
+[Unit]
+Description=Ownsona MCP Server (Apache Tomcat at /home/ownsona/tomcat)
+Documentation=https://ownsona.com/mcp
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=ownsona
+Group=ownsona
+
+# Run Tomcat in the foreground so systemd can supervise the JVM directly.
+# Application secrets (EMBEDDING_API_KEY, OWNSONA_API_TOKEN, DB credentials)
+# live in src/main/backend/application.ini, which the WAR reads at startup
+# via MainServlet.getEnvironment.  catalina.sh "run" execs the JDK, so
+# systemd's main PID becomes the JVM and SIGTERM goes to it cleanly.
+ExecStart=/home/ownsona/tomcat/bin/catalina.sh run
+
+# Bind to ports 80/443 without relying on setcap on the JDK binary --- which
+# gets stripped on every openjdk apt upgrade.  systemd grants the capability
+# at exec time so this survives JDK upgrades.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+LimitNOFILE=65536
+
+# JVM exits with 143 when sent SIGTERM (clean shutdown). Don't treat that as failure.
+Restart=on-failure
+RestartSec=10
+SuccessExitStatus=143
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Light hardening that does not interfere with capability inheritance or
+# the PostgreSQL UNIX socket (which lives in /var/run/postgresql, not /tmp).
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
