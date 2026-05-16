@@ -10,6 +10,30 @@ Touchpoints are referenced as `file:line` against the current tree
 
 ---
 
+## Implementation status
+
+Updated in lockstep with commits. "Code-complete" = built and unit-tested
+locally, committed on `main`. "Deployed" = the production Tomcat is
+actually running this code.
+
+| Phase | Status | Notes |
+|---|---|---|
+| 1A — capture_mode + session_id provenance | **code-complete**, not yet deployed | committed at e14da68 |
+| 1B — tag normalization | **code-complete**, not yet deployed | committed at 540fe13 |
+| 1C — max_chars budget on build_context_prompt | **code-complete**, not yet deployed | committed at 48ab206 |
+| Log level: quiet per-request INFO, keep startup banner | **code-complete**, not yet deployed | committed at 0d5683f |
+| 2 — Auto-migration framework | **code-complete**, not yet deployed | empty migration registry, `CURRENT_DB_VERSION = 1`; first deploy that touches the DB schema --- run `sql/migrator_prep.sql` once before deploying |
+| 3 — Per-record versioning + record_version | not started | |
+| 4 — Dedup + freshness | not started | |
+| 5 — Conflict surfacing + tombstones + decay | not started | |
+
+When Phase 1 (the code-complete row above) gets deployed, all four
+commits go in one WAR swap — they don't depend on each other and
+none touches the DB. After that, Phase 2's deploy carries the first
+real schema work (creating the `db_version` table on first start).
+
+---
+
 ## The central asymmetry: code is cheap, data is not
 
 **This is the design constraint that shapes every decision below.**
@@ -523,23 +547,48 @@ Integration tests (need `OWNSONA_TEST_DATABASE_URL`):
 
 ### Ship checklist
 
-Single deploy. With no migrations registered, this is functionally
-a Procedure A code-only deploy, but since it creates the
-`db_version` table on first run, it is *technically* a schema
-change. Take a backup anyway — it's cheap and the discipline
-matters going forward.
+Single deploy. With no migrations registered, this is functionally a
+Procedure A code-only deploy, but the migrator creates the
+`db_version` table on first run, so the application role needs
+privileges it doesn't have on the existing prod DB. One-time prep
+SQL fixes this.
 
-- [ ] `Migration`, `DbMigrator`, `MigrationRegistry` classes
-      reviewed; unit tests green
-- [ ] `MCPServer.<clinit>` hooks the migrator after service
-      construction
+**Existing prod DB needs a one-time prep before this deploy:**
+
+```
+sudo -u postgres psql -d ownsona -f sql/migrator_prep.sql
+```
+
+This grants `CREATE ON SCHEMA public` to the `ownsona` role (so the
+migrator can create `db_version`) and transfers ownership of the
+`memories` table and its sequence to `ownsona` (so future migrations
+can ALTER TABLE without superuser). The script is idempotent — safe
+to re-run. Fresh installs done via `sql/setup_db.sh +
+sql/001_init.sql` already include these grants.
+
+- [ ] `sql/migrator_prep.sql` applied to prod (verify the script's
+      trailing query shows `can_create_in_public = t` and
+      `memories_owner = ownsona`)
+- [ ] `Migration`, `DbMigrator`, `MigrationRegistry` unit tests green
+      (`sql/run_tests.sh`)
+- [ ] `MCPServer.<clinit>` calls `DbMigrator.runOnStartup()` after
+      service construction; `@WebServlet(loadOnStartup = 1)` ensures
+      the migrator runs at Tomcat startup, not on first request
 - [ ] Fresh prod backup taken and verified
-- [ ] WAR deploy
-- [ ] First startup log shows `migrator: db_version table
-      created, baseline=1` (or `migrator: db_version at 1,
-      target 1, nothing to apply` on subsequent boots)
-- [ ] One real `remember`/`recall` round-trip — nothing else
-      should have changed
+- [ ] WAR deploy (`./bld war`, swap, restart)
+- [ ] First startup log shows
+      `migrator: db_version baseline established (version=1)` and
+      `migrator: db_version at 1, target 1, nothing to apply`
+- [ ] On a subsequent restart, log shows only the second line above
+      (table now exists)
+- [ ] One real `remember`/`recall` round-trip — nothing else should
+      have changed
+
+**Rollback.** Because the migrator created its own table, the rollback
+WAR (a previous version) won't know about `db_version` but also won't
+care — it never queries that table. Restoring `Kiss.war.prev` is
+sufficient. If you also want to remove the `db_version` table itself
+(unlikely needed): `DROP TABLE db_version;` as the postgres user.
 
 ---
 

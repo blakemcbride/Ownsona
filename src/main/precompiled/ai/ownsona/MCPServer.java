@@ -1,6 +1,7 @@
 package ai.ownsona;
 
 import ai.ownsona.embeddings.OpenAIEmbeddingProvider;
+import ai.ownsona.migrations.DbMigrator;
 import ai.ownsona.memory.BatchRememberItem;
 import ai.ownsona.memory.BatchRememberResult;
 import ai.ownsona.memory.MemoryRepository;
@@ -52,7 +53,11 @@ import java.util.List;
  * against {@link Config#OWNSONA_API_TOKEN}.  Auth failures return 401
  * without revealing whether the header was missing or just wrong.
  */
-@WebServlet(urlPatterns = "/mcp")
+// loadOnStartup = 1 ensures the static initializer (and therefore the
+// auto-migrator) runs at Tomcat startup rather than lazily on the first
+// /mcp request --- failed migrations should surface in catalina.out at
+// deploy time, not when a real client hits the endpoint.
+@WebServlet(urlPatterns = "/mcp", loadOnStartup = 1)
 public class MCPServer extends MCPServerBase {
 
     private static final Logger logger = LogManager.getLogger(MCPServer.class);
@@ -64,14 +69,15 @@ public class MCPServer extends MCPServerBase {
 
     static {
         // Log level strategy: keep startup-time logging at INFO (so the
-        // banner below is visible in the deploy log) but drop ai.ownsona
-        // to ERROR before this initializer returns, which silences the
-        // per-request INFO chatter (recall timings, embedding calls, auth
-        // failures) once Tomcat is fully up.  To re-enable INFO for
-        // diagnostics, change the second setLevel call to Level.INFO (or
-        // remove it).  Constructing SERVICE eagerly forces Config to load
-        // now so missing application.ini keys fail at servlet-init time,
-        // not at first request.
+        // banner below and the auto-migrator output are visible in the
+        // deploy log) but drop ai.ownsona to ERROR before this
+        // initializer returns, which silences the per-request INFO
+        // chatter (recall timings, embedding calls, auth failures) once
+        // Tomcat is fully up.  To re-enable INFO for diagnostics, change
+        // the trailing setLevel call to Level.INFO (or remove it).
+        // Constructing SERVICE eagerly forces Config to load now so
+        // missing application.ini keys fail at servlet-init time, not
+        // at first request.
         Configurator.setLevel("ai.ownsona", Level.INFO);
         SERVICE = new MemoryService(
                 new MemoryRepository(),
@@ -81,7 +87,18 @@ public class MCPServer extends MCPServerBase {
                         Config.EMBEDDING_DIMENSIONS));
         logger.info("Ownsona MCP server class loaded; server={} version={} model={} dims={}",
                 SERVER_NAME, SERVER_VERSION, Config.EMBEDDING_MODEL, Config.EMBEDDING_DIMENSIONS);
-        Configurator.setLevel("ai.ownsona", Level.ERROR);
+        try {
+            // Bring the database up to CURRENT_DB_VERSION.  A failure here
+            // propagates as an unchecked exception so the static
+            // initializer fails and the servlet refuses to load --- we
+            // don't want a half-migrated DB serving traffic with the new
+            // code.
+            DbMigrator.runOnStartup();
+        } finally {
+            // Always drop to ERROR, even if the migrator threw, so a
+            // subsequent retry doesn't accumulate INFO-level noise.
+            Configurator.setLevel("ai.ownsona", Level.ERROR);
+        }
     }
 
     @Override

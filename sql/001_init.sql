@@ -73,5 +73,13 @@ FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
 GRANT USAGE ON SCHEMA public TO ownsona;
+-- CREATE on schema lets the auto-migrator (DbMigrator) create the
+-- db_version bookkeeping table and any future ownsona-owned tables.
+GRANT CREATE ON SCHEMA public TO ownsona;
 GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON memories TO ownsona;
 GRANT USAGE, SELECT ON SEQUENCE memories_id_seq TO ownsona;
+-- Make ownsona the owner of memories so the auto-migrator can ALTER
+-- TABLE / CREATE INDEX on it in future migration steps without needing
+-- superuser privileges at runtime.
+ALTER TABLE memories OWNER TO ownsona;
+ALTER SEQUENCE memories_id_seq OWNER TO ownsona;
