@@ -63,10 +63,15 @@ public class MCPServer extends MCPServerBase {
     private static final MemoryService SERVICE;
 
     static {
-        // Kiss's bundled log4j2.xml sets the root logger to ERROR; raise our package
-        // to INFO without touching framework config.  Also forces Config to load
-        // eagerly so missing application.ini keys fail at servlet-init time, not
-        // at first request.
+        // Log level strategy: keep startup-time logging at INFO (so the
+        // banner below is visible in the deploy log) but drop ai.ownsona
+        // to ERROR before this initializer returns, which silences the
+        // per-request INFO chatter (recall timings, embedding calls, auth
+        // failures) once Tomcat is fully up.  To re-enable INFO for
+        // diagnostics, change the second setLevel call to Level.INFO (or
+        // remove it).  Constructing SERVICE eagerly forces Config to load
+        // now so missing application.ini keys fail at servlet-init time,
+        // not at first request.
         Configurator.setLevel("ai.ownsona", Level.INFO);
         SERVICE = new MemoryService(
                 new MemoryRepository(),
@@ -76,6 +81,7 @@ public class MCPServer extends MCPServerBase {
                         Config.EMBEDDING_DIMENSIONS));
         logger.info("Ownsona MCP server class loaded; server={} version={} model={} dims={}",
                 SERVER_NAME, SERVER_VERSION, Config.EMBEDDING_MODEL, Config.EMBEDDING_DIMENSIONS);
+        Configurator.setLevel("ai.ownsona", Level.ERROR);
     }
 
     @Override
