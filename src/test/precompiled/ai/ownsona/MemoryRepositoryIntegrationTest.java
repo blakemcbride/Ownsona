@@ -161,7 +161,8 @@ class MemoryRepositoryIntegrationTest {
         final boolean ok = repo.update(db, id, newText,
                 TextNormalizer.normalize(newText), newVec,
                 new String[]{"family", "work", "anthropic"}, 0.8,
-                "mock", "mock-sha256");
+                "mock", "mock-sha256",
+                null, null);
         assertTrue(ok);
 
         final MemoryRow after = repo.findById(db, id);
@@ -203,7 +204,8 @@ class MemoryRepositoryIntegrationTest {
 
         // update on a soft-deleted row should not "resurrect" it.
         final boolean updated = repo.update(db, id, "new text", "new text",
-                embedder.embed("new text"), null, null, "mock", "mock-sha256");
+                embedder.embed("new text"), null, null, "mock", "mock-sha256",
+                null, null);
         assertFalse(updated, "update should refuse a soft-deleted row");
     }
 
@@ -328,6 +330,96 @@ class MemoryRepositoryIntegrationTest {
         final MemoryRow row = repo.findById(db, id);
         assertNotNull(row);
         assertEquals(3, row.recordVersion);
+    }
+
+    @Test
+    void expiresAtAndLastConfirmedAtRoundTrip() throws Exception {
+        final java.util.Date future = new java.util.Date(System.currentTimeMillis()
+                + 30L * 24L * 60L * 60L * 1000L);   // 30 days out
+        final java.util.Date past = new java.util.Date(System.currentTimeMillis()
+                - 24L * 60L * 60L * 1000L);          // yesterday
+
+        final MemoryInsert m = new MemoryInsert();
+        m.userId            = USER_ID;
+        m.text              = "Expires-and-confirmed fact.";
+        m.normalizedText    = TextNormalizer.normalize(m.text);
+        m.embedding         = embedder.embed(m.text);
+        m.tags              = new String[]{};
+        m.importance        = 0.5;
+        m.embeddingProvider = "mock";
+        m.embeddingModel    = embedder.modelName();
+        m.expiresAt         = future;
+        m.lastConfirmedAt   = past;
+        final long id = repo.insert(db, m);
+
+        final MemoryRow row = repo.findById(db, id);
+        assertNotNull(row);
+        assertNotNull(row.expiresAt);
+        assertEquals(future.getTime(), row.expiresAt.getTime());
+        assertNotNull(row.lastConfirmedAt);
+        assertEquals(past.getTime(), row.lastConfirmedAt.getTime());
+    }
+
+    @Test
+    void expiredRowsExcludedFromRecallAndListAndTextSearch() throws Exception {
+        final java.util.Date past = new java.util.Date(System.currentTimeMillis()
+                - 24L * 60L * 60L * 1000L);   // yesterday
+
+        // Insert one fresh, one already-expired.
+        final long freshId = insert("Fresh fact about pickles.", new String[]{});
+        final MemoryInsert expired = new MemoryInsert();
+        expired.userId            = USER_ID;
+        expired.text              = "Expired fact about apricots.";
+        expired.normalizedText    = TextNormalizer.normalize(expired.text);
+        expired.embedding         = embedder.embed(expired.text);
+        expired.tags              = new String[]{};
+        expired.importance        = 0.5;
+        expired.embeddingProvider = "mock";
+        expired.embeddingModel    = embedder.modelName();
+        expired.expiresAt         = past;
+        repo.insert(db, expired);
+
+        // recall sees only the fresh one.
+        final float[] q = embedder.embed("any query");
+        final List<MemoryRow> hits = repo.findSimilar(db, USER_ID, q, 10, null);
+        assertEquals(1, hits.size());
+        assertEquals(freshId, hits.get(0).id);
+
+        // listRecent (default, exclude deleted/expired) sees only the fresh one.
+        assertEquals(1, repo.listRecent(db, USER_ID, 10, 0, false).size());
+        // listRecent with includeDeleted=true sees both.
+        assertEquals(2, repo.listRecent(db, USER_ID, 10, 0, true).size());
+
+        // textSearch on "apricots" sees nothing (expired excluded).
+        assertEquals(0, repo.textSearch(db, USER_ID, "apricots", 10).size());
+        // textSearch on "pickles" still finds the fresh row.
+        assertEquals(1, repo.textSearch(db, USER_ID, "pickles", 10).size());
+    }
+
+    @Test
+    void confirmRefreshesLastConfirmedAt() throws Exception {
+        final long id = insert("Confirmable fact.", new String[]{});
+        // Initially null --- never confirmed.
+        final MemoryRow before = repo.findById(db, id);
+        assertNull(before.lastConfirmedAt);
+
+        assertTrue(repo.confirm(db, id));
+
+        final MemoryRow after = repo.findById(db, id);
+        assertNotNull(after.lastConfirmedAt);
+        // The timestamp was set by SQL now(); just verify it's recent.
+        final long now = System.currentTimeMillis();
+        assertTrue(Math.abs(after.lastConfirmedAt.getTime() - now) < 60L * 1000L,
+                "last_confirmed_at should be within ~1 min of now");
+    }
+
+    @Test
+    void confirmReturnsFalseForUnknownIdAndDeletedRow() throws Exception {
+        assertFalse(repo.confirm(db, 99_999_999L));
+
+        final long id = insert("Will be deleted.", new String[]{});
+        assertTrue(repo.softDelete(db, id));
+        assertFalse(repo.confirm(db, id), "confirm should refuse a soft-deleted row");
     }
 
     // -------------------------------------------------------------------------------

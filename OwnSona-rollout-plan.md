@@ -24,7 +24,7 @@ actually running this code.
 | Log level: quiet per-request INFO, keep startup banner | **deployed** (2026-05-16) | committed at 0d5683f |
 | 2 — Auto-migration framework | **deployed** (2026-05-16) | empty migration registry, `CURRENT_DB_VERSION = 1`; `migrator_prep.sql` was run once before this deploy |
 | 3 — Per-record versioning + record_version | **deployed** (2026-05-16) | `CURRENT_DB_VERSION` bumped to 2 with `Migration002AddRecordVersion`; per-record upgrader framework shipped with empty `RecordUpgraderRegistry` (`CURRENT_RECORD_VERSION = 1`) |
-| 4 — Dedup + freshness | not started | |
+| 4 — Dedup + freshness | **code-complete**, not yet deployed | `CURRENT_DB_VERSION` bumped to 3 via `Migration003AddFreshness` (adds `expires_at`, `last_confirmed_at` with partial index). Semantic dedup-on-write check (0.90 threshold, top-K=5) with three-way `dedup_policy` (`insert` / `skip_if_near` / `ask`, default `ask`). New `confirm` MCP tool. Expired rows excluded from recall / list_memories / text_search; `include_deleted=true` bypasses for diagnostics |
 | 5 — Conflict surfacing + tombstones + decay | not started | |
 
 When Phase 1 (the code-complete row above) gets deployed, all four

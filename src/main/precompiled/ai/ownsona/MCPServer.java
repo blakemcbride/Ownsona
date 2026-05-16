@@ -181,6 +181,7 @@ public class MCPServer extends MCPServerBase {
         tools.put(buildContextPromptDescriptor());
         tools.put(listMemoriesDescriptor());
         tools.put(updateMemoryDescriptor());
+        tools.put(confirmDescriptor());
         tools.put(forgetDescriptor());
         tools.put(textSearchDescriptor());
         return tools;
@@ -204,6 +205,18 @@ public class MCPServer extends MCPServerBase {
         props.put("session_id", scalarProp("string",
                 "Optional opaque identifier of the conversation/session this memory came from. " +
                 "Stored as-is; not interpreted by the server."));
+        props.put("dedup_policy", scalarProp("string",
+                "Optional. Controls the semantic-dedup check that runs before insert. " +
+                "'insert' (skip the check), 'skip_if_near' (don't insert if a near-duplicate " +
+                "already exists --- the response returns that existing id), or 'ask' (default: " +
+                "insert anyway, but include near-duplicates in the response so the client sees " +
+                "what looked similar)."));
+        props.put("expires_at", scalarProp("string",
+                "Optional ISO 8601 timestamp ('2027-01-01T00:00:00Z'). When set, recall excludes " +
+                "this memory after the date passes."));
+        props.put("last_confirmed_at", scalarProp("string",
+                "Optional ISO 8601 timestamp marking when this fact was last verified as still " +
+                "true. Use the 'confirm' tool to refresh it without rebuilding the embedding."));
         return tool("remember",
                 "Use this tool when the user asks you to remember, save, store, note, or retain a " +
                 "durable fact, preference, project detail, personal detail, or other information " +
@@ -228,6 +241,12 @@ public class MCPServer extends MCPServerBase {
                 "Optional. 'explicit' (user asked) or 'inferred' (model chose)."));
         itemProps.put("session_id", scalarProp("string",
                 "Optional opaque conversation/session identifier."));
+        itemProps.put("dedup_policy", scalarProp("string",
+                "Optional per-item override of the batch-level dedup_policy."));
+        itemProps.put("expires_at", scalarProp("string",
+                "Optional ISO 8601 timestamp; row expires from recall after this."));
+        itemProps.put("last_confirmed_at", scalarProp("string",
+                "Optional ISO 8601 timestamp marking last verification."));
         final JSONObject itemSchema = new JSONObject();
         itemSchema.put("type", "object");
         itemSchema.put("properties", itemProps);
@@ -246,6 +265,9 @@ public class MCPServer extends MCPServerBase {
         props.put("items", itemsProp);
         props.put("source_provider", scalarProp("string",
                 "Optional default source_provider applied to items that don't specify their own."));
+        props.put("dedup_policy", scalarProp("string",
+                "Optional default dedup_policy ('insert' | 'skip_if_near' | 'ask') applied to " +
+                "items that don't specify their own. Default 'ask'."));
 
         final JSONObject schema = new JSONObject();
         schema.put("type", "object");
@@ -328,10 +350,27 @@ public class MCPServer extends MCPServerBase {
         props.put("text", scalarProp("string", "New text replacing the existing memory."));
         props.put("tags", arrayProp("string", "Optional replacement tags."));
         props.put("importance", scalarProp("number", "Optional importance from 0 to 1."));
+        props.put("expires_at", scalarProp("string",
+                "Optional ISO 8601 timestamp.  Null/omitted leaves the existing value unchanged."));
+        props.put("last_confirmed_at", scalarProp("string",
+                "Optional ISO 8601 timestamp.  Null/omitted leaves the existing value unchanged. " +
+                "To just mark this fact as still-true without rebuilding the embedding, use the " +
+                "'confirm' tool instead."));
         return tool("update_memory",
                 "Use this tool when the user wants to correct or extend an existing memory. " +
                 "Regenerates the embedding from the new text.",
                 props, new String[]{"id", "text"});
+    }
+
+    private static JSONObject confirmDescriptor() {
+        final JSONObject props = new JSONObject();
+        props.put("id", scalarProp("integer", "Identifier of the memory to confirm as still-current."));
+        return tool("confirm",
+                "Mark an existing memory as still relevant by refreshing its " +
+                "last_confirmed_at timestamp to now.  Does not rebuild the embedding " +
+                "or change any other field.  Useful when the user just restated a fact " +
+                "you already know --- bumps recency without inserting a duplicate.",
+                props, new String[]{"id"});
     }
 
     private static JSONObject forgetDescriptor() {
@@ -371,6 +410,7 @@ public class MCPServer extends MCPServerBase {
                 case "build_context_prompt": return doBuildContextPrompt(arguments);
                 case "list_memories":        return doListMemories(arguments);
                 case "update_memory":        return doUpdateMemory(arguments);
+                case "confirm":              return doConfirm(arguments);
                 case "forget":               return doForget(arguments);
                 case "text_search":          return doTextSearch(arguments);
                 default:
@@ -386,19 +426,39 @@ public class MCPServer extends MCPServerBase {
     }
 
     private static JSONObject doRemember(JSONObject args) {
-        final String   text         = args.getString("text", null);
-        final String[] tags         = optStringArray(args, "tags");
-        final String   provider     = args.getString("source_provider", null);
-        final Double   imp          = args.has("importance") ? args.getDouble("importance") : null;
-        final String   captureMode  = args.getString("capture_mode", null);
-        final String   sessionId    = args.getString("session_id", null);
+        final String   text            = args.getString("text", null);
+        final String[] tags            = optStringArray(args, "tags");
+        final String   provider        = args.getString("source_provider", null);
+        final Double   imp             = args.has("importance") ? args.getDouble("importance") : null;
+        final String   captureMode     = args.getString("capture_mode", null);
+        final String   sessionId       = args.getString("session_id", null);
+        final String   dedupPolicy     = args.getString("dedup_policy", null);
+        final Date     expiresAt       = parseIso(args.getString("expires_at", null));
+        final Date     lastConfirmedAt = parseIso(args.getString("last_confirmed_at", null));
 
-        final RememberResult r = SERVICE.remember(text, tags, provider, imp, captureMode, sessionId);
+        final RememberResult r = SERVICE.remember(text, tags, provider, imp, captureMode, sessionId,
+                dedupPolicy, expiresAt, lastConfirmedAt);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);
         out.put("memory_id", r.id);
-        out.put("message", r.alreadyExisted ? "Already remembered" : "Ok");
+        // Three "alreadyExisted" cases: exact-match dedup hit (empty
+        // candidates), semantic-dedup skip_if_near hit (non-empty
+        // candidates), or a fresh insert (alreadyExisted=false).
+        final String message;
+        if (!r.alreadyExisted)
+            message = "Ok";
+        else if (r.candidates.isEmpty())
+            message = "Already remembered";
+        else
+            message = "Near-duplicate skipped";
+        out.put("message", message);
+        if (!r.candidates.isEmpty()) {
+            final JSONArray cArr = new JSONArray();
+            for (MemoryRow c : r.candidates)
+                cArr.put(memoryToMatchJson(c));
+            out.put("candidates", cArr);
+        }
         return successResult(out);
     }
 
@@ -409,22 +469,26 @@ public class MCPServer extends MCPServerBase {
         if (itemsArr == null)
             throw new ServiceException(ServiceException.INVALID_INPUT, "items must be a JSON array.");
 
-        final String defaultProvider = args.getString("source_provider", null);
+        final String defaultProvider    = args.getString("source_provider", null);
+        final String defaultDedupPolicy = args.getString("dedup_policy", null);
 
         final List<BatchRememberItem> items = new ArrayList<>(itemsArr.length());
         for (int i = 0; i < itemsArr.length(); i++) {
             final JSONObject obj = itemsArr.getJSONObject(i);
             final BatchRememberItem item = new BatchRememberItem();
-            item.text           = (obj == null) ? null : obj.getString("text", null);
-            item.tags           = (obj == null) ? null : optStringArray(obj, "tags");
-            item.sourceProvider = (obj == null) ? null : obj.getString("source_provider", null);
-            item.importance     = (obj != null && obj.has("importance")) ? obj.getDouble("importance") : null;
-            item.captureMode    = (obj == null) ? null : obj.getString("capture_mode", null);
-            item.sessionId      = (obj == null) ? null : obj.getString("session_id", null);
+            item.text            = (obj == null) ? null : obj.getString("text", null);
+            item.tags            = (obj == null) ? null : optStringArray(obj, "tags");
+            item.sourceProvider  = (obj == null) ? null : obj.getString("source_provider", null);
+            item.importance      = (obj != null && obj.has("importance")) ? obj.getDouble("importance") : null;
+            item.captureMode     = (obj == null) ? null : obj.getString("capture_mode", null);
+            item.sessionId       = (obj == null) ? null : obj.getString("session_id", null);
+            item.dedupPolicy     = (obj == null) ? null : obj.getString("dedup_policy", null);
+            item.expiresAt       = (obj == null) ? null : parseIso(obj.getString("expires_at", null));
+            item.lastConfirmedAt = (obj == null) ? null : parseIso(obj.getString("last_confirmed_at", null));
             items.add(item);
         }
 
-        final List<BatchRememberResult> results = SERVICE.rememberBatch(items, defaultProvider);
+        final List<BatchRememberResult> results = SERVICE.rememberBatch(items, defaultProvider, defaultDedupPolicy);
 
         final JSONArray resultsJson = new JSONArray();
         int inserted = 0, dups = 0, errs = 0;
@@ -434,7 +498,21 @@ public class MCPServer extends MCPServerBase {
             rj.put("ok", r.ok);
             if (r.ok) {
                 rj.put("memory_id", r.memoryId.longValue());
-                rj.put("message", r.alreadyExisted ? "Already remembered" : "Ok");
+                // Same three-state message as the single remember() handler.
+                final String message;
+                if (!r.alreadyExisted)
+                    message = "Ok";
+                else if (r.candidates.isEmpty())
+                    message = "Already remembered";
+                else
+                    message = "Near-duplicate skipped";
+                rj.put("message", message);
+                if (!r.candidates.isEmpty()) {
+                    final JSONArray cArr = new JSONArray();
+                    for (MemoryRow c : r.candidates)
+                        cArr.put(memoryToMatchJson(c));
+                    rj.put("candidates", cArr);
+                }
                 if (r.alreadyExisted) dups++; else inserted++;
             } else {
                 final JSONObject err = new JSONObject();
@@ -509,17 +587,35 @@ public class MCPServer extends MCPServerBase {
     private static JSONObject doUpdateMemory(JSONObject args) {
         if (!args.has("id"))
             throw new ServiceException(ServiceException.INVALID_INPUT, "id is required.");
-        final long     id      = args.getLong("id");
-        final String   text    = args.getString("text", null);
-        final String[] tags    = args.has("tags") ? optStringArray(args, "tags") : null;
-        final Double   imp     = args.has("importance") ? args.getDouble("importance") : null;
+        final long     id              = args.getLong("id");
+        final String   text            = args.getString("text", null);
+        final String[] tags            = args.has("tags") ? optStringArray(args, "tags") : null;
+        final Double   imp             = args.has("importance") ? args.getDouble("importance") : null;
+        final Date     expiresAt       = parseIso(args.getString("expires_at", null));
+        final Date     lastConfirmedAt = parseIso(args.getString("last_confirmed_at", null));
 
-        final MemoryRow updated = SERVICE.update(id, text, tags, imp);
+        final MemoryRow updated = SERVICE.update(id, text, tags, imp, expiresAt, lastConfirmedAt);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);
         out.put("memory_id", updated.id);
         out.put("message", "Ok");
+        return successResult(out);
+    }
+
+    private static JSONObject doConfirm(JSONObject args) {
+        if (!args.has("id"))
+            throw new ServiceException(ServiceException.INVALID_INPUT, "id is required.");
+        final long id = args.getLong("id");
+
+        final MemoryRow row = SERVICE.confirm(id);
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("memory_id", row.id);
+        if (row.lastConfirmedAt != null)
+            out.put("last_confirmed_at", iso(row.lastConfirmedAt));
+        out.put("message", "Confirmed");
         return successResult(out);
     }
 
@@ -572,6 +668,10 @@ public class MCPServer extends MCPServerBase {
             o.put("capture_mode", captureMode);
         if (m.sourceConversationId != null)
             o.put("session_id", m.sourceConversationId);
+        if (m.expiresAt != null)
+            o.put("expires_at", iso(m.expiresAt));
+        if (m.lastConfirmedAt != null)
+            o.put("last_confirmed_at", iso(m.lastConfirmedAt));
         return o;
     }
 
@@ -589,6 +689,10 @@ public class MCPServer extends MCPServerBase {
             o.put("capture_mode", captureMode);
         if (m.sourceConversationId != null)
             o.put("session_id", m.sourceConversationId);
+        if (m.expiresAt != null)
+            o.put("expires_at", iso(m.expiresAt));
+        if (m.lastConfirmedAt != null)
+            o.put("last_confirmed_at", iso(m.lastConfirmedAt));
         return o;
     }
 
@@ -611,6 +715,26 @@ public class MCPServer extends MCPServerBase {
         if (d == null)
             return null;
         return Instant.ofEpochMilli(d.getTime()).toString();
+    }
+
+    /**
+     * Parse an ISO 8601 timestamp string (e.g. {@code "2027-01-01T00:00:00Z"})
+     * into a {@link Date}.  Returns null for null/empty input.  Throws
+     * {@link ServiceException} with INVALID_INPUT for unparseable values
+     * so the MCP layer surfaces a clean error to the client.
+     */
+    private static Date parseIso(String s) {
+        if (s == null)
+            return null;
+        final String trimmed = s.trim();
+        if (trimmed.isEmpty())
+            return null;
+        try {
+            return Date.from(Instant.parse(trimmed));
+        } catch (Exception e) {
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "Expected an ISO 8601 timestamp like '2027-01-01T00:00:00Z', got: " + trimmed);
+        }
     }
 
     private static JSONObject successResult(JSONObject payload) {

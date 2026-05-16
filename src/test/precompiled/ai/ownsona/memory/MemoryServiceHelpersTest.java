@@ -229,4 +229,111 @@ class MemoryServiceHelpersTest {
         r.text = text;
         return r;
     }
+
+    // -------------------------------------------------------------------
+    // validateDedupPolicy (Phase 4)
+    // -------------------------------------------------------------------
+
+    @Test
+    void dedupPolicyNullDefaultsToAsk() {
+        assertEquals("ask", MemoryService.validateDedupPolicy(null));
+    }
+
+    @Test
+    void dedupPolicyEmptyOrWhitespaceDefaultsToAsk() {
+        assertEquals("ask", MemoryService.validateDedupPolicy(""));
+        assertEquals("ask", MemoryService.validateDedupPolicy("   "));
+    }
+
+    @Test
+    void dedupPolicyAcceptsKnownValues() {
+        assertEquals("insert",       MemoryService.validateDedupPolicy("insert"));
+        assertEquals("skip_if_near", MemoryService.validateDedupPolicy("skip_if_near"));
+        assertEquals("ask",          MemoryService.validateDedupPolicy("ask"));
+        // Surrounding whitespace tolerated.
+        assertEquals("insert", MemoryService.validateDedupPolicy("  insert  "));
+    }
+
+    @Test
+    void dedupPolicyRejectsUnknownValue() {
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateDedupPolicy("merge"));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
+
+    @Test
+    void dedupPolicyIsCaseSensitive() {
+        // The enum values are lowercase; uppercase variants are rejected.
+        assertThrows(ServiceException.class,
+                () -> MemoryService.validateDedupPolicy("INSERT"));
+        assertThrows(ServiceException.class,
+                () -> MemoryService.validateDedupPolicy("Skip_If_Near"));
+    }
+
+    // -------------------------------------------------------------------
+    // validateExpiresAt (Phase 4)
+    // -------------------------------------------------------------------
+
+    @Test
+    void expiresAtNullPassesThrough() {
+        assertNull(MemoryService.validateExpiresAt(null));
+    }
+
+    @Test
+    void expiresAtNearFutureAccepted() {
+        final java.util.Date soon = new java.util.Date(System.currentTimeMillis()
+                + 24L * 60L * 60L * 1000L);   // tomorrow
+        assertEquals(soon, MemoryService.validateExpiresAt(soon));
+    }
+
+    @Test
+    void expiresAtPastAccepted() {
+        // Past values are allowed --- a row can be intentionally already-expired.
+        final java.util.Date yesterday = new java.util.Date(System.currentTimeMillis()
+                - 24L * 60L * 60L * 1000L);
+        assertEquals(yesterday, MemoryService.validateExpiresAt(yesterday));
+    }
+
+    @Test
+    void expiresAtFarFutureRejected() {
+        // 200 years out is well past the 100-year cap.
+        final java.util.Date farFuture = new java.util.Date(System.currentTimeMillis()
+                + 200L * 365L * 24L * 60L * 60L * 1000L);
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateExpiresAt(farFuture));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
+
+    // -------------------------------------------------------------------
+    // validateLastConfirmedAt (Phase 4)
+    // -------------------------------------------------------------------
+
+    @Test
+    void lastConfirmedAtNullPassesThrough() {
+        assertNull(MemoryService.validateLastConfirmedAt(null));
+    }
+
+    @Test
+    void lastConfirmedAtPastAccepted() {
+        final java.util.Date pastWeek = new java.util.Date(System.currentTimeMillis()
+                - 7L * 24L * 60L * 60L * 1000L);
+        assertEquals(pastWeek, MemoryService.validateLastConfirmedAt(pastWeek));
+    }
+
+    @Test
+    void lastConfirmedAtNearNowAccepted() {
+        // Allow a small clock-skew tolerance (< 5 min in the future).
+        final java.util.Date soon = new java.util.Date(System.currentTimeMillis() + 30L * 1000L);
+        assertEquals(soon, MemoryService.validateLastConfirmedAt(soon));
+    }
+
+    @Test
+    void lastConfirmedAtFarFutureRejected() {
+        // 1 hour into the future is outside the clock-skew tolerance.
+        final java.util.Date hourAhead = new java.util.Date(System.currentTimeMillis()
+                + 60L * 60L * 1000L);
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateLastConfirmedAt(hourAhead));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
 }

@@ -38,6 +38,34 @@ public final class MemoryService {
     private static final String CAPTURE_EXPLICIT = "explicit";
     private static final String CAPTURE_INFERRED = "inferred";
 
+    /** Dedup-on-write policies (Phase 4). */
+    static final String DEDUP_POLICY_INSERT       = "insert";
+    static final String DEDUP_POLICY_SKIP_IF_NEAR = "skip_if_near";
+    static final String DEDUP_POLICY_ASK          = "ask";
+
+    /**
+     * Similarity threshold above which the dedup-on-write check
+     * considers an existing row a near-duplicate.  Tuned later based
+     * on telemetry.
+     */
+    private static final double DEDUP_THRESHOLD = 0.90;
+
+    /** Top-K candidates the dedup check considers. */
+    private static final int DEDUP_TOPK = 5;
+
+    /**
+     * Hard cap on how far in the future expires_at may be set
+     * (100 years).  Catches fat-finger inputs.
+     */
+    private static final long MAX_EXPIRES_AT_FUTURE_MS = 100L * 365L * 24L * 60L * 60L * 1000L;
+
+    /**
+     * Tolerance for last_confirmed_at relative to "now" (5 minutes).
+     * Allows for benign client/server clock skew without accepting an
+     * obviously-in-the-future timestamp.
+     */
+    private static final long LAST_CONFIRMED_AT_FUTURE_TOLERANCE_MS = 5L * 60L * 1000L;
+
     private final MemoryRepository repo;
     private final EmbeddingProvider embedder;
     private final String userId;
@@ -53,18 +81,23 @@ public final class MemoryService {
     // ====================================================================================
 
     public RememberResult remember(String rawText, String[] rawTags, String sourceProvider, Double importance,
-                                   String rawCaptureMode, String rawSessionId) {
+                                   String rawCaptureMode, String rawSessionId,
+                                   String rawDedupPolicy,
+                                   java.util.Date rawExpiresAt, java.util.Date rawLastConfirmedAt) {
         final String text = requireText(rawText);
         final String secret = SecretScanner.detect(text);
         if (secret != null)
             throw new ServiceException(ServiceException.SECRET_REJECTED, secret);
 
-        final String normalized   = TextNormalizer.normalize(text);
-        final String[] tags       = cleanTags(rawTags);
-        final double imp          = clampImportance(importance);
-        final String captureMode  = validateCaptureMode(rawCaptureMode);
-        final String sessionId    = validateSessionId(rawSessionId);
-        final String metadataJson = buildMetadataJson(captureMode);
+        final String normalized        = TextNormalizer.normalize(text);
+        final String[] tags            = cleanTags(rawTags);
+        final double imp               = clampImportance(importance);
+        final String captureMode       = validateCaptureMode(rawCaptureMode);
+        final String sessionId         = validateSessionId(rawSessionId);
+        final String metadataJson      = buildMetadataJson(captureMode);
+        final String dedupPolicy       = validateDedupPolicy(rawDedupPolicy);
+        final java.util.Date expiresAt = validateExpiresAt(rawExpiresAt);
+        final java.util.Date lastConfirmedAt = validateLastConfirmedAt(rawLastConfirmedAt);
 
         final Connection db = MainServlet.openNewConnection();
         boolean success = false;
@@ -77,6 +110,19 @@ public final class MemoryService {
             }
 
             final float[] vec = embed(text);
+
+            // Semantic dedup check (unless caller opted out with policy=insert).
+            // For skip_if_near: if a near-dup exists, return its id without
+            // inserting.  For ask: insert anyway, but return candidates so
+            // the client sees what looked similar.
+            final List<MemoryRow> candidates = findDedupCandidates(db, vec, dedupPolicy);
+            if (!candidates.isEmpty() && DEDUP_POLICY_SKIP_IF_NEAR.equals(dedupPolicy)) {
+                final MemoryRow top = candidates.get(0);
+                logger.info("remember: near-dup found id={} score={} policy=skip_if_near",
+                        top.id, top.score);
+                success = true;
+                return new RememberResult(top.id, true, candidates);
+            }
 
             final MemoryInsert ins = new MemoryInsert();
             ins.userId               = userId;
@@ -91,6 +137,8 @@ public final class MemoryService {
             ins.embeddingModel       = embedder.modelName();
             ins.metadataJson         = metadataJson;
             ins.recordVersion        = RecordUpgraderRegistry.CURRENT_RECORD_VERSION;
+            ins.expiresAt            = expiresAt;
+            ins.lastConfirmedAt      = lastConfirmedAt;
 
             final long id;
             try {
@@ -108,7 +156,7 @@ public final class MemoryService {
             }
             logger.info("remember: inserted id={} chars={} tags={}", id, text.length(), tags.length);
             success = true;
-            return new RememberResult(id, false);
+            return new RememberResult(id, false, candidates);
         } catch (ServiceException e) {
             throw e;
         } catch (Exception e) {
@@ -138,12 +186,17 @@ public final class MemoryService {
      * connection.  For a 100-item bulk import this drops wall-clock time
      * from minutes to seconds.
      */
-    public List<BatchRememberResult> rememberBatch(List<BatchRememberItem> items, String defaultProvider) {
+    public List<BatchRememberResult> rememberBatch(List<BatchRememberItem> items, String defaultProvider,
+                                                   String rawDefaultDedupPolicy) {
         if (items == null || items.isEmpty())
             throw new ServiceException(ServiceException.INVALID_INPUT, "items is required and must be non-empty.");
         if (items.size() > Config.MAX_BATCH_SIZE)
             throw new ServiceException(ServiceException.LIMIT_EXCEEDED,
                     "batch too large: " + items.size() + " > " + Config.MAX_BATCH_SIZE);
+
+        // Validated batch-level default for dedup_policy.  Each item can
+        // override; otherwise this applies.
+        final String defaultDedupPolicy = validateDedupPolicy(rawDefaultDedupPolicy);
 
         // Pre-allocate one slot per input so we can fill in any order.
         final List<BatchRememberResult> results = new ArrayList<>(Collections.nCopies(items.size(), null));
@@ -158,6 +211,9 @@ public final class MemoryService {
         final List<String>   validProv    = new ArrayList<>();
         final List<String>   validMeta    = new ArrayList<>();
         final List<String>   validSession = new ArrayList<>();
+        final List<String>   validDedup   = new ArrayList<>();
+        final List<java.util.Date>   validExp = new ArrayList<>();
+        final List<java.util.Date>   validConfirmed = new ArrayList<>();
 
         for (int i = 0; i < items.size(); i++) {
             final BatchRememberItem item = items.get(i);
@@ -174,6 +230,13 @@ public final class MemoryService {
                         ? item.sourceProvider : defaultProvider;
                 final String captureMode = validateCaptureMode(item.captureMode);
                 final String sessionId   = validateSessionId(item.sessionId);
+                // Per-item dedup_policy overrides batch default; if neither
+                // is set we keep the validated default (which itself
+                // defaults to "ask" when both are null/empty).
+                final String dedupPolicy = (item.dedupPolicy != null && !item.dedupPolicy.isEmpty())
+                        ? validateDedupPolicy(item.dedupPolicy) : defaultDedupPolicy;
+                final java.util.Date itemExpires   = validateExpiresAt(item.expiresAt);
+                final java.util.Date itemConfirmed = validateLastConfirmedAt(item.lastConfirmedAt);
 
                 validIdx.add(i);
                 validText.add(text);
@@ -183,6 +246,9 @@ public final class MemoryService {
                 validProv.add(provider);
                 validMeta.add(buildMetadataJson(captureMode));
                 validSession.add(sessionId);
+                validDedup.add(dedupPolicy);
+                validExp.add(itemExpires);
+                validConfirmed.add(itemConfirmed);
             } catch (ServiceException e) {
                 results.set(i, BatchRememberResult.failure(i, e.getCode(), e.getMessage()));
             }
@@ -232,7 +298,8 @@ public final class MemoryService {
                     final String norm    = validNorm.get(j);
                     results.set(origIdx, processBatchItem(db, sconn, origIdx, text, norm,
                             vectors.get(j), validTags.get(j), validImp.get(j), validProv.get(j),
-                            validMeta.get(j), validSession.get(j)));
+                            validMeta.get(j), validSession.get(j),
+                            validDedup.get(j), validExp.get(j), validConfirmed.get(j)));
                 }
                 success = true;
             } finally {
@@ -328,7 +395,8 @@ public final class MemoryService {
     // update_memory
     // ====================================================================================
 
-    public MemoryRow update(long id, String rawText, String[] rawTags, Double importance) {
+    public MemoryRow update(long id, String rawText, String[] rawTags, Double importance,
+                            java.util.Date rawExpiresAt, java.util.Date rawLastConfirmedAt) {
         final String text = requireText(rawText);
         final String secret = SecretScanner.detect(text);
         if (secret != null)
@@ -336,6 +404,8 @@ public final class MemoryService {
 
         final String normalized = TextNormalizer.normalize(text);
         final String[] tags = (rawTags == null) ? null : cleanTags(rawTags);
+        final java.util.Date expiresAt = validateExpiresAt(rawExpiresAt);
+        final java.util.Date lastConfirmedAt = validateLastConfirmedAt(rawLastConfirmedAt);
 
         final Connection db = MainServlet.openNewConnection();
         boolean success = false;
@@ -346,7 +416,8 @@ public final class MemoryService {
 
             final float[] vec = embed(text);
             final boolean ok = repo.update(db, id, text, normalized, vec, tags, importance,
-                    Config.EMBEDDING_PROVIDER, embedder.modelName());
+                    Config.EMBEDDING_PROVIDER, embedder.modelName(),
+                    expiresAt, lastConfirmedAt);
             if (!ok)
                 throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
 
@@ -358,6 +429,40 @@ public final class MemoryService {
             throw e;
         } catch (Exception e) {
             throw wrap(e, "update failed");
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+    }
+
+    // ====================================================================================
+    // confirm
+    // ====================================================================================
+
+    /**
+     * Refresh the row's {@code last_confirmed_at} timestamp to "now"
+     * without rebuilding the embedding or touching any other field.
+     * Used to mark a fact as still-relevant.
+     */
+    public MemoryRow confirm(long id) {
+        final Connection db = MainServlet.openNewConnection();
+        boolean success = false;
+        try {
+            final MemoryRow existing = repo.findById(db, id);
+            if (existing == null || existing.deletedAt != null)
+                throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
+
+            final boolean ok = repo.confirm(db, id);
+            if (!ok)
+                throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
+
+            final MemoryRow updated = repo.findById(db, id);
+            logger.info("confirm: id={}", id);
+            success = true;
+            return updated;
+        } catch (ServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap(e, "confirm failed");
         } finally {
             MainServlet.closeConnection(db, success);
         }
@@ -428,7 +533,10 @@ public final class MemoryService {
     private BatchRememberResult processBatchItem(Connection db, java.sql.Connection sconn,
                                                  int origIdx, String text, String norm,
                                                  float[] vec, String[] tags, double imp, String provider,
-                                                 String metadataJson, String sessionId) {
+                                                 String metadataJson, String sessionId,
+                                                 String dedupPolicy,
+                                                 java.util.Date expiresAt,
+                                                 java.util.Date lastConfirmedAt) {
         final java.sql.Savepoint sp;
         try {
             sp = sconn.setSavepoint();
@@ -441,6 +549,13 @@ public final class MemoryService {
             if (existing != null) {
                 sconn.releaseSavepoint(sp);
                 return BatchRememberResult.success(origIdx, existing, true);
+            }
+
+            // Semantic dedup check (unless caller opted out with policy=insert).
+            final List<MemoryRow> candidates = findDedupCandidates(db, vec, dedupPolicy);
+            if (!candidates.isEmpty() && DEDUP_POLICY_SKIP_IF_NEAR.equals(dedupPolicy)) {
+                sconn.releaseSavepoint(sp);
+                return BatchRememberResult.success(origIdx, candidates.get(0).id, true, candidates);
             }
 
             final MemoryInsert ins = new MemoryInsert();
@@ -456,6 +571,8 @@ public final class MemoryService {
             ins.embeddingModel       = embedder.modelName();
             ins.metadataJson         = metadataJson;
             ins.recordVersion        = RecordUpgraderRegistry.CURRENT_RECORD_VERSION;
+            ins.expiresAt            = expiresAt;
+            ins.lastConfirmedAt      = lastConfirmedAt;
 
             long id;
             try {
@@ -474,7 +591,7 @@ public final class MemoryService {
                         ServiceException.DATABASE_ERROR, "insert failed: " + e.getMessage());
             }
             sconn.releaseSavepoint(sp);
-            return BatchRememberResult.success(origIdx, id, false);
+            return BatchRememberResult.success(origIdx, id, false, candidates);
         } catch (ServiceException e) {
             try { sconn.rollback(sp); sconn.releaseSavepoint(sp); } catch (SQLException ignore) {}
             return BatchRememberResult.failure(origIdx, e.getCode(), e.getMessage());
@@ -591,6 +708,87 @@ public final class MemoryService {
         final JSONObject o = new JSONObject();
         o.put("capture_mode", captureMode);
         return o.toString();
+    }
+
+    /**
+     * Validate the dedup_policy for remember / remember_batch (Phase 4).
+     * null / empty defaults to "ask".  Any other value must be one of
+     * "insert", "skip_if_near", or "ask".
+     *
+     * <p>Package-private for unit tests.
+     */
+    static String validateDedupPolicy(String raw) {
+        if (raw == null)
+            return DEDUP_POLICY_ASK;
+        final String trimmed = raw.trim();
+        if (trimmed.isEmpty())
+            return DEDUP_POLICY_ASK;
+        if (!DEDUP_POLICY_INSERT.equals(trimmed)
+                && !DEDUP_POLICY_SKIP_IF_NEAR.equals(trimmed)
+                && !DEDUP_POLICY_ASK.equals(trimmed))
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "dedup_policy must be one of '" + DEDUP_POLICY_INSERT + "', '" +
+                    DEDUP_POLICY_SKIP_IF_NEAR + "', or '" + DEDUP_POLICY_ASK +
+                    "' (got: " + trimmed + ").");
+        return trimmed;
+    }
+
+    /**
+     * Validate an optional expires_at.  null is fine (no expiration set).
+     * Far-future values are rejected as fat-finger.  Past values are
+     * allowed (a row can be already-expired by intent).
+     *
+     * <p>Package-private for unit tests.
+     */
+    static java.util.Date validateExpiresAt(java.util.Date raw) {
+        if (raw == null)
+            return null;
+        final long now = System.currentTimeMillis();
+        if (raw.getTime() > now + MAX_EXPIRES_AT_FUTURE_MS)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "expires_at is too far in the future (more than 100 years out).");
+        return raw;
+    }
+
+    /**
+     * Validate an optional last_confirmed_at.  null is fine.  Past values
+     * are allowed (a client may be backfilling).  Future values beyond
+     * a small clock-skew tolerance are rejected.
+     *
+     * <p>Package-private for unit tests.
+     */
+    static java.util.Date validateLastConfirmedAt(java.util.Date raw) {
+        if (raw == null)
+            return null;
+        final long now = System.currentTimeMillis();
+        if (raw.getTime() > now + LAST_CONFIRMED_AT_FUTURE_TOLERANCE_MS)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "last_confirmed_at must not be in the future.");
+        return raw;
+    }
+
+    /**
+     * Run a top-K similarity query against the given vector and return
+     * rows whose score is above the dedup threshold.  Used by the
+     * dedup-on-write check.  Returns empty for {@code dedup_policy =
+     * insert} (caller is asking us to skip the check).  Any DB error
+     * is logged at WARN but does not fail the caller --- the insert
+     * proceeds without the candidates hint.
+     */
+    private List<MemoryRow> findDedupCandidates(Connection db, float[] vec, String dedupPolicy) {
+        if (DEDUP_POLICY_INSERT.equals(dedupPolicy))
+            return Collections.emptyList();
+        try {
+            final List<MemoryRow> hits = repo.findSimilar(db, userId, vec, DEDUP_TOPK, null);
+            final List<MemoryRow> filtered = new ArrayList<>(hits.size());
+            for (MemoryRow r : hits)
+                if (r.score >= DEDUP_THRESHOLD)
+                    filtered.add(r);
+            return filtered;
+        } catch (Exception e) {
+            logger.warn("dedup check failed: {}", e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     /**

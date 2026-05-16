@@ -23,4 +23,9 @@ public final class MemoryInsert {
     // Callers should set this to CURRENT_RECORD_VERSION so new rows start at
     // current; the column has a SQL default of 1 as a safety net.
     public int      recordVersion = 1;
+
+    // Optional freshness signals.  Both nullable: null = no expiration set
+    // / never confirmed (the typical durable-memory case).
+    public java.util.Date expiresAt;
+    public java.util.Date lastConfirmedAt;
 }

@@ -12,4 +12,7 @@ public final class BatchRememberItem {
     public Double   importance;
     public String   captureMode;   // "explicit" | "inferred" | null
     public String   sessionId;     // stored in source_conversation_id
+    public String   dedupPolicy;   // "insert" | "skip_if_near" | "ask" | null (use batch default)
+    public java.util.Date expiresAt;
+    public java.util.Date lastConfirmedAt;
 }

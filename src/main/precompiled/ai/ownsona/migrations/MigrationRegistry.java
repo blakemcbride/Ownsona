@@ -25,13 +25,13 @@ public final class MigrationRegistry {
      * The database version this build of the application expects.
      * Bump when you add a new {@link Migration} below.
      */
-    public static final int CURRENT_DB_VERSION = 2;
+    public static final int CURRENT_DB_VERSION = 3;
 
     private static final List<Migration> MIGRATIONS;
     static {
         final List<Migration> m = new ArrayList<>();
         m.add(new Migration002AddRecordVersion());
-        // Phase 4 will add:  m.add(new Migration003AddFreshness());
+        m.add(new Migration003AddFreshness());
         // Phase 5 will add:  m.add(new Migration004AddTombstones());
         MIGRATIONS = Collections.unmodifiableList(m);
     }

@@ -30,7 +30,16 @@ public final class MemoryRepository {
             "created_at, updated_at, deleted_at, " +
             "array_to_json(tags)::text AS tags_json, " +
             "metadata::text AS metadata_json, " +
-            "record_version";
+            "record_version, expires_at, last_confirmed_at";
+
+    /**
+     * SQL fragment that excludes soft-deleted AND expired rows.  Used by
+     * the read paths (recall, listRecent, textSearch) so a row with
+     * {@code expires_at < now()} silently disappears from normal queries
+     * but is still findable via id (findById) and via diagnostic listing.
+     */
+    private static final String ACTIVE_AND_FRESH =
+            "deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())";
 
     /**
      * Insert a new memory and return the generated id.
@@ -52,8 +61,9 @@ public final class MemoryRepository {
                 "INSERT INTO memories " +
                 " (user_id, text, normalized_text, embedding, tags, importance, " +
                 "  source_provider, source_client, source_conversation_id, " +
-                "  embedding_provider, embedding_model, metadata, record_version) " +
-                "VALUES (?, ?, ?, ?::vector, ?::text[], ?, ?, ?, ?, ?, ?, ?::jsonb, ?)",
+                "  embedding_provider, embedding_model, metadata, record_version, " +
+                "  expires_at, last_confirmed_at) " +
+                "VALUES (?, ?, ?, ?::vector, ?::text[], ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)",
                 m.userId,
                 m.text,
                 m.normalizedText,
@@ -66,7 +76,9 @@ public final class MemoryRepository {
                 m.embeddingProvider,
                 m.embeddingModel,
                 metadata,
-                m.recordVersion);
+                m.recordVersion,
+                m.expiresAt,
+                m.lastConfirmedAt);
 
         final Record r = db.fetchOne("SELECT currval('memories_id_seq') AS id");
         if (r == null)
@@ -96,7 +108,11 @@ public final class MemoryRepository {
     }
 
     /**
-     * List memories for a user, most recent first.
+     * List memories for a user, most recent first.  When
+     * {@code includeDeleted} is false (the normal case), expired rows
+     * are also excluded --- "give me what's currently active."  When
+     * {@code includeDeleted} is true (diagnostic listing), expired AND
+     * soft-deleted rows are included.
      */
     public List<MemoryRow> listRecent(Connection db, String userId, int limit, int offset, boolean includeDeleted) throws Exception {
         final String sql;
@@ -108,7 +124,7 @@ public final class MemoryRepository {
             rows = db.fetchAll(sql, userId, limit, offset);
         } else {
             sql = "SELECT " + SELECT_COLUMNS + " FROM memories " +
-                  "WHERE user_id = ? AND deleted_at IS NULL " +
+                  "WHERE user_id = ? AND " + ACTIVE_AND_FRESH + " " +
                   "ORDER BY created_at DESC LIMIT ? OFFSET ?";
             rows = db.fetchAll(sql, userId, limit, offset);
         }
@@ -132,7 +148,7 @@ public final class MemoryRepository {
         sb.append("SELECT ").append(SELECT_COLUMNS)
           .append(", 1 - (embedding <=> ?::vector) AS score ")
           .append("FROM memories ")
-          .append("WHERE user_id = ? AND deleted_at IS NULL");
+          .append("WHERE user_id = ? AND ").append(ACTIVE_AND_FRESH);
         if (hasTags)
             sb.append(" AND tags && ?::text[]");
         sb.append(" ORDER BY embedding <=> ?::vector LIMIT ?");
@@ -199,7 +215,7 @@ public final class MemoryRepository {
         final String like = "%" + escapeLike(pattern) + "%";
         final List<Record> rows = db.fetchAll(
                 "SELECT " + SELECT_COLUMNS + " FROM memories " +
-                "WHERE user_id = ? AND deleted_at IS NULL AND text ILIKE ? ESCAPE '\\' " +
+                "WHERE user_id = ? AND " + ACTIVE_AND_FRESH + " AND text ILIKE ? ESCAPE '\\' " +
                 "ORDER BY created_at DESC LIMIT ?",
                 userId, like, limit);
         final List<MemoryRow> out = new ArrayList<>(rows.size());
@@ -209,12 +225,19 @@ public final class MemoryRepository {
     }
 
     /**
-     * Replace text + embedding + optional tags/importance for an existing memory.
-     * Returns true if a row was updated.  Does not resurrect a soft-deleted row.
+     * Replace text + embedding + optional tags/importance/freshness fields
+     * for an existing memory.  Returns true if a row was updated.  Does
+     * not resurrect a soft-deleted row.
+     *
+     * <p>Each optional parameter follows "null = leave the column
+     * unchanged" semantics.  Use the dedicated {@link #confirm} method
+     * to refresh {@code last_confirmed_at} without rebuilding the
+     * embedding.
      */
     public boolean update(Connection db, long id, String text, String normalizedText,
                           float[] embedding, String[] tags, Double importance,
-                          String embeddingProvider, String embeddingModel) throws Exception {
+                          String embeddingProvider, String embeddingModel,
+                          java.util.Date expiresAt, java.util.Date lastConfirmedAt) throws Exception {
         final StringBuilder sb = new StringBuilder();
         sb.append("UPDATE memories SET text = ?, normalized_text = ?, embedding = ?::vector, " +
                   "embedding_provider = ?, embedding_model = ?");
@@ -233,6 +256,14 @@ public final class MemoryRepository {
             sb.append(", importance = ?");
             args.add(importance);
         }
+        if (expiresAt != null) {
+            sb.append(", expires_at = ?");
+            args.add(expiresAt);
+        }
+        if (lastConfirmedAt != null) {
+            sb.append(", last_confirmed_at = ?");
+            args.add(lastConfirmedAt);
+        }
 
         sb.append(" WHERE id = ? AND deleted_at IS NULL");
         args.add(id);
@@ -243,6 +274,21 @@ public final class MemoryRepository {
         db.execute(sb.toString(), args.toArray());
         final MemoryRow row = findById(db, id);
         return row != null && row.deletedAt == null;
+    }
+
+    /**
+     * Refresh {@code last_confirmed_at = now()} for an active (non-deleted)
+     * row.  Cheap operation: no embedding rebuild, no other column change.
+     * Returns true if a row was updated, false if the id doesn't exist
+     * or the row is soft-deleted.
+     */
+    public boolean confirm(Connection db, long id) throws Exception {
+        db.execute(
+                "UPDATE memories SET last_confirmed_at = now() " +
+                "WHERE id = ? AND deleted_at IS NULL",
+                id);
+        final MemoryRow row = findById(db, id);
+        return row != null && row.deletedAt == null && row.lastConfirmedAt != null;
     }
 
     /**
@@ -286,6 +332,8 @@ public final class MemoryRepository {
         m.metadataJson         = (md == null || md.isEmpty()) ? "{}" : md;
         final Integer rv       = r.getInt("record_version");
         m.recordVersion        = (rv == null) ? 1 : rv;
+        m.expiresAt            = r.getDateTime("expires_at");
+        m.lastConfirmedAt      = r.getDateTime("last_confirmed_at");
         return m;
     }
 

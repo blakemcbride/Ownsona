@@ -30,4 +30,10 @@ public final class MemoryRow {
     // Per-row data version.  See RecordUpgraderRegistry.CURRENT_RECORD_VERSION
     // for the version the running code expects.
     public int      recordVersion;
+
+    // Freshness signals.  Either may be null.  expiresAt < now() means
+    // the row is considered expired and is excluded from recall (unless
+    // diagnostic listing flags say otherwise).
+    public Date     expiresAt;
+    public Date     lastConfirmedAt;
 }
