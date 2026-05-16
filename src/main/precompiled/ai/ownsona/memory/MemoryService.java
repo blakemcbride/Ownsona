@@ -295,12 +295,11 @@ public final class MemoryService {
     // build_context_prompt
     // ====================================================================================
 
-    public String buildContextPrompt(String userPrompt, Integer limit) {
+    public String buildContextPrompt(String userPrompt, Integer limit, Integer maxChars) {
         final String prompt = requireText(userPrompt);
+        final Integer budget = validateMaxChars(maxChars);
         final List<MemoryRow> matches = recall(prompt, limit, null, null);
-        final List<String> facts = new ArrayList<>(matches.size());
-        for (MemoryRow m : matches)
-            facts.add(m.text);
+        final List<String> facts = selectFactsByCharBudget(matches, budget);
         return PromptFormatter.build(prompt, facts);
     }
 
@@ -590,6 +589,58 @@ public final class MemoryService {
         final JSONObject o = new JSONObject();
         o.put("capture_mode", captureMode);
         return o.toString();
+    }
+
+    /**
+     * Validate the optional max_chars budget on build_context_prompt.
+     * null means "no budget".  Zero or negative are rejected.  Char count
+     * is used as a tokenizer-free proxy (vendor neutrality, guardrail #9).
+     *
+     * <p>Package-private for unit tests in the same package.
+     */
+    static Integer validateMaxChars(Integer raw) {
+        if (raw == null)
+            return null;
+        if (raw <= 0)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "max_chars must be > 0 (got " + raw + ").");
+        return raw;
+    }
+
+    /**
+     * Walk the ranked match list (most-similar first) and accumulate fact
+     * texts up to the char budget.  Stops at the first row whose text
+     * would push the running total over the budget --- subsequent rows
+     * are discarded, regardless of length.  Stopping (rather than skipping
+     * just the oversize fact and continuing) is intentional: facts are
+     * ranked by similarity, so a later row is by definition less relevant
+     * than any already included.
+     *
+     * <p>{@code null} budget means "no budget"; all facts are included.
+     *
+     * <p>Package-private for unit tests in the same package.
+     */
+    static List<String> selectFactsByCharBudget(List<MemoryRow> matches, Integer maxChars) {
+        if (matches == null || matches.isEmpty())
+            return Collections.emptyList();
+        final List<String> out = new ArrayList<>(matches.size());
+        if (maxChars == null) {
+            for (MemoryRow m : matches)
+                if (m != null && m.text != null)
+                    out.add(m.text);
+            return out;
+        }
+        int total = 0;
+        for (MemoryRow m : matches) {
+            if (m == null || m.text == null)
+                continue;
+            final int len = m.text.length();
+            if (total + len > maxChars)
+                break;
+            out.add(m.text);
+            total += len;
+        }
+        return out;
     }
 
     private static boolean isUniqueViolation(Throwable e) {

@@ -265,6 +265,12 @@ public class MCPServer extends MCPServerBase {
                 "The user's original prompt that should be augmented with relevant memories."));
         props.put("limit", scalarProp("integer",
                 "Maximum number of memories to include. Default 8."));
+        props.put("max_chars", scalarProp("integer",
+                "Optional character budget for the included facts (facts are ranked by " +
+                "similarity; the most-relevant ones are added until adding the next one " +
+                "would exceed this budget, then the rest are dropped). Character count is " +
+                "used as a tokenizer-free proxy; ~4 chars per English token is a reasonable " +
+                "rule of thumb. Omit for no budget."));
         return tool("build_context_prompt",
                 "Use this tool only when the client needs a fully constructed prompt instead of " +
                 "structured memory results. Returns a single composed prompt with relevant facts " +
@@ -443,9 +449,10 @@ public class MCPServer extends MCPServerBase {
 
     private static JSONObject doBuildContextPrompt(JSONObject args) {
         final String   userPrompt = args.getString("user_prompt", null);
-        final Integer  limit      = args.has("limit") ? args.getInt("limit") : null;
+        final Integer  limit      = args.has("limit")     ? args.getInt("limit")     : null;
+        final Integer  maxChars   = args.has("max_chars") ? args.getInt("max_chars") : null;
 
-        final String prompt = SERVICE.buildContextPrompt(userPrompt, limit);
+        final String prompt = SERVICE.buildContextPrompt(userPrompt, limit, maxChars);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);

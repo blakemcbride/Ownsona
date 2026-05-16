@@ -2,10 +2,15 @@ package ai.ownsona.memory;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for MemoryService's package-private validation/serialization
@@ -107,5 +112,121 @@ class MemoryServiceHelpersTest {
         // The exact serialization is JSON library territory --- just assert
         // the key/value pair survives.
         assertEquals("{\"capture_mode\":\"explicit\"}", json);
+    }
+
+    // -------------------------------------------------------------------
+    // validateMaxChars (Phase 1C)
+    // -------------------------------------------------------------------
+
+    @Test
+    void maxCharsNullPassesThrough() {
+        // null = no budget; caller's responsibility to interpret.
+        assertNull(MemoryService.validateMaxChars(null));
+    }
+
+    @Test
+    void maxCharsPositiveReturned() {
+        assertEquals(1, MemoryService.validateMaxChars(1));
+        assertEquals(8000, MemoryService.validateMaxChars(8000));
+    }
+
+    @Test
+    void maxCharsZeroOrNegativeRejected() {
+        final ServiceException zero = assertThrows(ServiceException.class,
+                () -> MemoryService.validateMaxChars(0));
+        assertEquals(ServiceException.INVALID_INPUT, zero.getCode());
+
+        final ServiceException neg = assertThrows(ServiceException.class,
+                () -> MemoryService.validateMaxChars(-100));
+        assertEquals(ServiceException.INVALID_INPUT, neg.getCode());
+    }
+
+    // -------------------------------------------------------------------
+    // selectFactsByCharBudget (Phase 1C)
+    // -------------------------------------------------------------------
+
+    @Test
+    void selectFactsEmptyInputYieldsEmptyList() {
+        assertEquals(Collections.emptyList(),
+                MemoryService.selectFactsByCharBudget(null, 100));
+        assertEquals(Collections.emptyList(),
+                MemoryService.selectFactsByCharBudget(Collections.emptyList(), 100));
+    }
+
+    @Test
+    void selectFactsNullBudgetIncludesAll() {
+        final List<MemoryRow> rows = Arrays.asList(
+                makeRow("alpha"),
+                makeRow("beta"),
+                makeRow("gamma"));
+        final List<String> out = MemoryService.selectFactsByCharBudget(rows, null);
+        assertEquals(Arrays.asList("alpha", "beta", "gamma"), out);
+    }
+
+    @Test
+    void selectFactsBudgetExactlyFitsAll() {
+        // Three 5-char facts → 15 total. Budget = 15 fits all.
+        final List<MemoryRow> rows = Arrays.asList(
+                makeRow("alpha"),
+                makeRow("betas"),
+                makeRow("gamma"));
+        final List<String> out = MemoryService.selectFactsByCharBudget(rows, 15);
+        assertEquals(Arrays.asList("alpha", "betas", "gamma"), out);
+    }
+
+    @Test
+    void selectFactsBudgetTrimsTail() {
+        // Three 5-char facts, budget = 12: first two fit (10), third
+        // would push total to 15 → dropped.
+        final List<MemoryRow> rows = Arrays.asList(
+                makeRow("alpha"),
+                makeRow("betas"),
+                makeRow("gamma"));
+        final List<String> out = MemoryService.selectFactsByCharBudget(rows, 12);
+        assertEquals(Arrays.asList("alpha", "betas"), out);
+    }
+
+    @Test
+    void selectFactsBudgetTooSmallForFirstYieldsEmpty() {
+        // First fact is 10 chars; budget = 4 can't even hold it.
+        final List<MemoryRow> rows = Arrays.asList(
+                makeRow("ten--chars"),
+                makeRow("short"));
+        final List<String> out = MemoryService.selectFactsByCharBudget(rows, 4);
+        assertTrue(out.isEmpty(),
+                "budget below first fact should yield empty, got: " + out);
+    }
+
+    @Test
+    void selectFactsStopsAtFirstOverflowEvenIfLaterFactsWouldFit() {
+        // alpha=5, megafact=20, x=1.  Budget=10: alpha fits (5 < 10),
+        // megafact would push to 25 → stop.  Even though x alone would
+        // fit, we don't keep walking past the first overflow because
+        // facts are similarity-ranked: x is less relevant than megafact.
+        final List<MemoryRow> rows = Arrays.asList(
+                makeRow("alpha"),
+                makeRow("twenty-chars-of-text"),  // 20 chars
+                makeRow("x"));
+        final List<String> out = MemoryService.selectFactsByCharBudget(rows, 10);
+        assertEquals(Arrays.asList("alpha"), out);
+    }
+
+    @Test
+    void selectFactsSkipsNullRowsAndNullText() {
+        final MemoryRow nullText = new MemoryRow();
+        nullText.text = null;
+        final List<MemoryRow> rows = Arrays.asList(
+                makeRow("alpha"),
+                null,
+                nullText,
+                makeRow("beta"));
+        final List<String> out = MemoryService.selectFactsByCharBudget(rows, 100);
+        assertEquals(Arrays.asList("alpha", "beta"), out);
+    }
+
+    private static MemoryRow makeRow(String text) {
+        final MemoryRow r = new MemoryRow();
+        r.text = text;
+        return r;
     }
 }
