@@ -15,4 +15,7 @@ public final class MemoryInsert {
     public String   sourceConversationId;
     public String   embeddingProvider;
     public String   embeddingModel;
+
+    // Raw JSONB blob written to memories.metadata.  null → '{}' is written.
+    public String   metadataJson;
 }

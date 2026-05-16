@@ -15,10 +15,15 @@ public final class MemoryRow {
     public String[] tags;
     public double   importance;
     public String   sourceProvider;
+    public String   sourceConversationId;   // doubles as session_id (existing column).
     public String   embeddingProvider;
     public String   embeddingModel;
     public Date     createdAt;
     public Date     updatedAt;
     public Date     deletedAt;
     public double   score;
+
+    // Raw JSON text of the memories.metadata JSONB column.
+    // Always non-null after a successful read (the column has a '{}' default).
+    public String   metadataJson;
 }

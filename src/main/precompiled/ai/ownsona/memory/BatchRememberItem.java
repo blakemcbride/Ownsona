@@ -10,4 +10,6 @@ public final class BatchRememberItem {
     public String[] tags;
     public String   sourceProvider;
     public Double   importance;
+    public String   captureMode;   // "explicit" | "inferred" | null
+    public String   sessionId;     // stored in source_conversation_id
 }

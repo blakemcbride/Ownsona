@@ -167,6 +167,13 @@ public class MCPServer extends MCPServerBase {
                 "Optional name of the LLM provider or client that supplied this memory."));
         props.put("importance", scalarProp("number",
                 "Optional importance from 0 to 1. Default is 0.5."));
+        props.put("capture_mode", scalarProp("string",
+                "Optional. Set to 'explicit' when the user directly asked you to remember this " +
+                "fact, or 'inferred' when you chose to save it without an explicit request. " +
+                "Lets later recalls weight user-stated facts above model-inferred ones."));
+        props.put("session_id", scalarProp("string",
+                "Optional opaque identifier of the conversation/session this memory came from. " +
+                "Stored as-is; not interpreted by the server."));
         return tool("remember",
                 "Use this tool when the user asks you to remember, save, store, note, or retain a " +
                 "durable fact, preference, project detail, personal detail, or other information " +
@@ -187,6 +194,10 @@ public class MCPServer extends MCPServerBase {
                 "Optional name of the LLM provider or client that supplied this memory."));
         itemProps.put("importance", scalarProp("number",
                 "Optional importance from 0 to 1. Default is 0.5."));
+        itemProps.put("capture_mode", scalarProp("string",
+                "Optional. 'explicit' (user asked) or 'inferred' (model chose)."));
+        itemProps.put("session_id", scalarProp("string",
+                "Optional opaque conversation/session identifier."));
         final JSONObject itemSchema = new JSONObject();
         itemSchema.put("type", "object");
         itemSchema.put("properties", itemProps);
@@ -339,12 +350,14 @@ public class MCPServer extends MCPServerBase {
     }
 
     private static JSONObject doRemember(JSONObject args) {
-        final String   text      = args.getString("text", null);
-        final String[] tags      = optStringArray(args, "tags");
-        final String   provider  = args.getString("source_provider", null);
-        final Double   imp       = args.has("importance") ? args.getDouble("importance") : null;
+        final String   text         = args.getString("text", null);
+        final String[] tags         = optStringArray(args, "tags");
+        final String   provider     = args.getString("source_provider", null);
+        final Double   imp          = args.has("importance") ? args.getDouble("importance") : null;
+        final String   captureMode  = args.getString("capture_mode", null);
+        final String   sessionId    = args.getString("session_id", null);
 
-        final RememberResult r = SERVICE.remember(text, tags, provider, imp);
+        final RememberResult r = SERVICE.remember(text, tags, provider, imp, captureMode, sessionId);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);
@@ -370,6 +383,8 @@ public class MCPServer extends MCPServerBase {
             item.tags           = (obj == null) ? null : optStringArray(obj, "tags");
             item.sourceProvider = (obj == null) ? null : obj.getString("source_provider", null);
             item.importance     = (obj != null && obj.has("importance")) ? obj.getDouble("importance") : null;
+            item.captureMode    = (obj == null) ? null : obj.getString("capture_mode", null);
+            item.sessionId      = (obj == null) ? null : obj.getString("session_id", null);
             items.add(item);
         }
 
@@ -515,6 +530,11 @@ public class MCPServer extends MCPServerBase {
         o.put("tags", new JSONArray(java.util.Arrays.asList(m.tags == null ? new String[0] : m.tags)));
         if (m.sourceProvider != null)
             o.put("source_provider", m.sourceProvider);
+        final String captureMode = captureModeOf(m);
+        if (captureMode != null)
+            o.put("capture_mode", captureMode);
+        if (m.sourceConversationId != null)
+            o.put("session_id", m.sourceConversationId);
         return o;
     }
 
@@ -527,7 +547,27 @@ public class MCPServer extends MCPServerBase {
         o.put("tags", new JSONArray(java.util.Arrays.asList(m.tags == null ? new String[0] : m.tags)));
         if (m.deletedAt != null)
             o.put("deleted_at", iso(m.deletedAt));
+        final String captureMode = captureModeOf(m);
+        if (captureMode != null)
+            o.put("capture_mode", captureMode);
+        if (m.sourceConversationId != null)
+            o.put("session_id", m.sourceConversationId);
         return o;
+    }
+
+    /**
+     * Extract capture_mode from the metadata JSONB blob, or null if absent.
+     * Tolerates malformed metadata --- a parse failure just drops the field.
+     */
+    private static String captureModeOf(MemoryRow m) {
+        if (m.metadataJson == null || m.metadataJson.isEmpty())
+            return null;
+        try {
+            final JSONObject md = new JSONObject(m.metadataJson);
+            return md.has("capture_mode") ? md.getString("capture_mode", null) : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static String iso(Date d) {

@@ -25,9 +25,11 @@ import java.util.List;
 public final class MemoryRepository {
 
     private static final String SELECT_COLUMNS =
-            "id, text, importance, source_provider, embedding_provider, embedding_model, " +
+            "id, text, importance, source_provider, source_conversation_id, " +
+            "embedding_provider, embedding_model, " +
             "created_at, updated_at, deleted_at, " +
-            "array_to_json(tags)::text AS tags_json";
+            "array_to_json(tags)::text AS tags_json, " +
+            "metadata::text AS metadata_json";
 
     /**
      * Insert a new memory and return the generated id.
@@ -40,12 +42,17 @@ public final class MemoryRepository {
      * run in the same PostgreSQL session and the value is correct.
      */
     public long insert(Connection db, MemoryInsert m) throws Exception {
+        // metadata column has a NOT NULL DEFAULT '{}'.  Passing null here would
+        // be rejected by Postgres, so map null → '{}' explicitly.
+        final String metadata = (m.metadataJson == null || m.metadataJson.isEmpty())
+                ? "{}" : m.metadataJson;
+
         db.execute(
                 "INSERT INTO memories " +
                 " (user_id, text, normalized_text, embedding, tags, importance, " +
                 "  source_provider, source_client, source_conversation_id, " +
-                "  embedding_provider, embedding_model) " +
-                "VALUES (?, ?, ?, ?::vector, ?::text[], ?, ?, ?, ?, ?, ?)",
+                "  embedding_provider, embedding_model, metadata) " +
+                "VALUES (?, ?, ?, ?::vector, ?::text[], ?, ?, ?, ?, ?, ?, ?::jsonb)",
                 m.userId,
                 m.text,
                 m.normalizedText,
@@ -56,7 +63,8 @@ public final class MemoryRepository {
                 m.sourceClient,
                 m.sourceConversationId,
                 m.embeddingProvider,
-                m.embeddingModel);
+                m.embeddingModel,
+                metadata);
 
         final Record r = db.fetchOne("SELECT currval('memories_id_seq') AS id");
         if (r == null)
@@ -221,18 +229,21 @@ public final class MemoryRepository {
 
     private MemoryRow toRow(Record r, double score) throws SQLException {
         final MemoryRow m = new MemoryRow();
-        m.id                = r.getLong("id");
-        m.text              = r.getString("text");
-        m.tags              = parseTagsJson(r.getString("tags_json"));
-        final Double imp    = r.getDouble("importance");
-        m.importance        = imp == null ? 0.5 : imp;
-        m.sourceProvider    = r.getString("source_provider");
-        m.embeddingProvider = r.getString("embedding_provider");
-        m.embeddingModel    = r.getString("embedding_model");
-        m.createdAt         = r.getDateTime("created_at");
-        m.updatedAt         = r.getDateTime("updated_at");
-        m.deletedAt         = r.getDateTime("deleted_at");
-        m.score             = score;
+        m.id                   = r.getLong("id");
+        m.text                 = r.getString("text");
+        m.tags                 = parseTagsJson(r.getString("tags_json"));
+        final Double imp       = r.getDouble("importance");
+        m.importance           = imp == null ? 0.5 : imp;
+        m.sourceProvider       = r.getString("source_provider");
+        m.sourceConversationId = r.getString("source_conversation_id");
+        m.embeddingProvider    = r.getString("embedding_provider");
+        m.embeddingModel       = r.getString("embedding_model");
+        m.createdAt            = r.getDateTime("created_at");
+        m.updatedAt            = r.getDateTime("updated_at");
+        m.deletedAt            = r.getDateTime("deleted_at");
+        m.score                = score;
+        final String md        = r.getString("metadata_json");
+        m.metadataJson         = (md == null || md.isEmpty()) ? "{}" : md;
         return m;
     }
 

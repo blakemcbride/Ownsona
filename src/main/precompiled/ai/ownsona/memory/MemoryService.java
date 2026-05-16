@@ -7,6 +7,7 @@ import ai.ownsona.embeddings.EmbeddingProvider;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.kissweb.database.Connection;
+import org.kissweb.json.JSONObject;
 import org.kissweb.restServer.MainServlet;
 
 import java.sql.SQLException;
@@ -28,9 +29,13 @@ public final class MemoryService {
 
     private static final Logger logger = LogManager.getLogger(MemoryService.class);
 
-    private static final int MAX_TAG_CHARS = 64;
-    private static final int MAX_TAGS      = 16;
+    private static final int MAX_TAG_CHARS        = 64;
+    private static final int MAX_TAGS             = 16;
+    private static final int MAX_SESSION_ID_CHARS = 256;
     private static final String UNIQUE_VIOLATION_SQLSTATE = "23505";
+
+    private static final String CAPTURE_EXPLICIT = "explicit";
+    private static final String CAPTURE_INFERRED = "inferred";
 
     private final MemoryRepository repo;
     private final EmbeddingProvider embedder;
@@ -46,15 +51,19 @@ public final class MemoryService {
     // remember
     // ====================================================================================
 
-    public RememberResult remember(String rawText, String[] rawTags, String sourceProvider, Double importance) {
+    public RememberResult remember(String rawText, String[] rawTags, String sourceProvider, Double importance,
+                                   String rawCaptureMode, String rawSessionId) {
         final String text = requireText(rawText);
         final String secret = SecretScanner.detect(text);
         if (secret != null)
             throw new ServiceException(ServiceException.SECRET_REJECTED, secret);
 
-        final String normalized = TextNormalizer.normalize(text);
-        final String[] tags = cleanTags(rawTags);
-        final double imp = clampImportance(importance);
+        final String normalized   = TextNormalizer.normalize(text);
+        final String[] tags       = cleanTags(rawTags);
+        final double imp          = clampImportance(importance);
+        final String captureMode  = validateCaptureMode(rawCaptureMode);
+        final String sessionId    = validateSessionId(rawSessionId);
+        final String metadataJson = buildMetadataJson(captureMode);
 
         final Connection db = MainServlet.openNewConnection();
         boolean success = false;
@@ -76,8 +85,10 @@ public final class MemoryService {
             ins.tags                 = tags;
             ins.importance           = imp;
             ins.sourceProvider       = sourceProvider;
+            ins.sourceConversationId = sessionId;
             ins.embeddingProvider    = Config.EMBEDDING_PROVIDER;
             ins.embeddingModel       = embedder.modelName();
+            ins.metadataJson         = metadataJson;
 
             final long id;
             try {
@@ -143,6 +154,8 @@ public final class MemoryService {
         final List<String[]> validTags    = new ArrayList<>();
         final List<Double>   validImp     = new ArrayList<>();
         final List<String>   validProv    = new ArrayList<>();
+        final List<String>   validMeta    = new ArrayList<>();
+        final List<String>   validSession = new ArrayList<>();
 
         for (int i = 0; i < items.size(); i++) {
             final BatchRememberItem item = items.get(i);
@@ -157,6 +170,8 @@ public final class MemoryService {
                 final double imp = clampImportance(item.importance);
                 final String provider = (item.sourceProvider != null && !item.sourceProvider.isEmpty())
                         ? item.sourceProvider : defaultProvider;
+                final String captureMode = validateCaptureMode(item.captureMode);
+                final String sessionId   = validateSessionId(item.sessionId);
 
                 validIdx.add(i);
                 validText.add(text);
@@ -164,6 +179,8 @@ public final class MemoryService {
                 validTags.add(tags);
                 validImp.add(imp);
                 validProv.add(provider);
+                validMeta.add(buildMetadataJson(captureMode));
+                validSession.add(sessionId);
             } catch (ServiceException e) {
                 results.set(i, BatchRememberResult.failure(i, e.getCode(), e.getMessage()));
             }
@@ -212,7 +229,8 @@ public final class MemoryService {
                     final String text    = validText.get(j);
                     final String norm    = validNorm.get(j);
                     results.set(origIdx, processBatchItem(db, sconn, origIdx, text, norm,
-                            vectors.get(j), validTags.get(j), validImp.get(j), validProv.get(j)));
+                            vectors.get(j), validTags.get(j), validImp.get(j), validProv.get(j),
+                            validMeta.get(j), validSession.get(j)));
                 }
                 success = true;
             } finally {
@@ -408,7 +426,8 @@ public final class MemoryService {
      */
     private BatchRememberResult processBatchItem(Connection db, java.sql.Connection sconn,
                                                  int origIdx, String text, String norm,
-                                                 float[] vec, String[] tags, double imp, String provider) {
+                                                 float[] vec, String[] tags, double imp, String provider,
+                                                 String metadataJson, String sessionId) {
         final java.sql.Savepoint sp;
         try {
             sp = sconn.setSavepoint();
@@ -424,15 +443,17 @@ public final class MemoryService {
             }
 
             final MemoryInsert ins = new MemoryInsert();
-            ins.userId            = userId;
-            ins.text              = text;
-            ins.normalizedText    = norm;
-            ins.embedding         = vec;
-            ins.tags              = tags;
-            ins.importance        = imp;
-            ins.sourceProvider    = provider;
-            ins.embeddingProvider = Config.EMBEDDING_PROVIDER;
-            ins.embeddingModel    = embedder.modelName();
+            ins.userId               = userId;
+            ins.text                 = text;
+            ins.normalizedText       = norm;
+            ins.embedding            = vec;
+            ins.tags                 = tags;
+            ins.importance           = imp;
+            ins.sourceProvider       = provider;
+            ins.sourceConversationId = sessionId;
+            ins.embeddingProvider    = Config.EMBEDDING_PROVIDER;
+            ins.embeddingModel       = embedder.modelName();
+            ins.metadataJson         = metadataJson;
 
             long id;
             try {
@@ -519,6 +540,49 @@ public final class MemoryService {
         if (imp < 0.0 || imp > 1.0)
             throw new ServiceException(ServiceException.INVALID_INPUT, "importance must be between 0 and 1.");
         return imp;
+    }
+
+    /**
+     * capture_mode is a small enum: "explicit" means the user told the LLM to
+     * remember; "inferred" means the LLM chose to save without an explicit ask.
+     * null/empty means the client did not supply a value --- we don't guess.
+     *
+     * <p>Package-private for unit tests in the same package.
+     */
+    static String validateCaptureMode(String raw) {
+        if (raw == null)
+            return null;
+        final String trimmed = raw.trim();
+        if (trimmed.isEmpty())
+            return null;
+        if (!CAPTURE_EXPLICIT.equals(trimmed) && !CAPTURE_INFERRED.equals(trimmed))
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "capture_mode must be '" + CAPTURE_EXPLICIT + "' or '" + CAPTURE_INFERRED + "'.");
+        return trimmed;
+    }
+
+    static String validateSessionId(String raw) {
+        if (raw == null)
+            return null;
+        final String trimmed = raw.trim();
+        if (trimmed.isEmpty())
+            return null;
+        if (trimmed.length() > MAX_SESSION_ID_CHARS)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "session_id is too long (" + trimmed.length() + " > " + MAX_SESSION_ID_CHARS + ").");
+        return trimmed;
+    }
+
+    /**
+     * Build the JSONB blob written to memories.metadata.  Returns null when
+     * no fields are set --- the repository maps null → '{}'.
+     */
+    static String buildMetadataJson(String captureMode) {
+        if (captureMode == null)
+            return null;
+        final JSONObject o = new JSONObject();
+        o.put("capture_mode", captureMode);
+        return o.toString();
     }
 
     private static boolean isUniqueViolation(Throwable e) {

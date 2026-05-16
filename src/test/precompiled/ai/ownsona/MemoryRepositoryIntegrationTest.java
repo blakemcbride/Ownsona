@@ -234,6 +234,40 @@ class MemoryRepositoryIntegrationTest {
         assertEquals(oldId, page2.get(0).id);
     }
 
+    @Test
+    void metadataAndSessionIdRoundTrip() throws Exception {
+        final MemoryInsert m = new MemoryInsert();
+        m.userId               = USER_ID;
+        m.text                 = "Provenance round-trip fact.";
+        m.normalizedText       = TextNormalizer.normalize(m.text);
+        m.embedding            = embedder.embed(m.text);
+        m.tags                 = new String[]{"meta"};
+        m.importance           = 0.5;
+        m.sourceConversationId = "session-xyz";
+        m.metadataJson         = "{\"capture_mode\":\"explicit\"}";
+        m.embeddingProvider    = "mock";
+        m.embeddingModel       = embedder.modelName();
+        final long id = repo.insert(db, m);
+
+        final MemoryRow row = repo.findById(db, id);
+        assertNotNull(row);
+        assertEquals("session-xyz", row.sourceConversationId);
+        assertNotNull(row.metadataJson);
+        assertTrue(row.metadataJson.contains("\"capture_mode\""),
+                "expected capture_mode key in metadata, got: " + row.metadataJson);
+        assertTrue(row.metadataJson.contains("\"explicit\""),
+                "expected explicit value in metadata, got: " + row.metadataJson);
+    }
+
+    @Test
+    void metadataDefaultsToEmptyObjectWhenNotSet() throws Exception {
+        final long id = insert("Plain old fact.", new String[]{});
+        final MemoryRow row = repo.findById(db, id);
+        assertNotNull(row);
+        assertNull(row.sourceConversationId);
+        assertEquals("{}", row.metadataJson);
+    }
+
     // -------------------------------------------------------------------------------
 
     private long insert(String text, String[] tags) throws Exception {
