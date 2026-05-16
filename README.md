@@ -11,6 +11,32 @@
 
 The main home for this code is <https://github.com/blakemcbride/Ownsona>.
 
+---
+
+> ### ⚠️ Existing installs: one-time database prep required
+>
+> If your Ownsona database was created before the auto-migration
+> framework landed, you must run a one-time privilege-fixup script
+> **once, as the postgres superuser**, before deploying any release
+> that includes the auto-migrator. The server will refuse to start
+> without it.
+>
+> ```bash
+> cat sql/migrator_prep.sql | sudo -u postgres psql -d ownsona
+> ```
+>
+> The script grants the `ownsona` application role `CREATE` on
+> schema `public` and transfers ownership of `memories` to it, so
+> the auto-migrator can manage future schema changes without
+> needing the postgres superuser at runtime. It is idempotent —
+> safe to re-run.
+>
+> **Fresh installs do not need this**: `sql/setup_db.sh` already
+> includes everything `migrator_prep.sql` does. See
+> [INSTALL.md](INSTALL.md) section 15 for the full walkthrough.
+
+---
+
 ## One memory, every LLM
 
 Today, teaching an LLM about your work, your family, your projects, or

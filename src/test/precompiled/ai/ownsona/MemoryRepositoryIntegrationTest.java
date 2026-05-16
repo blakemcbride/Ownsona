@@ -268,6 +268,68 @@ class MemoryRepositoryIntegrationTest {
         assertEquals("{}", row.metadataJson);
     }
 
+    @Test
+    void recordVersionRoundTripExplicit() throws Exception {
+        // Insert with an explicit non-default recordVersion to prove the
+        // column is wired through INSERT and SELECT, not just defaulted.
+        final MemoryInsert m = new MemoryInsert();
+        m.userId            = USER_ID;
+        m.text              = "Versioned fact.";
+        m.normalizedText    = TextNormalizer.normalize(m.text);
+        m.embedding         = embedder.embed(m.text);
+        m.tags              = new String[]{};
+        m.importance        = 0.5;
+        m.embeddingProvider = "mock";
+        m.embeddingModel    = embedder.modelName();
+        m.recordVersion     = 5;
+        final long id = repo.insert(db, m);
+
+        final MemoryRow row = repo.findById(db, id);
+        assertNotNull(row);
+        assertEquals(5, row.recordVersion);
+    }
+
+    @Test
+    void recordVersionDefaultsToOneWhenMemoryInsertLeavesItUnset() throws Exception {
+        // The insert() helper below uses MemoryInsert's default recordVersion = 1.
+        final long id = insert("Default-version fact.", new String[]{});
+        final MemoryRow row = repo.findById(db, id);
+        assertNotNull(row);
+        assertEquals(1, row.recordVersion);
+    }
+
+    @Test
+    void findIdsBelowVersionReturnsRowsBelowTarget() throws Exception {
+        // Two at v=1, one at v=2.  Target=2 should return only the v=1 ids.
+        final long lowA = insert("Low one.", new String[]{});
+        final long lowB = insert("Low two.", new String[]{});
+        final MemoryInsert high = new MemoryInsert();
+        high.userId            = USER_ID;
+        high.text              = "Already current.";
+        high.normalizedText    = TextNormalizer.normalize(high.text);
+        high.embedding         = embedder.embed(high.text);
+        high.tags              = new String[]{};
+        high.importance        = 0.5;
+        high.embeddingProvider = "mock";
+        high.embeddingModel    = embedder.modelName();
+        high.recordVersion     = 2;
+        repo.insert(db, high);
+
+        final java.util.List<Long> ids = repo.findIdsBelowVersion(db, 2, -1, 10);
+        assertEquals(2, ids.size());
+        assertTrue(ids.contains(lowA));
+        assertTrue(ids.contains(lowB));
+    }
+
+    @Test
+    void bumpVersionUpdatesAndConfirms() throws Exception {
+        final long id = insert("Bumpable.", new String[]{});
+        assertTrue(repo.bumpVersion(db, id, 3));
+        final MemoryRow row = repo.findById(db, id);
+        assertNotNull(row);
+        assertEquals(3, row.recordVersion);
+    }
+
     // -------------------------------------------------------------------------------
 
     private long insert(String text, String[] tags) throws Exception {

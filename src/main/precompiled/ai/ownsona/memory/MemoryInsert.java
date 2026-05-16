@@ -18,4 +18,9 @@ public final class MemoryInsert {
 
     // Raw JSONB blob written to memories.metadata.  null → '{}' is written.
     public String   metadataJson;
+
+    // Per-row data version (see RecordUpgraderRegistry.CURRENT_RECORD_VERSION).
+    // Callers should set this to CURRENT_RECORD_VERSION so new rows start at
+    // current; the column has a SQL default of 1 as a safety net.
+    public int      recordVersion = 1;
 }

@@ -26,4 +26,8 @@ public final class MemoryRow {
     // Raw JSON text of the memories.metadata JSONB column.
     // Always non-null after a successful read (the column has a '{}' default).
     public String   metadataJson;
+
+    // Per-row data version.  See RecordUpgraderRegistry.CURRENT_RECORD_VERSION
+    // for the version the running code expects.
+    public int      recordVersion;
 }

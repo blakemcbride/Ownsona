@@ -90,6 +90,7 @@ public final class MemoryService {
             ins.embeddingProvider    = Config.EMBEDDING_PROVIDER;
             ins.embeddingModel       = embedder.modelName();
             ins.metadataJson         = metadataJson;
+            ins.recordVersion        = RecordUpgraderRegistry.CURRENT_RECORD_VERSION;
 
             final long id;
             try {
@@ -454,6 +455,7 @@ public final class MemoryService {
             ins.embeddingProvider    = Config.EMBEDDING_PROVIDER;
             ins.embeddingModel       = embedder.modelName();
             ins.metadataJson         = metadataJson;
+            ins.recordVersion        = RecordUpgraderRegistry.CURRENT_RECORD_VERSION;
 
             long id;
             try {

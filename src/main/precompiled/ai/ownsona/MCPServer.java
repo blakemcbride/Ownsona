@@ -7,6 +7,7 @@ import ai.ownsona.memory.BatchRememberResult;
 import ai.ownsona.memory.MemoryRepository;
 import ai.ownsona.memory.MemoryRow;
 import ai.ownsona.memory.MemoryService;
+import ai.ownsona.memory.RecordMigrator;
 import ai.ownsona.memory.RememberResult;
 import ai.ownsona.memory.ServiceException;
 import org.apache.logging.log4j.Level;
@@ -79,8 +80,9 @@ public class MCPServer extends MCPServerBase {
         // missing application.ini keys fail at servlet-init time, not
         // at first request.
         Configurator.setLevel("ai.ownsona", Level.INFO);
+        final MemoryRepository repo = new MemoryRepository();
         SERVICE = new MemoryService(
-                new MemoryRepository(),
+                repo,
                 new OpenAIEmbeddingProvider(
                         Config.EMBEDDING_API_KEY,
                         Config.EMBEDDING_MODEL,
@@ -88,14 +90,19 @@ public class MCPServer extends MCPServerBase {
         logger.info("Ownsona MCP server class loaded; server={} version={} model={} dims={}",
                 SERVER_NAME, SERVER_VERSION, Config.EMBEDDING_MODEL, Config.EMBEDDING_DIMENSIONS);
         try {
-            // Bring the database up to CURRENT_DB_VERSION.  A failure here
-            // propagates as an unchecked exception so the static
+            // Bring the database up to CURRENT_DB_VERSION.  A failure
+            // here propagates as an unchecked exception so the static
             // initializer fails and the servlet refuses to load --- we
             // don't want a half-migrated DB serving traffic with the new
             // code.
             DbMigrator.runOnStartup();
+            // After schema is current, walk rows below
+            // CURRENT_RECORD_VERSION and apply per-row upgraders.  Empty
+            // registry → no-op.  Per-row failures are isolated and don't
+            // throw (rollout plan guardrail #10).
+            new RecordMigrator(repo).runOnStartup();
         } finally {
-            // Always drop to ERROR, even if the migrator threw, so a
+            // Always drop to ERROR, even if a migrator threw, so a
             // subsequent retry doesn't accumulate INFO-level noise.
             Configurator.setLevel("ai.ownsona", Level.ERROR);
         }

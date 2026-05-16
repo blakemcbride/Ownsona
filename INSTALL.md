@@ -26,7 +26,8 @@ Everything in this guide assumes you can `sudo`. Commands shown without
 12. [Smoke test](#12-smoke-test)
 13. [Daily backups (optional but recommended)](#13-daily-backups)
 14. [Restore from backup](#14-restore-from-backup)
-15. [Operational reference](#15-operational-reference)
+15. [Upgrading an existing install](#15-upgrading-an-existing-install)
+16. [Operational reference](#16-operational-reference)
 
 ---
 
@@ -149,7 +150,11 @@ The script:
   `vector` and `pg_trgm` extensions, the `memories` table, all indexes
   including the HNSW vector index, the duplicate-prevention partial
   unique index, and the `updated_at` trigger),
-- grants the `ownsona` role the table and sequence privileges it needs.
+- grants the `ownsona` role the table and sequence privileges it needs
+  plus `CREATE ON SCHEMA public` and ownership of `memories` (and its
+  sequence). The auto-migrator (see section 15) needs these to create
+  its `db_version` bookkeeping table and apply future migrations
+  without requiring the postgres superuser at runtime.
 
 Run the migration against the test database too:
 
@@ -643,7 +648,76 @@ so no manual `adduser` is needed. PostgreSQL roles (including the
 
 ---
 
-## 15. Operational reference
+## 15. Upgrading an existing install
+
+If your Ownsona database was created BEFORE the auto-migration
+framework landed (rollout Phase 2), you need a one-time privilege
+fixup before deploying any release that includes the auto-migrator.
+Fresh installs done via `sql/setup_db.sh` already include everything
+this step does — skip it if you ran `setup_db.sh` against a clean
+database after Phase 2 shipped.
+
+### 15.1 One-time prep before the first auto-migrator deploy
+
+The auto-migrator (`DbMigrator`) starts up by creating a `db_version`
+bookkeeping table and, in later phases, by `ALTER TABLE`-ing
+`memories`. Neither works with only the original grants from
+`sql/001_init.sql`. Apply the additional privileges once:
+
+```bash
+# /root cannot be read by the postgres user, so pipe the file via stdin
+# (or copy it to /tmp first --- either approach works).
+cat sql/migrator_prep.sql | sudo -u postgres psql -d ownsona
+```
+
+The script:
+
+- `GRANT CREATE ON SCHEMA public TO ownsona;` — lets the migrator
+  create the `db_version` table on first startup.
+- `ALTER TABLE memories OWNER TO ownsona;` (and the sequence) — lets
+  the migrator's future `ALTER TABLE` / `CREATE INDEX` statements
+  run as the application role instead of needing the postgres
+  superuser at runtime.
+- Prints a verification block showing `can_create_in_public = t` and
+  `memories_owner = ownsona`. If you don't see those, the grants
+  didn't apply.
+
+The script is idempotent — safe to re-run.
+
+### 15.2 Deploying the new WAR
+
+After the prep runs (or if it was already in place), upgrade
+deploys follow the normal "build → swap WAR → restart Tomcat"
+pattern documented in `OwnSona-rollout-plan.md`. The auto-migrator
+runs at servlet load and brings the database up to whatever
+`CURRENT_DB_VERSION` the new WAR is built against; you can verify
+in `journalctl -u ownsona.service`:
+
+```
+... migrator: db_version baseline established (version=1)
+... migrator: applied v=2 name="add record_version column" ms=...
+... record_migrator: done upgraded=0 failed=0
+```
+
+If the migrator fails (typically: permission errors or a registry
+mismatch), the servlet refuses to load and the failure shows in
+the journal. Fix the underlying issue and redeploy — the database
+is in its pre-migration state because each migration runs in its
+own transaction.
+
+### 15.3 Rollback
+
+Roll back the WAR by restoring the previous `Kiss.war`. Migrations
+in the rollout plan are strictly additive, so the older code
+simply ignores the newer columns. If you also want to remove the
+newly-created columns or the `db_version` row that recorded a
+specific migration, run the rollback SQL listed in the
+corresponding phase's ship checklist in
+`OwnSona-rollout-plan.md`.
+
+---
+
+## 16. Operational reference
 
 ### Service control
 

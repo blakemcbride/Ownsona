@@ -29,7 +29,8 @@ public final class MemoryRepository {
             "embedding_provider, embedding_model, " +
             "created_at, updated_at, deleted_at, " +
             "array_to_json(tags)::text AS tags_json, " +
-            "metadata::text AS metadata_json";
+            "metadata::text AS metadata_json, " +
+            "record_version";
 
     /**
      * Insert a new memory and return the generated id.
@@ -51,8 +52,8 @@ public final class MemoryRepository {
                 "INSERT INTO memories " +
                 " (user_id, text, normalized_text, embedding, tags, importance, " +
                 "  source_provider, source_client, source_conversation_id, " +
-                "  embedding_provider, embedding_model, metadata) " +
-                "VALUES (?, ?, ?, ?::vector, ?::text[], ?, ?, ?, ?, ?, ?, ?::jsonb)",
+                "  embedding_provider, embedding_model, metadata, record_version) " +
+                "VALUES (?, ?, ?, ?::vector, ?::text[], ?, ?, ?, ?, ?, ?, ?::jsonb, ?)",
                 m.userId,
                 m.text,
                 m.normalizedText,
@@ -64,7 +65,8 @@ public final class MemoryRepository {
                 m.sourceConversationId,
                 m.embeddingProvider,
                 m.embeddingModel,
-                metadata);
+                metadata,
+                m.recordVersion);
 
         final Record r = db.fetchOne("SELECT currval('memories_id_seq') AS id");
         if (r == null)
@@ -155,6 +157,44 @@ public final class MemoryRepository {
     /**
      * Plain text substring search (case-insensitive).  Useful for diagnostics and direct lookup.
      */
+    /**
+     * Fetch up to {@code limit} memory ids whose record_version is below
+     * {@code targetVersion}, with id > {@code lastId} for pagination
+     * (caller passes {@code -1} for the first page).  Used by
+     * {@code RecordMigrator}.  Returns ids across all users and including
+     * soft-deleted rows --- upgrading should bring every row to the
+     * current data shape regardless.
+     */
+    public List<Long> findIdsBelowVersion(Connection db, int targetVersion,
+                                          long lastId, int limit) throws Exception {
+        final List<Record> rows = db.fetchAll(
+                "SELECT id FROM memories " +
+                "WHERE record_version < ? AND id > ? " +
+                "ORDER BY id LIMIT ?",
+                targetVersion, lastId, limit);
+        final List<Long> ids = new ArrayList<>(rows.size());
+        for (Record r : rows)
+            ids.add(r.getLong("id"));
+        return ids;
+    }
+
+    /**
+     * Bump a single row's record_version.  Used by {@code RecordMigrator}
+     * after a row's upgrader chain completes.  Returns true if a row
+     * was updated.
+     */
+    public boolean bumpVersion(Connection db, long id, int newVersion) throws Exception {
+        db.execute(
+                "UPDATE memories SET record_version = ? WHERE id = ?",
+                newVersion, id);
+        final Record r = db.fetchOne(
+                "SELECT record_version AS rv FROM memories WHERE id = ?", id);
+        if (r == null)
+            return false;
+        final Integer rv = r.getInt("rv");
+        return rv != null && rv == newVersion;
+    }
+
     public List<MemoryRow> textSearch(Connection db, String userId, String pattern, int limit) throws Exception {
         final String like = "%" + escapeLike(pattern) + "%";
         final List<Record> rows = db.fetchAll(
@@ -244,6 +284,8 @@ public final class MemoryRepository {
         m.score                = score;
         final String md        = r.getString("metadata_json");
         m.metadataJson         = (md == null || md.isEmpty()) ? "{}" : md;
+        final Integer rv       = r.getInt("record_version");
+        m.recordVersion        = (rv == null) ? 1 : rv;
         return m;
     }
 

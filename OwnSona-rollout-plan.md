@@ -18,12 +18,12 @@ actually running this code.
 
 | Phase | Status | Notes |
 |---|---|---|
-| 1A — capture_mode + session_id provenance | **code-complete**, not yet deployed | committed at e14da68 |
-| 1B — tag normalization | **code-complete**, not yet deployed | committed at 540fe13 |
-| 1C — max_chars budget on build_context_prompt | **code-complete**, not yet deployed | committed at 48ab206 |
-| Log level: quiet per-request INFO, keep startup banner | **code-complete**, not yet deployed | committed at 0d5683f |
-| 2 — Auto-migration framework | **code-complete**, not yet deployed | empty migration registry, `CURRENT_DB_VERSION = 1`; first deploy that touches the DB schema --- run `sql/migrator_prep.sql` once before deploying |
-| 3 — Per-record versioning + record_version | not started | |
+| 1A — capture_mode + session_id provenance | **deployed** (2026-05-16) | committed at e14da68 |
+| 1B — tag normalization | **deployed** (2026-05-16) | committed at 540fe13 |
+| 1C — max_chars budget on build_context_prompt | **deployed** (2026-05-16) | committed at 48ab206 |
+| Log level: quiet per-request INFO, keep startup banner | **deployed** (2026-05-16) | committed at 0d5683f |
+| 2 — Auto-migration framework | **deployed** (2026-05-16) | empty migration registry, `CURRENT_DB_VERSION = 1`; `migrator_prep.sql` was run once before this deploy |
+| 3 — Per-record versioning + record_version | **deployed** (2026-05-16) | `CURRENT_DB_VERSION` bumped to 2 with `Migration002AddRecordVersion`; per-record upgrader framework shipped with empty `RecordUpgraderRegistry` (`CURRENT_RECORD_VERSION = 1`) |
 | 4 — Dedup + freshness | not started | |
 | 5 — Conflict surfacing + tombstones + decay | not started | |
 
@@ -725,8 +725,9 @@ Per guardrail #11, these changes ship in the same commit.
 - `MemoryRepository.java` — INSERT writes `record_version`; SELECT
   includes it; new methods `findIdsBelowVersion(db, version, lastId, limit)`
   and `bumpVersion(db, id, newVersion)`.
-- `MemoryService.java` — define `CURRENT_RECORD_VERSION`; pass it to
-  every insert.
+- `MemoryService.java` — set `ins.recordVersion =
+  RecordUpgraderRegistry.CURRENT_RECORD_VERSION` on every insert
+  path (both `remember()` and the batch's `processBatchItem`).
 - `MigrationRegistry` (Phase 2) — register
   `Migration002AddRecordVersion`; bump `CURRENT_DB_VERSION` to 2.
 - `MCPServer.java` — `<clinit>` calls `RecordMigrator.runOnStartup()`
