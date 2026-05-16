@@ -39,10 +39,126 @@ Concrete consequences for this plan:
    bigger problem — so don't entangle them.
 3. **Treat one-time data rewrites (UPDATE/DELETE on existing rows)
    with the same caution as migrations**, not as casual code
-   changes. They need a backup immediately before, a dry run on the
-   test DB with prod-size data, and a written rollback plan.
+   changes. They need a backup immediately before and a written
+   rollback plan. (Since there is no test DB in this operational
+   model, the way to "rehearse" a destructive rewrite is: take
+   the backup, run the rewrite, exercise the system, and restore
+   from backup if you don't like what you see.)
 4. **Avoid migrations entirely when you can.** Most of Phase 1 in
    this plan is code-only for exactly this reason.
+
+---
+
+## Auto-migration framework
+
+**This is the foundation for every schema and data change after
+Phase 1.** Once it is in place, no schema or data migration is ever
+applied manually with `psql -f` again. The server does it itself on
+startup.
+
+The pattern:
+
+- A `db_version` table in the database stores the version the
+  database is currently at (as a history of every version applied,
+  with the latest being the current state).
+- A `CURRENT_DB_VERSION` constant in the application code says what
+  version the running code expects.
+- On startup, the server compares the two:
+  - **DB version == code version** → nothing to do.
+  - **DB version < code version** → apply each missing migration
+    in sequence (version N+1, N+2, … up to code version), each in
+    its own transaction, recording the new version after each
+    success. If any step fails, the transaction rolls back, the
+    version is not bumped, the server refuses to start, and the
+    operator inspects the log.
+  - **DB version > code version** → refuse to start. The database
+    is on a newer schema than this code understands. The operator
+    must either deploy newer code or restore an older database.
+- A database that is several versions behind catches up by running
+  each step in order. There is no "skip from 1 to 5" — every
+  intermediate step runs, because each one's correctness depends on
+  the prior ones.
+
+Concretely, a migration is a small Java class implementing a
+`Migration` interface. Each class knows its version number, its
+name (for logging), and how to apply itself — usually a few
+`db.execute("ALTER TABLE …")` calls, occasionally with Java logic
+mixed in. Migrations are registered in an ordered list in the
+migrator. Adding a new schema change in a future feature is
+mechanical: write a new `MigrationNNN_descriptive_name.java`,
+register it, bump `CURRENT_DB_VERSION`, deploy the WAR. The server
+applies it on startup.
+
+The existing `sql/001_init.sql` continues to exist as the bootstrap
+schema for a fresh install. After `001_init.sql` runs, the database
+is at version 1 — the migrator establishes that baseline on first
+run and proceeds from there.
+
+**Why this is safe even though it routinely rewrites the
+database:**
+
+- Each migration runs in a single transaction. Either it fully
+  applies and `db_version` is bumped, or nothing changed.
+- The migrator refuses to continue if any step fails. The operator
+  notices.
+- Migrations stay **additive** (per guardrail #2). The system never
+  silently destroys data on startup.
+- A backup is still taken before deploying a WAR with new
+  migrations. If something corrupt slips through, restore is the
+  fallback.
+
+The infrastructure is built in **Phase 2** below. Everything from
+Phase 3 onward registers its schema work as a migration in this
+framework rather than touching the database directly.
+
+---
+
+## Per-record data versioning
+
+Several upcoming features extend the *shape* of a memory record:
+capture_mode (Phase 1A), freshness fields (Phase 4), tombstone fields
+(Phase 5). Each one risks leaving older rows in a half-populated state
+relative to newer ones. The plan handles this with **per-record
+versioning**: every memory carries an integer `record_version`, and
+each server startup runs a registered set of **upgraders** that walks
+rows whose version is below the current target and brings each one up.
+
+This is a deliberate exception to the "data rewrites are hard"
+asymmetry above — it makes some data rewrites a routine, automatic
+operation. The exception is safe only because of the **strict
+constraints on what an upgrader is allowed to do**:
+
+1. **Strictly additive.** An upgrader may *fill in* a new field
+   (compute it from existing data, set a default), but it MUST NOT
+   overwrite, transform, or delete existing values. The original
+   memory text, tags, embeddings, and timestamps are immutable from
+   an upgrader's point of view.
+2. **Idempotent.** Running the same upgrader on the same row a second
+   time must produce identical output. This protects against
+   half-finished startup passes and lets the upgrader retry safely.
+3. **Per-row failures are isolated.** If one row fails to upgrade, it
+   stays at its old version, the error is logged, and the pass
+   continues. Startup is never blocked.
+4. **Upgraders are permanent.** Once shipped, an upgrader stays in
+   the code forever. Some old row out there may still need it. You
+   never delete an upgrader; you only add new ones.
+5. **Destructive rewrites stay manual.** Anything that would replace
+   existing data — for example, normalizing existing tags through a
+   synonym map, or re-embedding rows under a new model — is NOT an
+   upgrader. It's a one-time data migration that follows Procedure B
+   (separate deploy, backup-first, rollback plan in hand).
+
+The point of these rules: a `record_version` bump means "more
+information is known about this row," never "this row's old
+information has been rewritten." That keeps automatic startup
+upgrades reversible in the only sense that matters — rolling back to
+the previous WAR continues to work, because nothing was lost.
+
+The infrastructure is built in Phase 3 below (after the
+auto-migration framework lands in Phase 2). Phase 1A intentionally
+does NOT use it: capture_mode being absent on an old row is the
+correct, honest state ("we don't know") and doesn't need to be
+backfilled.
 
 ---
 
@@ -55,13 +171,15 @@ These constraints bound what the plan does and does not touch.
    `memories.embedding` column is `vector(1536)` and the index is HNSW
    over cosine distance (`sql/001_init.sql:20,52`). Re-embedding all
    rows is a separate, much bigger project; not in scope here.
-2. **Migrations are additive only.** New file per change
-   (`sql/002_*.sql`, `sql/003_*.sql`, …). No edits to `001_init.sql`,
-   no `ALTER ... DROP`, no renames. An old WAR must keep working
-   against the new schema so rollback is just redeploying the previous
-   `.war`. **All new columns must be nullable or carry a default**, so
-   the migration itself rewrites no existing data — it only adds
-   structure.
+2. **Migrations are additive only.** After Phase 2 ships, every
+   migration is a `MigrationNNN_*.java` class registered in the
+   auto-migrator's ordered list and applied at server startup
+   (see "Auto-migration framework" above). No edits to
+   `001_init.sql`, no `ALTER ... DROP`, no renames. An old WAR
+   must keep working against the new schema so rollback is just
+   redeploying the previous `.war`. **All new columns must be
+   nullable or carry a default**, so the migration itself rewrites
+   no existing data — it only adds structure.
 3. **`metadata JSONB` is the cheap extension point.** The column
    already exists (`sql/001_init.sql:37`) and is unused. Anything that
    doesn't need its own index or its own SQL filter goes there with
@@ -70,24 +188,28 @@ These constraints bound what the plan does and does not touch.
 4. **MCP tool signatures stay backward compatible.** New parameters
    are optional with safe defaults. Existing clients (Claude Code,
    claude.ai, ChatGPT connector) must keep working without changes.
-5. **Migrations get their own deploy window, separate from code.**
-   Apply the SQL, verify the schema, then *stop*. The code that
-   reads/writes the new columns ships in a later deploy, after the
-   schema has been observed stable for at least a few hours of
-   normal traffic. Old WAR + new schema must keep working — that's
-   the property that makes this safe.
-6. **Run every migration on the test DB first**, against a snapshot
-   restored from a recent prod backup so the rowcount and data
-   shape match reality. The integration tests under
-   `src/test/precompiled/ai/ownsona/` are gated on
-   `OWNSONA_TEST_DATABASE_URL` (`sql/run_tests.sh`). Run `./bld -v
-   test` and `sql/run_tests.sh` against the test DB *after*
-   applying the migration, with the current (un-updated) code, to
-   confirm the old code still works against the new schema.
-7. **Take a fresh backup immediately before each prod migration**,
-   not just relying on the scheduled `ownsona-backup.timer`. Trigger
-   `ownsona-backup.service` manually and verify the backup file
-   exists and is non-empty before running `psql -f sql/0NN_*.sql`.
+5. **Migrations ship together with the code that uses them and
+   apply automatically on startup.** After Phase 2 lands, the
+   deploy pattern for any schema or data change is: backup, swap
+   WAR, restart, watch the auto-migrator apply the missing
+   migrations in order. No separate manual `psql -f` step. No
+   "ship migration alone, soak, then ship code" separation —
+   they're inherently combined because the new code carries the
+   migration that brings the DB to the version it needs.
+6. **No test DB.** There is no rehearsal server. Local unit tests
+   (`sql/run_tests.sh`) cover what they cover (validators,
+   normalizers, prompt formatting). Integration tests are present
+   in the suite and skip silently without `OWNSONA_TEST_DATABASE_URL`;
+   they're available if you ever want to set up a test DB later but
+   not required for routine deploys. Live exercise on prod is the
+   verification path.
+7. **Take a fresh backup immediately before every deploy that
+   bumps `CURRENT_DB_VERSION`**, not just relying on the scheduled
+   `ownsona-backup.timer`. Trigger `ownsona-backup.service`
+   manually and verify the backup file exists and is non-empty
+   before swapping the WAR (the auto-migrator will apply the
+   migration on startup). This backup IS the safety net; the
+   procedure depends on it.
 8. **One deploy = one WAR.** Build with `./bld war`, stop tomcat
    (`./kill-tomcat`), swap the WAR, start. Expected downtime: a few
    seconds. MCP clients retry on connection error, so this is
@@ -117,6 +239,32 @@ These constraints bound what the plan does and does not touch.
    - **Recorded provider metadata is descriptive, not prescriptive.**
      `source_provider` records which client wrote a memory; it must
      never gate what `recall` returns or change behavior.
+10. **Upgraders are strictly additive (see "Per-record data
+    versioning" above).** Startup-time record upgraders may fill in
+    new fields but must never overwrite, transform, or delete
+    existing data. They must be idempotent. Per-row failures are
+    isolated and don't block startup. Destructive rewrites are NOT
+    upgraders — they're manual one-time data migrations under
+    Procedure B.
+11. **`CURRENT_DB_VERSION` in code and the registered migration
+    list are kept in lockstep.** This is the load-bearing invariant
+    of the auto-migration framework (see "Auto-migration framework"
+    above). Every time a code change introduces a schema or data
+    migration, the developer (or AI assistant) MUST:
+    - Add a new `MigrationNNN_*.java` class implementing the
+      `Migration` interface, with `version()` returning the next
+      integer in the sequence.
+    - Register that class in the migrator's ordered list.
+    - Bump the `CURRENT_DB_VERSION` constant to match the new
+      highest registered version.
+    These three changes ship together in the same commit. The
+    framework fails fast at startup if there's a gap (registered
+    versions don't form a contiguous sequence from 1 to
+    `CURRENT_DB_VERSION`) or if `CURRENT_DB_VERSION` is less than
+    the highest registered version, but the right time to notice
+    is at code-review time, not at server-start time. Never edit
+    an already-shipped migration — write a new one to undo or
+    refine it.
 
 ---
 
@@ -224,58 +372,432 @@ behavior exactly.
 
 ### Phase 1 ship checklist
 
-- [ ] All three changes built, tested on test DB
-- [ ] `./bld -v test` and `sql/run_tests.sh` green
-- [ ] `sql/smoke_test.sh` green against a local dev server
-- [ ] `ownsona-backup.service` triggered manually
-- [ ] `./bld war` → deploy → tail `tomcat/logs/catalina.out` for clean startup
+- [ ] All three changes built; `./bld -v build` clean
+- [ ] `sql/run_tests.sh` green (unit tests; integration tests will
+      skip without `OWNSONA_TEST_DATABASE_URL`)
+- [ ] `./bld war` → deploy (no migration; no backup strictly needed,
+      but trigger `ownsona-backup.service` anyway since it's cheap)
+- [ ] Tail `tomcat/logs/catalina.out` for clean startup
 - [ ] One real `remember`/`recall` round-trip from a Claude Code session
 
 ---
 
-## Phase 2 — First additive migration: dedup-on-write + freshness
+## Phase 2 — Auto-migration framework
+
+**Goal:** Stand up the auto-migrator described in the
+"Auto-migration framework" section above. Establish the
+`db_version` table, the `Migration` interface, the migrator
+registry, and the startup hook. No actual migration runs on this
+deploy — the registry is empty; `CURRENT_DB_VERSION` is 1, which
+is the baseline established by `sql/001_init.sql`. Phase 3 onward
+adds real migrations.
+
+**Risk:** Lowest of any infrastructure deploy. With no migrations
+registered, the framework's startup hook just verifies that
+`db_version = CURRENT_DB_VERSION = 1` and proceeds. The framework
+code is well-bounded, transaction-wrapped, and has unit-test
+coverage of its corner cases.
+
+### What ships in Phase 2
+
+A new `ai.ownsona.migrations` package with:
+
+```
+src/main/precompiled/ai/ownsona/migrations/
+    Migration.java          # the interface
+    DbMigrator.java         # the startup hook + version table maintenance
+    MigrationRegistry.java  # ordered list, sanity checks
+```
+
+Sketch of the interface:
+
+```java
+package ai.ownsona.migrations;
+
+import org.kissweb.database.Connection;
+
+public interface Migration {
+    /** Version number this migration brings the DB to (= prior + 1). */
+    int version();
+
+    /** Short human-readable name; appears in logs. */
+    String name();
+
+    /**
+     * Apply the migration. Runs inside a transaction managed by
+     * DbMigrator. Throw on failure; the transaction will roll back
+     * and startup will abort.
+     */
+    void apply(Connection db) throws Exception;
+}
+```
+
+`DbMigrator.runOnStartup(db)`:
+
+1. `CREATE TABLE IF NOT EXISTS db_version (...)` — idempotent.
+2. If `db_version` is empty, insert `version = 1, applied_at =
+   now(), note = 'baseline (001_init.sql)'`. This handles both
+   fresh installs and the first Phase 2 deploy against the
+   existing prod DB.
+3. Read the current version as `SELECT MAX(version) FROM db_version`.
+4. Validate the registry: registered versions must form a
+   contiguous sequence from 2 up to `CURRENT_DB_VERSION`. Fail fast
+   if not — that's a programmer error in guardrail #11 territory.
+5. If current version > `CURRENT_DB_VERSION`, refuse to start with
+   a clear error.
+6. If current version < `CURRENT_DB_VERSION`, for each missing
+   version in order:
+   - Lock the version row (`SELECT … FOR UPDATE` against an
+     advisory lock, or `SELECT pg_try_advisory_lock(…)`) to prevent
+     concurrent migrators. Single-user system, but cheap insurance.
+   - Begin a transaction.
+   - Call `migration.apply(db)`.
+   - Insert a new row into `db_version` with the new version.
+   - Commit.
+   - Log: `migrator: applied v={version} name={name} ms={elapsed}`.
+7. After the loop, the database is at `CURRENT_DB_VERSION`.
+
+The `db_version` table:
+
+```sql
+-- Created by the migrator itself on first run; not in 001_init.sql
+CREATE TABLE IF NOT EXISTS db_version (
+    version    INT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    note       TEXT
+);
+```
+
+A single row per applied version gives an audit trail. The current
+version is always `MAX(version)`.
+
+### Hook into `MCPServer.<clinit>`
+
+The startup hook is called once from `MCPServer`'s static
+initializer, after the `MemoryService` is constructed, before any
+HTTP request can be served:
+
+```java
+static {
+    Configurator.setLevel("ai.ownsona", Level.INFO);
+
+    SERVICE = new MemoryService(
+            new MemoryRepository(),
+            new OpenAIEmbeddingProvider(...));
+
+    // New in Phase 2:
+    try (Connection db = MainServlet.openNewConnection()) {
+        DbMigrator.runOnStartup(db);
+    } catch (Exception e) {
+        logger.error("DbMigrator failed; refusing to serve", e);
+        throw new IllegalStateException("DbMigrator failed", e);
+    }
+    // (Phase 3 adds the per-record migrator call here.)
+}
+```
+
+If the migrator throws, the servlet refuses to load — Tomcat will
+log the failure and not route traffic to it. That's the correct
+behavior: we don't want a half-migrated database to start serving
+requests with the new code.
+
+### Tests
+
+Unit tests for the framework (no DB required for most):
+
+- Registry validation rejects gaps in the version sequence.
+- Registry validation rejects duplicate versions.
+- Registry validation rejects `CURRENT_DB_VERSION` < max registered.
+
+Integration tests (need `OWNSONA_TEST_DATABASE_URL`):
+
+- First-run path: empty DB → migrator creates `db_version` and
+  inserts version 1.
+- No-op path: DB at version = `CURRENT_DB_VERSION` → migrator
+  makes no changes.
+- Forward path: DB at version < target → each missing migration
+  applies in order; `db_version` reflects each.
+- Refusal path: DB at version > target → migrator throws.
+- Failure path: a migration that throws leaves `db_version`
+  unchanged; subsequent startup retries from the same point.
+
+### Ship checklist
+
+Single deploy. With no migrations registered, this is functionally
+a Procedure A code-only deploy, but since it creates the
+`db_version` table on first run, it is *technically* a schema
+change. Take a backup anyway — it's cheap and the discipline
+matters going forward.
+
+- [ ] `Migration`, `DbMigrator`, `MigrationRegistry` classes
+      reviewed; unit tests green
+- [ ] `MCPServer.<clinit>` hooks the migrator after service
+      construction
+- [ ] Fresh prod backup taken and verified
+- [ ] WAR deploy
+- [ ] First startup log shows `migrator: db_version table
+      created, baseline=1` (or `migrator: db_version at 1,
+      target 1, nothing to apply` on subsequent boots)
+- [ ] One real `remember`/`recall` round-trip — nothing else
+      should have changed
+
+---
+
+## Phase 3 — Per-record versioning infrastructure
+
+**Goal:** Add `record_version` to every memory and stand up the
+on-startup record upgrader framework. Ship empty: no upgraders
+registered yet. Future phases (and post-deploy follow-ups for
+already-shipped phases) register their upgraders against this
+scaffold.
+
+**Risk:** Schema migration is low-risk (one nullable-defaulted INT
+column) and now applies automatically via the Phase 2 framework.
+The record-upgrader infrastructure code is non-trivial but has
+zero effect on running behavior until an upgrader is registered.
+
+**Ordering.** A single deploy. The schema change is registered as
+`Migration002AddRecordVersion`; bumping `CURRENT_DB_VERSION` to 2
+causes the auto-migrator to apply it on next startup. The record
+upgrader framework code ships in the same WAR. Optionally a second
+deploy adds a no-op proof-upgrader.
+
+1. **3A — Schema + framework deploy.** Register
+   `Migration002AddRecordVersion`. Bump `CURRENT_DB_VERSION` to 2.
+   Add `RecordUpgrader`, `RecordUpgraderRegistry`, and
+   `RecordMigrator` classes. Hook the record migrator into
+   `MCPServer.<clinit>` after the DbMigrator call. Registry is
+   empty. WAR deploy.
+2. **3B — Trivial proof-upgrader (optional).** Register a no-op
+   `RecordUpgrader` that bumps `record_version` 1 → 2 without
+   touching any other field. Confirms the per-row walker works
+   against real data. Skip if 3A's logging already shows the
+   walker visited expected counts.
+
+### 3A. Migration: `Migration002AddRecordVersion`
+
+A Java class registered with the Phase 2 framework:
+
+```java
+package ai.ownsona.migrations;
+
+import org.kissweb.database.Connection;
+
+public final class Migration002AddRecordVersion implements Migration {
+    @Override public int    version() { return 2; }
+    @Override public String name()    { return "add record_version column"; }
+
+    @Override
+    public void apply(Connection db) throws Exception {
+        db.execute(
+            "ALTER TABLE memories " +
+            "ADD COLUMN IF NOT EXISTS record_version INT NOT NULL DEFAULT 1");
+
+        // Partial index for the per-record walker.  The constant 100 is
+        // an arbitrary high water mark; queries use record_version < N
+        // where N is the current target.  Partial form keeps the index
+        // small once most rows are upgraded.
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS memories_record_version_idx " +
+            "ON memories(record_version) " +
+            "WHERE record_version < 100");
+    }
+}
+```
+
+Register in the migration list; bump `CURRENT_DB_VERSION` to 2.
+Per guardrail #11, these changes ship in the same commit.
+
+### 3B. Record-upgrader infrastructure (code)
+
+**Design.**
+
+- New constant `MemoryService.CURRENT_RECORD_VERSION`. Bumped when an
+  upgrader is added.
+- New interface (sketch):
+  ```java
+  package ai.ownsona.memory;
+  public interface RecordUpgrader {
+      int fromVersion();           // upgrades rows whose record_version == this
+      int toVersion();             // ... to this (typically fromVersion()+1)
+      String name();               // for logging
+      void upgrade(Connection db, MemoryRow row) throws Exception;
+  }
+  ```
+- New class `RecordUpgraderRegistry` (singleton; distinct from the
+  Phase 2 `MigrationRegistry`) collecting upgraders by
+  `fromVersion`. Upgraders register in a static initializer.
+- New servlet-init hook `RecordMigrator.runOnStartup(db)` — called
+  from `MCPServer.<clinit>` *after* `DbMigrator.runOnStartup(db)`
+  so the `record_version` column is guaranteed to exist. Paginate
+  over `SELECT id FROM memories WHERE record_version < $1 ORDER BY id`
+  in chunks of ~500. For each row, look up the upgrader chain
+  needed to reach `CURRENT_RECORD_VERSION`, apply each in sequence
+  inside a per-row transaction. On success, bump
+  `record_version`. On failure, log and continue.
+- **Logging:** at startup, log
+  `record_migrator: starting, target_version=N`, then per-chunk
+  progress, then a final summary
+  `record_migrator: done, upgraded=X, skipped=Y, failed=Z`.
+- **Repository changes:** `MemoryInsert` gains `recordVersion`; the
+  INSERT writes it explicitly (= `CURRENT_RECORD_VERSION` for any
+  new row). `MemoryRow` exposes it (for diagnostics; clients ignore).
+
+**Constraints baked into the interface.**
+
+- `upgrade()` receives a `MemoryRow`. It returns nothing — the
+  expected pattern is to UPDATE just the new fields the upgrader is
+  responsible for, plus `record_version`. Wrapping it in a savepoint
+  in the call site means a thrown exception rolls back that row only.
+- The framework refuses to register two upgraders with the same
+  `fromVersion` (collision → fail-fast at startup).
+- The framework refuses to start if any registered upgrader has a
+  `toVersion > CURRENT_RECORD_VERSION` (someone forgot to bump the
+  constant).
+
+**Failure behavior.**
+
+- A row that fails an upgrade stays at its old version. The next
+  startup will retry. Operator can inspect the row, fix the
+  upgrader, and redeploy.
+- A failed upgrader is logged with the row id, upgrader name, and
+  the exception. No data is rewritten.
+- Startup completes regardless of how many rows fail. The MCP
+  servlet begins serving traffic.
+
+**Touchpoints.**
+
+- New: `src/main/precompiled/ai/ownsona/memory/RecordUpgrader.java`.
+- New: `src/main/precompiled/ai/ownsona/memory/RecordUpgraderRegistry.java`.
+- New: `src/main/precompiled/ai/ownsona/memory/RecordMigrator.java`
+  (the per-row walker).
+- New: `src/main/precompiled/ai/ownsona/migrations/Migration002AddRecordVersion.java`.
+- `MemoryInsert.java`, `MemoryRow.java` — add `recordVersion`.
+- `MemoryRepository.java` — INSERT writes `record_version`; SELECT
+  includes it; new methods `findIdsBelowVersion(db, version, lastId, limit)`
+  and `bumpVersion(db, id, newVersion)`.
+- `MemoryService.java` — define `CURRENT_RECORD_VERSION`; pass it to
+  every insert.
+- `MigrationRegistry` (Phase 2) — register
+  `Migration002AddRecordVersion`; bump `CURRENT_DB_VERSION` to 2.
+- `MCPServer.java` — `<clinit>` calls `RecordMigrator.runOnStartup()`
+  once after `DbMigrator.runOnStartup()`.
+
+### 3B (continued). Trivial proof-upgrader (optional)
+
+After 3A is live, optionally register a no-op upgrader:
+`from=1, to=2, name="noop-v1-to-v2"`. Its `upgrade()` does nothing
+but log. Bump `CURRENT_RECORD_VERSION` to 2. Confirms the walker
+visits every row on a real database before a meaningful upgrader
+is shipped. Easy to back out by reverting the WAR.
+
+### Interaction with already-deployed Phase 1A
+
+Phase 1A's `capture_mode` is deliberately *not* backfilled by an
+upgrader. Old rows have no capture_mode and that's the correct,
+honest state. If a future deploy decides to backfill (e.g. "every
+row that lacks capture_mode is assumed explicit because that's how
+remember was used before this feature shipped"), it'd register a
+v2→v3 upgrader that adds `metadata.capture_mode = "explicit"` only
+to rows where the key is currently absent. Strictly additive,
+idempotent, isolated per row — fits the rules.
+
+### Phase 3 ship checklist
+
+Single deploy. The auto-migrator (Phase 2) applies the schema
+change on startup; the record-upgrader framework is in the same
+WAR.
+
+- [ ] `Migration002AddRecordVersion` registered with the Phase 2
+      `MigrationRegistry`; `CURRENT_DB_VERSION` bumped to 2
+- [ ] `RecordUpgrader` / `RecordUpgraderRegistry` /
+      `RecordMigrator` unit tests pass (registry collision
+      detection, version-chain composition, per-row savepoint
+      isolation)
+- [ ] Pre-written rollback SQL on standby (only needed if the
+      auto-migrator itself misbehaves):
+      `ALTER TABLE memories DROP COLUMN record_version;`
+      `DELETE FROM db_version WHERE version = 2;`
+- [ ] Fresh prod backup taken and verified
+- [ ] WAR deploy
+- [ ] Startup log shows the auto-migrator applying v2:
+      `migrator: applied v=2 name="add record_version column"`
+- [ ] Startup log shows the record-migrator banner with empty
+      registry: `record_migrator: done, upgraded=0, skipped=N,
+      failed=0` where N is the prod row count
+
+Optional follow-up deploy with proof-upgrader:
+- [ ] WAR deploy with the noop upgrader registered;
+      `CURRENT_RECORD_VERSION` bumped to 2
+- [ ] First startup: log shows `record_migrator: ... upgraded=N`
+      matching the prod row count
+- [ ] Second startup: log shows `record_migrator: ... upgraded=0`
+      (idempotency check)
+
+---
+
+## Phase 4 — Dedup-on-write + freshness
 
 **Goal:** Catch semantic duplicates before they fragment the store,
 and let memories carry an optional expiration / last-confirmed date.
 
-**Risk:** Migration is the highest-risk operation in the plan
-(modifies the prod schema). Mitigated by splitting the schema change
-from the code that uses it: ship the migration alone, let it sit,
-ship the code later.
+**Risk:** Schema change is two nullable TIMESTAMPTZ columns plus a
+partial index — applied automatically by the auto-migrator.
 
-**Ordering.** Three sub-deploys, in this order, with soak time
-between each:
+**Ordering.** One or two deploys, your choice:
 
-1. **2A — Migration deploy (Procedure B).** Apply
-   `sql/002_freshness.sql`. **No code change.** The deployed WAR
-   ignores the new columns. Let this sit for a few hours of normal
-   use. Verify `recall` and `remember` still work via Claude Code.
-2. **2B — Dedup code deploy (Procedure A).** Pure code change. Uses
-   only columns that have existed since `001_init.sql`. Could in
-   principle have shipped without 2A; it's grouped here because the
-   features pair well thematically.
-3. **2C — Freshness code deploy (Procedure A).** Reads/writes the
-   columns added in 2A. Optional input parameters; existing rows
-   stay null.
+- **Combined (recommended):** register `Migration003AddFreshness`,
+  bump `CURRENT_DB_VERSION` to 3, and ship the dedup + freshness
+  code in the same WAR. Auto-migrator handles the schema; the new
+  code starts using the columns immediately.
+- **Split:** ship the migration alone first (register the migration,
+  bump `CURRENT_DB_VERSION`, leave the code that uses the new
+  columns for the next deploy). Useful if you want to observe the
+  auto-migrator's behavior on a real migration before relying on
+  the new columns in code.
 
-### 2A. Migration `sql/002_freshness.sql`
+Sub-features described below are independent:
 
-```sql
--- Optional freshness signals.  All nullable; existing rows untouched.
-ALTER TABLE memories
-    ADD COLUMN IF NOT EXISTS expires_at         TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS last_confirmed_at  TIMESTAMPTZ;
+1. **4A — Schema migration (`Migration003AddFreshness`).**
+2. **4B — Dedup code.** Pure code change. Uses only columns that
+   have existed since `001_init.sql`; could in principle ship
+   without 4A. Grouped here because the features pair well
+   thematically.
+3. **4C — Freshness code.** Reads/writes the columns added in 4A.
 
-CREATE INDEX IF NOT EXISTS memories_expires_at_idx
-    ON memories(expires_at)
-    WHERE expires_at IS NOT NULL;
+### 4A. Migration: `Migration003AddFreshness`
+
+```java
+package ai.ownsona.migrations;
+
+import org.kissweb.database.Connection;
+
+public final class Migration003AddFreshness implements Migration {
+    @Override public int    version() { return 3; }
+    @Override public String name()    { return "add expires_at, last_confirmed_at"; }
+
+    @Override
+    public void apply(Connection db) throws Exception {
+        // Optional freshness signals.  All nullable; existing rows untouched.
+        db.execute(
+            "ALTER TABLE memories " +
+            "ADD COLUMN IF NOT EXISTS expires_at        TIMESTAMPTZ, " +
+            "ADD COLUMN IF NOT EXISTS last_confirmed_at TIMESTAMPTZ");
+
+        // Two real columns (not metadata JSONB) because recall filters
+        // on `expires_at < now()` and a JSONB key can't be indexed as
+        // cheaply.
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS memories_expires_at_idx " +
+            "ON memories(expires_at) " +
+            "WHERE expires_at IS NOT NULL");
+    }
+}
 ```
 
-Two columns instead of stuffing into `metadata` because we'll filter
-on them at query time (`expires_at < now()` in `recall`); a JSONB
-field can't be indexed as cheaply.
+Register; bump `CURRENT_DB_VERSION` to 3.
 
-### 2B. Semantic dedup on write
+### 4B. Semantic dedup on write
 
 **What.** Before inserting a new memory, embed it (we have to anyway),
 then run a top-K similarity query at `min_score ≥ 0.90`. If hits come
@@ -307,7 +829,7 @@ candidates) preserves current behavior; clients that don't read
 **Threshold.** 0.90 is a starting guess. After a week of telemetry
 (log every candidate hit with its score), tune.
 
-### 2C. Freshness fields on `remember` / `update_memory`
+### 4C. Freshness fields on `remember` / `update_memory`
 
 **What.** Optional `expires_at` and `last_confirmed_at` parameters.
 `recall` excludes rows where `expires_at < now()`. New `confirm`
@@ -333,59 +855,48 @@ embedding.
 behavior for those rows is unchanged. Old clients can't set the
 fields and won't see them in results unless they look.
 
-**Decay scoring (deferred to phase 3).** Just the storage + hard
+**Decay scoring (deferred to phase 5).** Just the storage + hard
 expiration in this phase. A soft score decay (`score * exp(-age/τ)`)
 is a follow-up; it's behavior change worth its own deploy.
 
-### Phase 2 ship checklist
+### Phase 4 ship checklist (combined deploy)
 
-**Deploy 2A — migration alone (Procedure B):**
-- [ ] Prod backup restored to test DB
-- [ ] `sql/002_freshness.sql` applied to test DB
-- [ ] `./bld -v test` and `sql/run_tests.sh` green against new schema
-      with the *currently deployed* WAR code (proves
-      old-WAR + new-schema works)
-- [ ] Pre-written rollback SQL (`ALTER TABLE ... DROP COLUMN`) on
-      standby
-- [ ] Fresh prod backup taken and verified on disk
-- [ ] `psql -U postgres -d ownsona -f sql/002_freshness.sql` in prod
-- [ ] Smoke test green; tail catalina.out clean
-- [ ] **Stop. Soak for at least a few hours of normal use.**
-
-**Deploy 2B — dedup code (Procedure A):**
-- [ ] Code change reviewed, tests added for dedup candidates
-- [ ] Local smoke test green
-- [ ] WAR deploy; verify
-
-**Deploy 2C — freshness code (Procedure A):**
-- [ ] Tests added: `recall` excludes expired rows, `confirm` updates
-      timestamp, schema reads/writes work end-to-end
-- [ ] Smoke test extended to cover new fields
-- [ ] WAR deploy; verify
-- [ ] One week soak before phase 3
+- [ ] `Migration003AddFreshness` registered;
+      `CURRENT_DB_VERSION` bumped to 3
+- [ ] Dedup code + freshness code with tests
+- [ ] Pre-written rollback SQL on standby (if auto-migrator
+      misbehaves):
+      `ALTER TABLE memories DROP COLUMN expires_at, DROP COLUMN last_confirmed_at;`
+      `DELETE FROM db_version WHERE version = 3;`
+- [ ] Fresh prod backup taken and verified
+- [ ] WAR deploy
+- [ ] Startup log shows
+      `migrator: applied v=3 name="add expires_at, last_confirmed_at"`
+- [ ] Live exercise: `remember` returns dedup candidates when
+      near-duplicate text submitted; `confirm` updates timestamp;
+      `recall` excludes expired rows
 
 ---
 
-## Phase 3 — Conflict surfacing + tombstones + decay
+## Phase 5 — Conflict surfacing + tombstones + decay
 
 **Goal:** Make stale facts less likely to mislead. Make corrections
 durable across sessions.
 
 **Risk:** Moderate. Touches recall output shape and `forget`
-semantics. Still schema-additive.
+semantics. Schema change applied automatically by the auto-migrator.
 
-**Ordering.** Same migration-then-code split as Phase 2:
+**Ordering.** As with Phase 4, you can combine the migration with
+the code that uses it (single deploy) or split them. Sub-features
+are:
 
-1. **3B-migration first (Procedure B).** Apply `sql/003_tombstones.sql`
-   alone. Let it soak.
-2. **3A — conflict surfacing code (Procedure A).** No schema
-   dependency; could go before or after the migration. Cheap and
-   low-risk, so ship it whenever.
-3. **3B-code (Procedure A).** Reads/writes the new columns.
-4. **3C — decay (Procedure A).** Pure code; behind a config flag,
-   default off.
+1. **5A — Conflict surfacing code.** No schema dependency. Can
+   ship before or independently of the migration.
+2. **5B — Tombstones.** Combines `Migration004AddTombstones` with
+   the code that reads/writes the new columns.
+3. **5C — Decay.** Pure code; behind a config flag, default off.
 
-### 3A. Conflict surfacing (cheap version)
+### 5A. Conflict surfacing (cheap version)
 
 **What.** No new fields. Just make `recall` results include
 `created_at` / `updated_at` / `last_confirmed_at` more prominently,
@@ -407,7 +918,7 @@ deferred. It's a separate research project — and if it ever involves
 an LLM call, it falls under the LLMProvider-interface rule in
 guardrail #9.
 
-### 3B. Tombstones
+### 5B. Tombstones
 
 **What.** Soft delete already exists (`deleted_at` is set). Add
 `forget_reason TEXT` and `replaced_by_id BIGINT` columns so a
@@ -415,24 +926,39 @@ correction trail survives. Exclude tombstones from normal `recall`,
 but consult them in dedup-on-write so the system doesn't reaccept a
 previously-corrected fact.
 
-**Migration `sql/003_tombstones.sql`.**
+**Migration: `Migration004AddTombstones`**
 
-```sql
-ALTER TABLE memories
-    ADD COLUMN IF NOT EXISTS forget_reason    TEXT,
-    ADD COLUMN IF NOT EXISTS replaced_by_id   BIGINT REFERENCES memories(id);
+```java
+package ai.ownsona.migrations;
+
+import org.kissweb.database.Connection;
+
+public final class Migration004AddTombstones implements Migration {
+    @Override public int    version() { return 4; }
+    @Override public String name()    { return "add forget_reason, replaced_by_id"; }
+
+    @Override
+    public void apply(Connection db) throws Exception {
+        db.execute(
+            "ALTER TABLE memories " +
+            "ADD COLUMN IF NOT EXISTS forget_reason  TEXT, " +
+            "ADD COLUMN IF NOT EXISTS replaced_by_id BIGINT REFERENCES memories(id)");
+    }
+}
 ```
+
+Register; bump `CURRENT_DB_VERSION` to 4.
 
 **Touchpoints.**
 - `MemoryRepository.java:203` (`softDelete`) — accept optional reason
   / replacement id.
 - `MemoryService.java:351` (`forget`) — accept `reason` and
   `replaced_by` parameters.
-- Dedup-on-write (2B) — when a candidate hit's tombstone matches the
+- Dedup-on-write (4B) — when a candidate hit's tombstone matches the
   new text, return a louder signal (`"previously corrected"`).
 - `MCPServer.java` — extend `forget` schema; add optional fields.
 
-### 3C. Soft decay in recall (optional, behind a flag)
+### 5C. Soft decay in recall (optional, behind a flag)
 
 **What.** Multiply similarity score by `exp(-age_days / τ)` for rows
 where `expires_at IS NULL AND last_confirmed_at IS NULL`. Durable
@@ -446,25 +972,29 @@ unset). Turn it on after watching real recall traffic.
 adjusted score in the SQL or in Java. The latter is simpler and easy
 to A/B against the raw score.
 
-### Phase 3 ship checklist
+### Phase 5 ship checklist
 
-**3A — conflict surfacing code (Procedure A):**
+**5A — conflict surfacing (no schema change):**
 - [ ] `recall` description and result schema updated; tests updated
 - [ ] WAR deploy; verify
 
-**3B-migration — schema alone (Procedure B):**
-- [ ] Prod backup restored to test DB
-- [ ] `sql/003_tombstones.sql` applied to test DB
-- [ ] Old WAR + new schema verified
-- [ ] Pre-written rollback SQL on standby
+**5B — tombstones (migration + code, combined deploy):**
+- [ ] `Migration004AddTombstones` registered;
+      `CURRENT_DB_VERSION` bumped to 4
+- [ ] Tests cover: tombstone excluded from recall, surfaced in
+      dedup, forget_reason persisted
+- [ ] Pre-written rollback SQL on standby (if auto-migrator
+      misbehaves):
+      `ALTER TABLE memories DROP CONSTRAINT memories_replaced_by_id_fkey;`
+      `ALTER TABLE memories DROP COLUMN forget_reason, DROP COLUMN replaced_by_id;`
+      `DELETE FROM db_version WHERE version = 4;`
 - [ ] Fresh prod backup taken and verified
-- [ ] Apply in prod; smoke test; soak
+- [ ] WAR deploy
+- [ ] Startup log shows
+      `migrator: applied v=4 name="add forget_reason, replaced_by_id"`
+- [ ] Live exercise: `forget id=… reason="…"` round-trip
 
-**3B-code — tombstones code (Procedure A):**
-- [ ] Tests cover: tombstone excluded from recall, surfaced in dedup
-- [ ] WAR deploy; verify
-
-**3C — decay (Procedure A):**
+**5C — decay (code-only):**
 - [ ] Decay off by default; on-flag tested separately
 - [ ] WAR deploy with flag off
 - [ ] Optional: enable flag in `application.ini`, redeploy, observe
@@ -500,112 +1030,133 @@ These suggestions from `OwnSona-enhancement.md` are deliberately
 
 ## Per-deploy procedures
 
-Two distinct procedures because the risk profile is different.
-**Migrations and code deploys are separate operations and run on
-separate days.** Don't bundle them.
+**Operational stance (single-user, owner-tested).** Blake is the only
+user. There is no separate test server and no rehearsal phase. The
+working pattern is: build locally, take a fresh backup of the prod
+database, deploy directly to prod, exercise the system live, deal
+with anything that breaks. Backups are the safety net; rollback is
+"restore the WAR" or "restore the database" if it comes to that.
 
-### Procedure A: Code-only deploy (cheap, ~10 min, easy rollback)
+**Once Phase 2 is in production**, all migrations are applied
+automatically at startup by the auto-migrator. There's no manual
+`psql -f` step. The procedure below is unified — same steps
+regardless of whether the deploy carries new migrations or not.
+
+### Shorthand used elsewhere in this plan
+
+- **Procedure A** = a deploy that doesn't bump
+  `CURRENT_DB_VERSION`. No schema change. Pure WAR swap.
+- **Procedure B** = a deploy that bumps `CURRENT_DB_VERSION` (i.e.
+  registers a new migration). Auto-migrator will run it on startup.
+  Backup is taken first; rollback SQL is staged in case the
+  auto-migrator fails or the new migration is wrong.
+
+Both follow the same steps below; the only difference is whether
+new migrations will run on startup.
+
+### The procedure
 
 ```
-# 1. Pre-flight (on dev box)
+# 1. Pre-flight (local)
 cd ~/GitHub.blakemcbride/Ownsona
 git status                         # clean tree
 ./bld -v build                     # compiles cleanly
-./bld -v test                      # unit tests pass
-OWNSONA_TEST_DATABASE_URL=... sql/run_tests.sh   # integration tests
+sql/run_tests.sh                   # unit tests pass (integration ones skip
+                                   # without OWNSONA_TEST_DATABASE_URL)
 
-# 2. Local smoke test
-./bld develop &                    # local Tomcat
-OWNSONA_API_TOKEN=... sql/smoke_test.sh http://localhost:8080/mcp
+# 2. If this deploy registers a new Migration, write the rollback
+#    SQL for it (matching the DROP COLUMN listed in the phase
+#    checklist).  Keep it in a scratch file next to the terminal
+#    you'll deploy from.
 
-# 3. Production deploy
+# 3. Backup prod database (always, when a migration is included)
+sudo systemctl start ownsona-backup.service
+sudo journalctl -u ownsona-backup.service --since "5 minutes ago"
+ls -lh /path/to/backups/ | tail -3   # confirm fresh, non-zero-byte file
+
+# 4. Build the WAR
 ./bld war
+
+# 5. Stage rollback for the WAR (so step 7 is fast if needed)
 sudo cp /path/to/tomcat/webapps/Kiss.war /path/to/tomcat/webapps/Kiss.war.prev
+
+# 6. Swap the WAR.  The auto-migrator runs as part of startup ---
+#    no manual psql step.
 sudo ./kill-tomcat
 sudo cp work/Kiss.war /path/to/tomcat/webapps/
 sudo systemctl start ownsona.service
-sudo tail -f /path/to/tomcat/logs/catalina.out   # watch for clean boot
+sudo tail -f /path/to/tomcat/logs/catalina.out
+# Look for:
+#   migrator: db_version at X, target Y
+#   migrator: applied v=Y name="..." ms=...
+#   record_migrator: done, upgraded=A, skipped=B, failed=0
+# If the migrator throws, the servlet refuses to load: investigate
+# before doing anything else.
 
-# 4. Verification
-OWNSONA_API_TOKEN=... sql/smoke_test.sh https://your.host/mcp
+# 7. Live exercise --- drive remember/recall from a real client and
+#    check the new behavior.
 ```
 
-**Rollback (code).** Stop Tomcat, `mv Kiss.war.prev Kiss.war`, start.
-Done. No data implications.
+### Rollback
 
-### Procedure B: Schema migration (expensive, run alone)
+- **Code went bad.** Stop Tomcat, `mv Kiss.war.prev Kiss.war`, start.
+  The auto-migrator in the previous WAR has `CURRENT_DB_VERSION` ≤
+  the current `db_version`, so it skips the new migration on
+  start and serves traffic. No data implications because every
+  migration in this plan is additive.
+- **Auto-migrator failed.** Symptom: catalina.out shows
+  `DbMigrator failed; refusing to serve`. The transaction wrapping
+  the failing migration has rolled back, so `db_version` is
+  unchanged. Options:
+  - Fix the migration class, build a new WAR, redeploy.
+  - If urgent and the migration is wrong: rollback the WAR to
+    `Kiss.war.prev`, accept that the new feature is offline,
+    investigate calmly.
+- **Auto-migrator succeeded but the new migration was the wrong
+  shape.** Run the rollback SQL staged in step 2 (`ALTER TABLE …
+  DROP COLUMN …; DELETE FROM db_version WHERE version = N;`).
+  Roll back the WAR. No data loss because additive migrations
+  don't touch existing columns.
+- **Something destructive slipped through and corrupted data.**
+  Stop Tomcat, restore the database from the step-3 backup.
+  Memories written between the backup and the rollback are lost.
+  This is the scenario the guardrails are designed to keep
+  hypothetical.
 
-A migration is *its own deploy*. No code change ships with it. The
-WAR running before the migration must keep working after the
-migration — that's the property to verify.
+### What this procedure deliberately drops
 
-```
-# 1. Restore a recent prod backup onto the test DB and apply the migration there.
-#    The point is to catch shape/rowcount surprises that a synthetic test DB hides.
-pg_restore --clean -d "$OWNSONA_TEST_DATABASE_URL" /path/to/latest-prod-backup.dump
-psql "$OWNSONA_TEST_DATABASE_URL" -f sql/0NN_*.sql
-
-# 2. With the test DB now on the new schema, run the *currently deployed* code's
-#    tests against it. This verifies old-WAR + new-schema is fine. If they fail,
-#    the migration is not backward compatible — stop and revise.
-OWNSONA_TEST_DATABASE_URL=... sql/run_tests.sh
-
-# 3. Production: explicit backup, verified before touching the DB.
-sudo systemctl start ownsona-backup.service
-sudo journalctl -u ownsona-backup.service --since "5 minutes ago"
-ls -lh /path/to/backups/ | tail -3   # confirm a fresh, non-zero-byte file landed
-
-# 4. Production migration (during a quiet window).
-sudo -u postgres psql -d ownsona -f /path/to/sql/0NN_*.sql
-
-# 5. Sanity check: tail catalina.out for errors, run a normal remember/recall
-#    via the existing client. The point is to prove the deployed WAR still works
-#    against the new schema before any new code goes in.
-OWNSONA_API_TOKEN=... sql/smoke_test.sh https://your.host/mcp
-sudo tail -n 100 /path/to/tomcat/logs/catalina.out
-
-# 6. Stop. Walk away. Let it sit for at least a few hours of normal use
-#    before deploying any code that depends on the new columns (procedure A,
-#    later).
-```
-
-**Rollback (schema).** This is the painful one — plan it before
-running step 4, not after.
-
-- **If the migration was purely `ADD COLUMN` with nullable / defaulted
-  columns** (which every migration in this plan is), then "rollback"
-  is just `ALTER TABLE memories DROP COLUMN ...`. Write that
-  `DROP COLUMN` statement before applying the migration and keep it
-  on standby. No data is lost because no existing column was changed.
-- **If the migration also rewrote existing data** (a one-time
-  `UPDATE`, e.g. the optional tag-normalization sweep): rollback is
-  restore from backup. Every memory written between the backup and
-  the rollback is gone. This is why this plan keeps data rewrites out
-  of migrations.
-- **If the migration was botched (partial apply, half-committed
-  state):** restore from backup. The single-user nature means the
-  loss window is small (writes per day are low), but it is still loss.
+- **No test DB.** Single user. There is no rehearsal staging area.
+- **No manual `psql -f`.** After Phase 2, the auto-migrator does it.
+- **No "soak between migration and code".** They're inherently
+  combined — the migration is in the WAR.
+- **No long verification window before declaring success.** Live
+  use *is* the verification.
 
 ---
 
 ## Order of operations summary
 
-Each row is one production deploy. `B` deploys (schema migrations)
-ship alone, then soak, before any `A` deploy that depends on them.
-The `A` deploys are cheap and easily reversed.
+Each row is one production deploy. After Phase 2 lands, every
+"migration" row's schema change is applied automatically by the
+auto-migrator at startup — there's no manual SQL step. Rollback
+for every row is either `mv Kiss.war.prev Kiss.war` (WAR) or the
+explicit `DROP COLUMN` + `DELETE FROM db_version` listed in the
+phase checklist.
 
-| # | Deploy | Type | DB change | Code surface | Reversibility |
+| # | Deploy | `CURRENT_DB_VERSION` | Migration class | Code surface | Rollback |
 |---|---|---|---|---|---|
-| 1 | 1A provenance | A code | none (uses existing `metadata`) | `MemoryService`, `MemoryRepository`, `MCPServer` | swap WAR |
-| 2 | 1B tag normalization | A code | none | new `TagNormalizer`, `MemoryService.cleanTags` | swap WAR |
-| 3 | 1C prompt budget | A code | none | `MemoryService.buildContextPrompt` | swap WAR |
-| 4 | 2A migration | **B schema** | `sql/002_freshness.sql` | none | `DROP COLUMN` (no data lost; columns are new) |
-| 5 | 2B dedup code | A code | none | `remember`, `rememberBatch`, `RememberResult` | swap WAR |
-| 6 | 2C freshness code | A code | none (uses 2A columns) | insert/update/select paths, new `confirm` tool | swap WAR |
-| 7 | 3A conflict surfacing | A code | none | `MCPServer` recall description | swap WAR |
-| 8 | 3B migration | **B schema** | `sql/003_tombstones.sql` | none | `DROP COLUMN` (the FK constraint must be dropped first) |
-| 9 | 3B tombstones code | A code | none (uses 3B columns) | `forget`, dedup | swap WAR |
-| 10 | 3C decay | A code | none | `MemoryRepository.findSimilar` | swap WAR (flag default = off) |
+| 1 | 1A provenance | — | (none) | `MemoryService`, `MemoryRepository`, `MCPServer` | swap WAR |
+| 2 | 1B tag normalization | — | (none) | new `TagNormalizer`, `MemoryService.cleanTags` | swap WAR |
+| 3 | 1C prompt budget | — | (none) | `MemoryService.buildContextPrompt` | swap WAR |
+| 4 | 2 auto-migrator framework | 1 (baseline) | (none; framework creates `db_version` table) | new `Migration` interface, `MigrationRegistry`, `DbMigrator`; `MCPServer.<clinit>` calls migrator | swap WAR |
+| 5 | 3 record_version + record-upgrader framework | 1 → 2 | `Migration002AddRecordVersion` | new `RecordUpgrader`, `RecordUpgraderRegistry`, `RecordMigrator`; INSERT writes `record_version` | swap WAR; if needed: `ALTER TABLE memories DROP COLUMN record_version; DELETE FROM db_version WHERE version=2;` |
+| 6 | 3 proof-upgrader (optional) | (no DB bump) | (none) | one no-op `RecordUpgrader` registered; `CURRENT_RECORD_VERSION` → 2 | swap WAR |
+| 7 | 4 freshness + dedup | 2 → 3 | `Migration003AddFreshness` | dedup + freshness + new `confirm` tool | swap WAR; if needed: `ALTER TABLE memories DROP COLUMN expires_at, DROP COLUMN last_confirmed_at; DELETE FROM db_version WHERE version=3;` |
+| 8 | 5A conflict surfacing | — | (none) | `MCPServer` recall description | swap WAR |
+| 9 | 5B tombstones | 3 → 4 | `Migration004AddTombstones` | `forget`, dedup integration | swap WAR; if needed: drop FK then `DROP COLUMN forget_reason, replaced_by_id; DELETE FROM db_version WHERE version=4;` |
+| 10 | 5C decay | — | (none) | `MemoryRepository.findSimilar` | swap WAR (flag default = off) |
 
-Two `B` deploys total across the whole plan. Everything else is a
-code swap.
+Three migrations across the whole plan (post Phase 2). Every one
+of them is a `MigrationNNN_*.java` class registered with the Phase
+2 framework. Every `CURRENT_DB_VERSION` bump ships in the same
+commit as the migration class that justifies it (guardrail #11).
