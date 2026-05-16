@@ -2,6 +2,7 @@ package ai.ownsona.memory;
 
 import ai.ownsona.Config;
 import ai.ownsona.SecretScanner;
+import ai.ownsona.TagNormalizer;
 import ai.ownsona.TextNormalizer;
 import ai.ownsona.embeddings.EmbeddingProvider;
 import org.apache.logging.log4j.LogManager;
@@ -512,10 +513,16 @@ public final class MemoryService {
             final String trimmed = t.trim();
             if (trimmed.isEmpty())
                 continue;
+            // Length check uses the user's input length, not the post-
+            // normalization length --- the limit is on what the caller
+            // is allowed to submit, not what it maps to.
             if (trimmed.length() > MAX_TAG_CHARS)
                 throw new ServiceException(ServiceException.INVALID_INPUT,
                         "Tag is too long: " + trimmed.length() + " > " + MAX_TAG_CHARS);
-            deduped.add(trimmed);
+            // Normalize before dedup so synonyms collapsing to the same
+            // canonical (e.g. "tech" and "Software") yield one tag.
+            final String normalized = TagNormalizer.normalize(trimmed);
+            deduped.add(normalized);
             if (deduped.size() > MAX_TAGS)
                 throw new ServiceException(ServiceException.INVALID_INPUT,
                         "Too many tags (max " + MAX_TAGS + ").");
