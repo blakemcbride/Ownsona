@@ -226,6 +226,7 @@ static const char USAGE_TOP[] =
 "  forget     delete a memory (soft by default, hard with --hard)\n"
 "  prompt     build an LLM prompt augmented with relevant facts\n"
 "  import     bulk-load facts from a file (remember_batch)\n"
+"  teach      extract facts from prose via an LLM and load them in bulk\n"
 "\n"
 "Global options:\n"
 "  --config PATH    use this config file (default ~/.ownsona/config.ini)\n"
@@ -258,6 +259,7 @@ static const cmd_entry_t COMMANDS[] = {
     { "forget",  cmd_forget  },
     { "prompt",  cmd_prompt  },
     { "import",  cmd_import  },
+    { "teach",   cmd_teach   },
     { NULL,      NULL        }
 };
 

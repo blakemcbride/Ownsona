@@ -30,9 +30,21 @@
 /* ---------------------------------------------------------------------- */
 
 typedef struct {
-    char *server_url;   /* https://host/mcp                              */
-    char *token;        /* bearer token                                   */
-    char *source_path;  /* path the config was loaded from, for messages  */
+    char *server_url;       /* https://host/mcp                          */
+    char *token;            /* bearer token for the MCP server           */
+    char *source_path;      /* config file path, for messages            */
+
+    /* Optional LLM credentials, used only by the `teach` subcommand
+     * to extract facts from prose.  llm_api_key may be NULL when no
+     * LLM-based feature is being invoked.  llm_model and llm_base_url
+     * always have sane defaults applied by the loader. */
+    char *llm_api_key;
+    char *llm_model;
+    char *llm_base_url;
+
+    /* How to refer to the subject in extracted facts ("Blake", "the
+     * user", etc.).  Defaults to "the user". */
+    char *subject_name;
 } ownsona_config_t;
 
 /*
@@ -130,5 +142,24 @@ int cmd_confirm(int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_forget (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_prompt (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_import (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_teach  (int argc, char **argv, const ownsona_global_opts_t *gopt);
+
+/* ---------------------------------------------------------------------- */
+/* llm --- OpenAI-compatible chat-completion call (used by `teach`)       */
+/* ---------------------------------------------------------------------- */
+
+/*
+ * POST a chat-completion request to cfg->llm_base_url/chat/completions
+ * with the given system + user messages.  model_override (may be NULL)
+ * temporarily replaces cfg->llm_model for this one call --- used by
+ * --model on the teach subcommand.  Returns the parsed JSON content of
+ * the assistant's message (the model is told to reply in JSON).  On
+ * failure returns NULL and *err is set (caller frees).
+ */
+cJSON *ownsona_llm_chat(const ownsona_config_t *cfg,
+                        const char *model_override,
+                        const char *system_prompt,
+                        const char *user_message,
+                        char **err);
 
 #endif /* OWNSONA_H */

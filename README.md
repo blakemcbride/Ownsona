@@ -75,6 +75,42 @@ Every tool requires a bearer token; secret-shaped inputs (API keys,
 JWTs, PEM private-key markers, etc.) are rejected before they hit the
 database.
 
+## Command-line client
+
+Ownsona ships with a small standalone CLI under [`cli/`](cli/) for
+reading from and writing to the memory store from the terminal —
+useful for scripting, ad-hoc edits, and bulk-loading facts into the
+Ownsona MCP server's database.
+
+Written in portable C; builds on Linux, macOS, and Windows (MSYS2
+UCRT64) with one runtime dependency (libcurl) and a single Makefile.
+Each MCP tool maps to a subcommand:
+
+```bash
+ownsona add    "<text>"           # remember
+ownsona query  "<question>"       # recall
+ownsona search "<substring>"      # text_search
+ownsona list                      # list_memories
+ownsona update <id> "<text>"      # update_memory
+ownsona confirm <id>              # confirm
+ownsona forget <id>               # forget
+ownsona prompt "<user prompt>"    # build_context_prompt
+ownsona import FILE               # remember_batch (JSON or lines)
+ownsona teach  FILE               # extract facts from prose via an LLM,
+                                  # then bulk-load them
+```
+
+The `teach` subcommand is the headline feature: hand it a long-form
+text (an autobiography draft, journal, project notes) and it uses an
+OpenAI-compatible chat-completion API to extract durable third-person
+facts and submit them via `remember_batch`.  Dry-run by default; pass
+`--commit` to insert.  Vendor-neutral by configuration — point it at
+OpenAI, OpenRouter, a local Ollama, or anything else that exposes the
+OpenAI `/chat/completions` shape.
+
+See [`CLI.md`](CLI.md) for build instructions per OS, the config-file
+shape, every subcommand's flags, and the `teach`-from-prose workflow.
+
 ## Documentation
 
 | Doc | What's inside |
@@ -83,6 +119,7 @@ database.
 | [`INSTALL.md`](INSTALL.md) | Linux VPS install: PostgreSQL, Tomcat, systemd, HTTPS, `application.ini` |
 | [`OpenAI.md`](OpenAI.md) | Wiring Ownsona into ChatGPT and the OpenAI Responses API |
 | [`OWNSONA_SPEC.md`](OWNSONA_SPEC.md) | Functional spec, schema, security model |
+| [`CLI.md`](CLI.md) | Portable command-line client: build, configure, every subcommand, and the LLM-driven `teach`-from-prose workflow |
 
 ## Quick Start
 

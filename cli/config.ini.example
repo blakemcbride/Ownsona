@@ -10,3 +10,32 @@ server_url = https://your.host/mcp
 # Bearer token --- same one MCP clients use in `Authorization: Bearer`.
 # Treat as a secret: anyone with this can read/write your memory store.
 token = REPLACE_ME
+
+# ---------------------------------------------------------------------
+# Settings below are used only by the `teach` subcommand (LLM-driven
+# fact extraction from prose).  Other subcommands ignore them.
+# ---------------------------------------------------------------------
+
+# OpenAI-compatible chat-completion endpoint.  Defaults to OpenAI's;
+# point at any service that exposes the same /chat/completions shape
+# (OpenRouter, a local Ollama server with the OpenAI compat layer, etc.).
+# Env override: OWNSONA_LLM_BASE_URL
+# llm_base_url = https://api.openai.com/v1
+
+# Model used by `teach` to extract facts from prose.  gpt-4o is the
+# recommended default; gpt-4o-mini works at ~10x lower cost with
+# noticeably lower quality.  Override per-invocation with --model.
+# Env override: OWNSONA_LLM_MODEL
+# llm_model = gpt-4o
+
+# API key for the LLM endpoint.  Can be the same OpenAI key the server
+# uses for embeddings, or a separate one if you want isolated billing.
+# Required only if you run `teach`.
+# Env override: OWNSONA_LLM_API_KEY
+# llm_api_key = sk-...
+
+# How `teach` should refer to the subject in extracted facts.
+# Defaults to "the user"; set to your own name (e.g. "Blake") so the
+# extracted memories match the style of your existing ones.
+# Env override: OWNSONA_SUBJECT
+# subject_name = Blake

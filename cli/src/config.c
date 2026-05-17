@@ -114,6 +114,18 @@ static int parse_file(const char *path, bool required, ownsona_config_t *cfg) {
         } else if (strcmp(key, "token") == 0 || strcmp(key, "api_token") == 0) {
             free(cfg->token);
             cfg->token = xstrdup(value);
+        } else if (strcmp(key, "llm_api_key") == 0) {
+            free(cfg->llm_api_key);
+            cfg->llm_api_key = xstrdup(value);
+        } else if (strcmp(key, "llm_model") == 0) {
+            free(cfg->llm_model);
+            cfg->llm_model = xstrdup(value);
+        } else if (strcmp(key, "llm_base_url") == 0) {
+            free(cfg->llm_base_url);
+            cfg->llm_base_url = xstrdup(value);
+        } else if (strcmp(key, "subject_name") == 0 || strcmp(key, "subject") == 0) {
+            free(cfg->subject_name);
+            cfg->subject_name = xstrdup(value);
         }
         /* Unknown keys are silently ignored --- forward-compat. */
     }
@@ -162,6 +174,26 @@ int ownsona_config_load(const char *explicit_path,
         free(cfg->token);
         cfg->token = xstrdup(env_token);
     }
+    const char *env_llm_key = getenv("OWNSONA_LLM_API_KEY");
+    if (env_llm_key != NULL && *env_llm_key != '\0') {
+        free(cfg->llm_api_key);
+        cfg->llm_api_key = xstrdup(env_llm_key);
+    }
+    const char *env_llm_model = getenv("OWNSONA_LLM_MODEL");
+    if (env_llm_model != NULL && *env_llm_model != '\0') {
+        free(cfg->llm_model);
+        cfg->llm_model = xstrdup(env_llm_model);
+    }
+    const char *env_llm_url = getenv("OWNSONA_LLM_BASE_URL");
+    if (env_llm_url != NULL && *env_llm_url != '\0') {
+        free(cfg->llm_base_url);
+        cfg->llm_base_url = xstrdup(env_llm_url);
+    }
+    const char *env_subject = getenv("OWNSONA_SUBJECT");
+    if (env_subject != NULL && *env_subject != '\0') {
+        free(cfg->subject_name);
+        cfg->subject_name = xstrdup(env_subject);
+    }
 
     /* 3) CLI overrides (highest priority) */
     if (cli != NULL) {
@@ -173,6 +205,22 @@ int ownsona_config_load(const char *explicit_path,
             free(cfg->token);
             cfg->token = xstrdup(cli->token);
         }
+    }
+
+    /* Apply defaults for LLM-side fields.  These don't fail if absent
+     * --- a missing llm_api_key just means the `teach` subcommand will
+     * complain when invoked, but other subcommands work fine. */
+    if (cfg->llm_model == NULL || *cfg->llm_model == '\0') {
+        free(cfg->llm_model);
+        cfg->llm_model = xstrdup("gpt-4o");
+    }
+    if (cfg->llm_base_url == NULL || *cfg->llm_base_url == '\0') {
+        free(cfg->llm_base_url);
+        cfg->llm_base_url = xstrdup("https://api.openai.com/v1");
+    }
+    if (cfg->subject_name == NULL || *cfg->subject_name == '\0') {
+        free(cfg->subject_name);
+        cfg->subject_name = xstrdup("the user");
     }
 
     /* Required-ness check */
@@ -198,5 +246,9 @@ void ownsona_config_free(ownsona_config_t *cfg) {
     free(cfg->server_url);
     free(cfg->token);
     free(cfg->source_path);
+    free(cfg->llm_api_key);
+    free(cfg->llm_model);
+    free(cfg->llm_base_url);
+    free(cfg->subject_name);
     memset(cfg, 0, sizeof *cfg);
 }
