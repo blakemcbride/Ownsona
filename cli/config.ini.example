@@ -1,0 +1,12 @@
+# OwnSona CLI configuration template.
+#
+# Copy to ~/.ownsona/config.ini (or wherever $OWNSONA_CONFIG points)
+# and fill in your server URL + bearer token.  Both can also be set
+# via environment (OWNSONA_SERVER, OWNSONA_TOKEN) or per-invocation
+# flags (--server, --token).
+
+server_url = https://your.host/mcp
+
+# Bearer token --- same one MCP clients use in `Authorization: Bearer`.
+# Treat as a secret: anyone with this can read/write your memory store.
+token = REPLACE_ME

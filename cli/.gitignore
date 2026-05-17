@@ -1,0 +1,7 @@
+# Build artifacts
+*.o
+ownsona
+ownsona.exe
+
+# Real configs --- don't commit secrets.
+config.ini
