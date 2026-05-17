@@ -113,17 +113,19 @@ shape, every subcommand's flags, and the `teach`-from-prose workflow.
 
 ## Documentation
 
-The **canonical long-form documentation is the manual** at
-[`manual/html/index.html`](manual/html/index.html) — chapter-paged HTML
-generated from GNU TexInfo sources under [`manual/`](manual/). Open
-the file in a browser; rebuild with `cd manual && make`.
+The **canonical long-form documentation is the manual**, published at
+**<https://blakemcbride.github.io/Ownsona/manual/html/>**. The same
+HTML output is also committed in this repo at
+[`manual/html/index.html`](manual/html/index.html) for offline
+browsing; both are generated from the GNU TexInfo sources under
+[`manual/`](manual/) (rebuild with `cd manual && make`).
 
 Short-form reference docs at the repo root (kept current alongside the
 manual):
 
 | Doc | What's inside |
 |---|---|
-| [`manual/html/index.html`](manual/html/index.html) | **Full manual** — install, configure, MCP tools, server internals, client integration, CLI, `teach`, embedding migration, tutorials, troubleshooting, reference |
+| [Manual (published)](https://blakemcbride.github.io/Ownsona/manual/html/) | **Full manual** — install, configure, MCP tools, server internals, client integration, CLI, `teach`, embedding migration, tutorials, troubleshooting, reference. (Offline copy: [`manual/html/index.html`](manual/html/index.html).) |
 | [`MCPServer.md`](MCPServer.md) | Architecture, configuration keys, tool surface, security, deploy & ops |
 | [`INSTALL.md`](INSTALL.md) | Linux VPS install: PostgreSQL, Tomcat, systemd, HTTPS, `application.ini` |
 | [`OpenAI.md`](OpenAI.md) | Wiring Ownsona into ChatGPT and the OpenAI Responses API |
