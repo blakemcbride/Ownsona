@@ -66,6 +66,9 @@ public final class MemoryService {
      */
     private static final long LAST_CONFIRMED_AT_FUTURE_TOLERANCE_MS = 5L * 60L * 1000L;
 
+    /** Cap on the forget_reason free-text field stored on tombstones. */
+    private static final int MAX_FORGET_REASON_CHARS = 1024;
+
     private final MemoryRepository repo;
     private final EmbeddingProvider embedder;
     private final String userId;
@@ -112,17 +115,24 @@ public final class MemoryService {
             final float[] vec = embed(text);
 
             // Semantic dedup check (unless caller opted out with policy=insert).
-            // For skip_if_near: if a near-dup exists, return its id without
-            // inserting.  For ask: insert anyway, but return candidates so
-            // the client sees what looked similar.
+            // Two passes: one over active rows ("candidates") and one over
+            // tombstones ("previouslyCorrected") so the response can warn
+            // the caller about facts the user already forgot.  For
+            // skip_if_near: if an active near-dup exists, return its id
+            // without inserting.  Tombstones alone don't block the insert
+            // --- they're a louder signal, not a refusal.
             final List<MemoryRow> candidates = findDedupCandidates(db, vec, dedupPolicy);
+            final List<MemoryRow> previouslyCorrected = findPreviouslyCorrected(db, vec, dedupPolicy);
             if (!candidates.isEmpty() && DEDUP_POLICY_SKIP_IF_NEAR.equals(dedupPolicy)) {
                 final MemoryRow top = candidates.get(0);
                 logger.info("remember: near-dup found id={} score={} policy=skip_if_near",
                         top.id, top.score);
                 success = true;
-                return new RememberResult(top.id, true, candidates);
+                return new RememberResult(top.id, true, candidates, previouslyCorrected);
             }
+            if (!previouslyCorrected.isEmpty())
+                logger.info("remember: previously-corrected near-dup found id={} score={} (proceeding with insert)",
+                        previouslyCorrected.get(0).id, previouslyCorrected.get(0).score);
 
             final MemoryInsert ins = new MemoryInsert();
             ins.userId               = userId;
@@ -156,7 +166,7 @@ public final class MemoryService {
             }
             logger.info("remember: inserted id={} chars={} tags={}", id, text.length(), tags.length);
             success = true;
-            return new RememberResult(id, false, candidates);
+            return new RememberResult(id, false, candidates, previouslyCorrected);
         } catch (ServiceException e) {
             throw e;
         } catch (Exception e) {
@@ -472,7 +482,17 @@ public final class MemoryService {
     // forget
     // ====================================================================================
 
-    public boolean forget(long id, boolean hardDelete) {
+    public boolean forget(long id, boolean hardDelete, String rawReason, Long replacedById) {
+        final String reason = validateForgetReason(rawReason);
+        // A hard delete drops the row entirely --- there's nowhere to store
+        // the tombstone metadata.  Reject the combination so the caller
+        // can't accidentally lose information they thought they were
+        // recording.
+        if (hardDelete && (reason != null || replacedById != null))
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "hard_delete drops the row; reason and replaced_by_id can't be recorded. " +
+                    "Use soft delete (hard_delete=false) if you want a tombstone.");
+
         final Connection db = MainServlet.openNewConnection();
         boolean success = false;
         try {
@@ -487,8 +507,9 @@ public final class MemoryService {
             final MemoryRow existing = repo.findById(db, id);
             if (existing == null)
                 throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
-            final boolean ok = repo.softDelete(db, id);
-            logger.info("forget: soft-deleted id={} ok={}", id, ok);
+            final boolean ok = repo.softDelete(db, id, reason, replacedById);
+            logger.info("forget: soft-deleted id={} ok={} reason={} replaced_by={}",
+                    id, ok, reason != null, replacedById);
             success = true;
             return ok;
         } catch (ServiceException e) {
@@ -552,10 +573,14 @@ public final class MemoryService {
             }
 
             // Semantic dedup check (unless caller opted out with policy=insert).
+            // Two passes: active rows + tombstones.  See remember() above
+            // for the same shape.
             final List<MemoryRow> candidates = findDedupCandidates(db, vec, dedupPolicy);
+            final List<MemoryRow> previouslyCorrected = findPreviouslyCorrected(db, vec, dedupPolicy);
             if (!candidates.isEmpty() && DEDUP_POLICY_SKIP_IF_NEAR.equals(dedupPolicy)) {
                 sconn.releaseSavepoint(sp);
-                return BatchRememberResult.success(origIdx, candidates.get(0).id, true, candidates);
+                return BatchRememberResult.success(origIdx, candidates.get(0).id, true,
+                        candidates, previouslyCorrected);
             }
 
             final MemoryInsert ins = new MemoryInsert();
@@ -591,7 +616,7 @@ public final class MemoryService {
                         ServiceException.DATABASE_ERROR, "insert failed: " + e.getMessage());
             }
             sconn.releaseSavepoint(sp);
-            return BatchRememberResult.success(origIdx, id, false, candidates);
+            return BatchRememberResult.success(origIdx, id, false, candidates, previouslyCorrected);
         } catch (ServiceException e) {
             try { sconn.rollback(sp); sconn.releaseSavepoint(sp); } catch (SQLException ignore) {}
             return BatchRememberResult.failure(origIdx, e.getCode(), e.getMessage());
@@ -789,6 +814,52 @@ public final class MemoryService {
             logger.warn("dedup check failed: {}", e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Tombstone-side counterpart of {@link #findDedupCandidates}: returns
+     * soft-deleted rows whose embedding is near the new memory above the
+     * dedup threshold.  Surfaces previously-corrected facts so the caller
+     * can notice it's about to re-add something the user already forgot.
+     *
+     * <p>Returns empty for {@code dedup_policy = "insert"} (the caller has
+     * opted out of all dedup checks).  DB failures are logged at WARN and
+     * yield an empty list --- the insert proceeds without the warning.
+     */
+    private List<MemoryRow> findPreviouslyCorrected(Connection db, float[] vec, String dedupPolicy) {
+        if (DEDUP_POLICY_INSERT.equals(dedupPolicy))
+            return Collections.emptyList();
+        try {
+            final List<MemoryRow> hits = repo.findSimilarTombstones(db, userId, vec, DEDUP_TOPK);
+            final List<MemoryRow> filtered = new ArrayList<>(hits.size());
+            for (MemoryRow r : hits)
+                if (r.score >= DEDUP_THRESHOLD)
+                    filtered.add(r);
+            return filtered;
+        } catch (Exception e) {
+            logger.warn("tombstone dedup check failed: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Validate a forget_reason free-text field.  null / empty stays null;
+     * trimmed; bounded to {@link #MAX_FORGET_REASON_CHARS} so a runaway
+     * client can't park a giant blob on a soft-deleted row.
+     *
+     * <p>Package-private for unit tests.
+     */
+    static String validateForgetReason(String raw) {
+        if (raw == null)
+            return null;
+        final String trimmed = raw.trim();
+        if (trimmed.isEmpty())
+            return null;
+        if (trimmed.length() > MAX_FORGET_REASON_CHARS)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "forget_reason is too long (" + trimmed.length() + " > " +
+                    MAX_FORGET_REASON_CHARS + ").");
+        return trimmed;
     }
 
     /**

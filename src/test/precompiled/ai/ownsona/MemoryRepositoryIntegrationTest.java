@@ -175,7 +175,7 @@ class MemoryRepositoryIntegrationTest {
     @Test
     void softDeleteHidesFromRecallAndListButFindByIdStillFinds() throws Exception {
         final long id = insert("Forgettable fact.", new String[]{});
-        assertTrue(repo.softDelete(db, id));
+        assertTrue(repo.softDelete(db, id, null, null));
 
         // findById still returns it (with deletedAt set)
         final MemoryRow row = repo.findById(db, id);
@@ -198,9 +198,9 @@ class MemoryRepositoryIntegrationTest {
     @Test
     void softDeleteIsIdempotentAndUpdateRefusesDeletedRow() throws Exception {
         final long id = insert("Will be deleted.", new String[]{});
-        assertTrue(repo.softDelete(db, id));
+        assertTrue(repo.softDelete(db, id, null, null));
         // Second call: row is already deleted; method returns whether it ended up deleted, which is still true.
-        assertTrue(repo.softDelete(db, id));
+        assertTrue(repo.softDelete(db, id, null, null));
 
         // update on a soft-deleted row should not "resurrect" it.
         final boolean updated = repo.update(db, id, "new text", "new text",
@@ -418,8 +418,54 @@ class MemoryRepositoryIntegrationTest {
         assertFalse(repo.confirm(db, 99_999_999L));
 
         final long id = insert("Will be deleted.", new String[]{});
-        assertTrue(repo.softDelete(db, id));
+        assertTrue(repo.softDelete(db, id, null, null));
         assertFalse(repo.confirm(db, id), "confirm should refuse a soft-deleted row");
+    }
+
+    @Test
+    void softDeletePersistsForgetReasonAndReplacedById() throws Exception {
+        final long oldId = insert("My dog's name is Coco.", new String[]{"family"});
+        final long newId = insert("My dog's name is Mochi.", new String[]{"family"});
+
+        assertTrue(repo.softDelete(db, oldId, "misremembered name", newId));
+
+        final MemoryRow row = repo.findById(db, oldId);
+        assertNotNull(row);
+        assertNotNull(row.deletedAt);
+        assertEquals("misremembered name", row.forgetReason);
+        assertNotNull(row.replacedById);
+        assertEquals(newId, row.replacedById.longValue());
+    }
+
+    @Test
+    void softDeleteWithoutReasonLeavesTombstoneFieldsNull() throws Exception {
+        final long id = insert("Plain forget.", new String[]{});
+        assertTrue(repo.softDelete(db, id, null, null));
+
+        final MemoryRow row = repo.findById(db, id);
+        assertNotNull(row);
+        assertNotNull(row.deletedAt);
+        assertNull(row.forgetReason);
+        assertNull(row.replacedById);
+    }
+
+    @Test
+    void findSimilarTombstonesReturnsOnlySoftDeletedRows() throws Exception {
+        final long activeId  = insert("Active fact about ferrets.", new String[]{});
+        final long deletedId = insert("Deleted fact about ferrets.", new String[]{});
+        assertTrue(repo.softDelete(db, deletedId, "corrected", null));
+
+        final float[] q = embedder.embed("anything");
+        final List<MemoryRow> hits = repo.findSimilarTombstones(db, USER_ID, q, 10);
+        assertEquals(1, hits.size());
+        assertEquals(deletedId, hits.get(0).id);
+        assertNotNull(hits.get(0).deletedAt);
+        assertEquals("corrected", hits.get(0).forgetReason);
+
+        // findSimilar (active path) sees only the active row.
+        final List<MemoryRow> activeHits = repo.findSimilar(db, USER_ID, q, 10, null);
+        assertEquals(1, activeHits.size());
+        assertEquals(activeId, activeHits.get(0).id);
     }
 
     // -------------------------------------------------------------------------------

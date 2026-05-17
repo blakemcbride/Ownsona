@@ -24,16 +24,25 @@ public final class RememberResult {
     public final long             id;
     public final boolean          alreadyExisted;
     public final List<MemoryRow>  candidates;
+    public final List<MemoryRow>  previouslyCorrected;
 
     public RememberResult(long id, boolean alreadyExisted) {
-        this(id, alreadyExisted, Collections.emptyList());
+        this(id, alreadyExisted, Collections.emptyList(), Collections.emptyList());
     }
 
     public RememberResult(long id, boolean alreadyExisted, List<MemoryRow> candidates) {
-        this.id             = id;
-        this.alreadyExisted = alreadyExisted;
-        this.candidates     = (candidates == null)
+        this(id, alreadyExisted, candidates, Collections.emptyList());
+    }
+
+    public RememberResult(long id, boolean alreadyExisted,
+                          List<MemoryRow> candidates, List<MemoryRow> previouslyCorrected) {
+        this.id                  = id;
+        this.alreadyExisted      = alreadyExisted;
+        this.candidates          = (candidates == null)
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(new ArrayList<>(candidates));
+        this.previouslyCorrected = (previouslyCorrected == null)
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(new ArrayList<>(previouslyCorrected));
     }
 }

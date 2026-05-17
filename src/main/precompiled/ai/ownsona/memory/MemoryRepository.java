@@ -30,7 +30,8 @@ public final class MemoryRepository {
             "created_at, updated_at, deleted_at, " +
             "array_to_json(tags)::text AS tags_json, " +
             "metadata::text AS metadata_json, " +
-            "record_version, expires_at, last_confirmed_at";
+            "record_version, expires_at, last_confirmed_at, " +
+            "forget_reason, replaced_by_id";
 
     /**
      * SQL fragment that excludes soft-deleted AND expired rows.  Used by
@@ -171,8 +172,32 @@ public final class MemoryRepository {
     }
 
     /**
-     * Plain text substring search (case-insensitive).  Useful for diagnostics and direct lookup.
+     * Vector similarity search restricted to <em>soft-deleted</em> rows
+     * (tombstones).  Used by the dedup-on-write check to surface
+     * previously-corrected facts so the caller doesn't silently re-add
+     * a memory the user already forgot.  Same top-K, same ordering, same
+     * SELECT_COLUMNS shape as {@link #findSimilar}; expired tombstones
+     * are still included because the deletion is what matters, not the
+     * (now-meaningless) expiration.
      */
+    public List<MemoryRow> findSimilarTombstones(Connection db, String userId, float[] queryVec,
+                                                 int limit) throws Exception {
+        final String vecLiteral = VectorFormat.toLiteral(queryVec);
+        final List<Record> rows = db.fetchAll(
+                "SELECT " + SELECT_COLUMNS +
+                ", 1 - (embedding <=> ?::vector) AS score " +
+                "FROM memories " +
+                "WHERE user_id = ? AND deleted_at IS NOT NULL " +
+                "ORDER BY embedding <=> ?::vector LIMIT ?",
+                vecLiteral, userId, vecLiteral, limit);
+        final List<MemoryRow> out = new ArrayList<>(rows.size());
+        for (Record r : rows) {
+            final Double s = r.getDouble("score");
+            out.add(toRow(r, s == null ? 0.0 : s));
+        }
+        return out;
+    }
+
     /**
      * Fetch up to {@code limit} memory ids whose record_version is below
      * {@code targetVersion}, with id > {@code lastId} for pagination
@@ -211,6 +236,9 @@ public final class MemoryRepository {
         return rv != null && rv == newVersion;
     }
 
+    /**
+     * Plain text substring search (case-insensitive).  Useful for diagnostics and direct lookup.
+     */
     public List<MemoryRow> textSearch(Connection db, String userId, String pattern, int limit) throws Exception {
         final String like = "%" + escapeLike(pattern) + "%";
         final List<Record> rows = db.fetchAll(
@@ -292,12 +320,32 @@ public final class MemoryRepository {
     }
 
     /**
-     * Soft-delete: set {@code deleted_at = now()} if not already deleted.
+     * Soft-delete: set {@code deleted_at = now()} if not already deleted,
+     * and optionally record a {@code forget_reason} and/or
+     * {@code replaced_by_id} describing why the row was forgotten or
+     * corrected.  Null params are not written --- a plain forget with no
+     * metadata stays compatible with the pre-Phase-5 behavior.
+     *
+     * <p>If the row is already soft-deleted, the tombstone metadata is
+     * still updated (idempotent re-call lets a caller add a reason after
+     * the fact).  Returns true when the row exists and ends in the
+     * soft-deleted state.
      */
-    public boolean softDelete(Connection db, long id) throws Exception {
-        db.execute(
-                "UPDATE memories SET deleted_at = now() WHERE id = ? AND deleted_at IS NULL",
-                id);
+    public boolean softDelete(Connection db, long id, String forgetReason, Long replacedById) throws Exception {
+        final StringBuilder sb = new StringBuilder(
+                "UPDATE memories SET deleted_at = COALESCE(deleted_at, now())");
+        final List<Object> args = new ArrayList<>();
+        if (forgetReason != null) {
+            sb.append(", forget_reason = ?");
+            args.add(forgetReason);
+        }
+        if (replacedById != null) {
+            sb.append(", replaced_by_id = ?");
+            args.add(replacedById);
+        }
+        sb.append(" WHERE id = ?");
+        args.add(id);
+        db.execute(sb.toString(), args.toArray());
         final Record r = db.fetchOne("SELECT deleted_at FROM memories WHERE id = ?", id);
         return r != null && r.getDateTime("deleted_at") != null;
     }
@@ -334,6 +382,8 @@ public final class MemoryRepository {
         m.recordVersion        = (rv == null) ? 1 : rv;
         m.expiresAt            = r.getDateTime("expires_at");
         m.lastConfirmedAt      = r.getDateTime("last_confirmed_at");
+        m.forgetReason         = r.getString("forget_reason");
+        m.replacedById         = r.getLong("replaced_by_id");
         return m;
     }
 

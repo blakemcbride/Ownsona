@@ -336,4 +336,41 @@ class MemoryServiceHelpersTest {
                 () -> MemoryService.validateLastConfirmedAt(hourAhead));
         assertEquals(ServiceException.INVALID_INPUT, e.getCode());
     }
+
+    // -------------------------------------------------------------------
+    // validateForgetReason (Phase 5)
+    // -------------------------------------------------------------------
+
+    @Test
+    void forgetReasonNullPassesThrough() {
+        assertNull(MemoryService.validateForgetReason(null));
+    }
+
+    @Test
+    void forgetReasonEmptyOrWhitespaceTreatedAsNull() {
+        assertNull(MemoryService.validateForgetReason(""));
+        assertNull(MemoryService.validateForgetReason("   "));
+    }
+
+    @Test
+    void forgetReasonTrimmed() {
+        assertEquals("user moved cities",
+                MemoryService.validateForgetReason("  user moved cities  "));
+    }
+
+    @Test
+    void forgetReasonAtBoundaryAccepted() {
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 1024; i++) sb.append('x');
+        assertEquals(sb.toString(), MemoryService.validateForgetReason(sb.toString()));
+    }
+
+    @Test
+    void forgetReasonTooLongRejected() {
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 1025; i++) sb.append('x');
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateForgetReason(sb.toString()));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
 }

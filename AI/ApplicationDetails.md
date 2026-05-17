@@ -234,6 +234,17 @@ phase (not in the migration class).
   `work/exploded/`**. If you change a `private` to package-private for
   testability, run `./bld -v build` before `sql/run_tests.sh` or you'll
   get stale-class compile errors.
+- **Soft-deleted rows are dual-purpose.** They're hidden from recall
+  (`deleted_at IS NULL` filter in `findSimilar` / `listRecent` /
+  `textSearch`) AND consulted by the dedup-on-write check
+  (`findSimilarTombstones`).  A "forgotten" row therefore continues to
+  influence behavior --- it prevents a previously-corrected fact from
+  silently re-entering the store.  Hard delete is the only way to
+  truly remove a memory's influence.
+- **`forget(hard_delete=true, reason=...)` is rejected.** A hard
+  delete drops the row entirely, so there's nowhere to record the
+  tombstone metadata.  The combination is treated as `INVALID_INPUT`
+  so callers don't think they recorded a reason when they didn't.
 
 ---
 

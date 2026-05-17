@@ -36,4 +36,11 @@ public final class MemoryRow {
     // diagnostic listing flags say otherwise).
     public Date     expiresAt;
     public Date     lastConfirmedAt;
+
+    // Tombstone metadata (set when the row is soft-deleted via a
+    // correction).  Tombstones don't show up in normal recall but are
+    // consulted by the dedup-on-write check so a previously-corrected
+    // fact doesn't re-enter the store.
+    public String   forgetReason;
+    public Long     replacedById;
 }
