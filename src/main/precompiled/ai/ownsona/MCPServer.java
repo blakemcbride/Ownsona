@@ -1,6 +1,7 @@
 package ai.ownsona;
 
 import ai.ownsona.embeddings.OpenAIEmbeddingProvider;
+import ai.ownsona.embeddings.ReembedJob;
 import ai.ownsona.migrations.DbMigrator;
 import ai.ownsona.memory.BatchRememberItem;
 import ai.ownsona.memory.BatchRememberResult;
@@ -81,12 +82,11 @@ public class MCPServer extends MCPServerBase {
         // at first request.
         Configurator.setLevel("ai.ownsona", Level.INFO);
         final MemoryRepository repo = new MemoryRepository();
-        SERVICE = new MemoryService(
-                repo,
-                new OpenAIEmbeddingProvider(
-                        Config.EMBEDDING_API_KEY,
-                        Config.EMBEDDING_MODEL,
-                        Config.EMBEDDING_DIMENSIONS));
+        final OpenAIEmbeddingProvider provider = new OpenAIEmbeddingProvider(
+                Config.EMBEDDING_API_KEY,
+                Config.EMBEDDING_MODEL,
+                Config.EMBEDDING_DIMENSIONS);
+        SERVICE = new MemoryService(repo, provider);
         logger.info("Ownsona MCP server class loaded; server={} version={} model={} dims={}",
                 SERVER_NAME, SERVER_VERSION, Config.EMBEDDING_MODEL, Config.EMBEDDING_DIMENSIONS);
         try {
@@ -101,6 +101,11 @@ public class MCPServer extends MCPServerBase {
             // registry → no-op.  Per-row failures are isolated and don't
             // throw (rollout plan guardrail #10).
             new RecordMigrator(repo).runOnStartup();
+            // After the schema and per-row shape are current, optionally
+            // re-embed rows whose (provider, model) doesn't match the
+            // active config.  No-op when REEMBED_ON_STARTUP isn't true.
+            // Auto-disables the flag on clean completion.
+            new ReembedJob(repo, provider).runOnStartup();
         } finally {
             // Always drop to ERROR, even if a migrator threw, so a
             // subsequent retry doesn't accumulate INFO-level noise.

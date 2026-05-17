@@ -237,6 +237,77 @@ public final class MemoryRepository {
     }
 
     /**
+     * Fetch up to {@code limit} memory ids that need re-embedding under the
+     * active provider/model, paginating with {@code id > lastId}.  A row
+     * needs re-embedding if its {@code embedding_provider} or
+     * {@code embedding_model} doesn't match the active config, or its
+     * {@code embedding} is NULL (which happens after a different-dim
+     * column resize).  Soft-deleted rows ARE included --- tombstones still
+     * participate in dedup-on-write, so their vectors must move into the
+     * new model's space.
+     *
+     * <p>Used by {@code ReembedJob}.  Returns ids across all users.
+     */
+    public List<Long> findStaleEmbeddingIds(Connection db, String activeProvider, String activeModel,
+                                            long lastId, int limit) throws Exception {
+        final List<Record> rows = db.fetchAll(
+                "SELECT id FROM memories " +
+                "WHERE id > ? " +
+                "  AND (embedding IS NULL " +
+                "       OR embedding_provider IS DISTINCT FROM ? " +
+                "       OR embedding_model    IS DISTINCT FROM ?) " +
+                "ORDER BY id LIMIT ?",
+                lastId, activeProvider, activeModel, limit);
+        final List<Long> ids = new ArrayList<>(rows.size());
+        for (Record r : rows)
+            ids.add(r.getLong("id"));
+        return ids;
+    }
+
+    /**
+     * Convenience: fetch id+text for a list of ids, preserving id order.
+     * Returns a list of {@code String[]{idAsString, text}} pairs because
+     * Kiss's Record API doesn't expose a typed pair; callers parse the id
+     * back to long.  Hard-deleted rows since the scan are simply absent.
+     */
+    public List<Object[]> fetchTextsByIds(Connection db, List<Long> ids) throws Exception {
+        if (ids == null || ids.isEmpty())
+            return new ArrayList<>();
+        final StringBuilder sb = new StringBuilder(
+                "SELECT id, text FROM memories WHERE id IN (");
+        for (int i = 0; i < ids.size(); i++) {
+            if (i > 0)
+                sb.append(',');
+            sb.append('?');
+        }
+        sb.append(") ORDER BY id");
+        final List<Record> rows = db.fetchAll(sb.toString(), ids.toArray());
+        final List<Object[]> out = new ArrayList<>(rows.size());
+        for (Record r : rows)
+            out.add(new Object[] { r.getLong("id"), r.getString("text") });
+        return out;
+    }
+
+    /**
+     * Write a freshly computed embedding back to a row, stamping the new
+     * provider/model.  Other columns are untouched --- in particular
+     * {@code text}, {@code normalized_text}, and {@code deleted_at} are
+     * left alone so a re-embed neither resurrects a tombstone nor alters
+     * dedup state.  Used by {@code ReembedJob}.
+     */
+    public void setEmbedding(Connection db, long id, float[] embedding,
+                             String embeddingProvider, String embeddingModel) throws Exception {
+        db.execute(
+                "UPDATE memories SET embedding = ?::vector, " +
+                "embedding_provider = ?, embedding_model = ? " +
+                "WHERE id = ?",
+                VectorFormat.toLiteral(embedding),
+                embeddingProvider,
+                embeddingModel,
+                id);
+    }
+
+    /**
      * Plain text substring search (case-insensitive).  Useful for diagnostics and direct lookup.
      */
     public List<MemoryRow> textSearch(Connection db, String userId, String pattern, int limit) throws Exception {

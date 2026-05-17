@@ -469,6 +469,125 @@ class MemoryRepositoryIntegrationTest {
     }
 
     // -------------------------------------------------------------------------------
+    // ReembedJob support methods (findStaleEmbeddingIds / fetchTextsByIds /
+    // setEmbedding).  Pure-SQL coverage --- the walker itself is exercised
+    // in production.
+
+    @Test
+    void findStaleEmbeddingIds_returnsRowsWithMismatchedProviderOrModel() throws Exception {
+        final long matching     = insert("matching",     new String[]{}); // provider=mock, model=embedder.modelName()
+        final long otherProvider = insertWithProvider("other-provider", "wrong-provider", "mock-sha256");
+        final long otherModel    = insertWithProvider("other-model",    "mock",            "old-model");
+        final long bothOther     = insertWithProvider("both-other",     "wrong-provider", "old-model");
+
+        final List<Long> stale = repo.findStaleEmbeddingIds(db, "mock", "mock-sha256", -1, 100);
+
+        // The "matching" row should not appear; everything else does.
+        assertFalse(stale.contains(matching));
+        assertTrue(stale.contains(otherProvider));
+        assertTrue(stale.contains(otherModel));
+        assertTrue(stale.contains(bothOther));
+    }
+
+    @Test
+    void findStaleEmbeddingIds_paginatesViaLastId() throws Exception {
+        // Insert three rows that all need re-embedding.
+        final long a = insertWithProvider("a", "wrong", "x");
+        final long b = insertWithProvider("b", "wrong", "x");
+        final long c = insertWithProvider("c", "wrong", "x");
+
+        final List<Long> page1 = repo.findStaleEmbeddingIds(db, "mock", "mock-sha256", -1, 2);
+        assertEquals(2, page1.size());
+        assertEquals(a, (long) page1.get(0));
+        assertEquals(b, (long) page1.get(1));
+
+        final List<Long> page2 = repo.findStaleEmbeddingIds(db, "mock", "mock-sha256", page1.get(1), 2);
+        assertEquals(1, page2.size());
+        assertEquals(c, (long) page2.get(0));
+
+        final List<Long> page3 = repo.findStaleEmbeddingIds(db, "mock", "mock-sha256", page2.get(0), 2);
+        assertEquals(0, page3.size());
+    }
+
+    @Test
+    void findStaleEmbeddingIds_includesSoftDeletedRows() throws Exception {
+        // Tombstones must move with the rest of the store --- they
+        // participate in dedup-on-write via findSimilarTombstones.
+        final long tombstoned = insertWithProvider("tombstoned", "wrong", "x");
+        repo.softDelete(db, tombstoned, "old", null);
+
+        final List<Long> stale = repo.findStaleEmbeddingIds(db, "mock", "mock-sha256", -1, 100);
+        assertTrue(stale.contains(tombstoned));
+    }
+
+    @Test
+    void fetchTextsByIds_returnsIdsAndTextsInOrder() throws Exception {
+        final long a = insert("alpha", new String[]{});
+        final long b = insert("bravo", new String[]{});
+
+        final List<Object[]> pairs = repo.fetchTextsByIds(db, List.of(a, b));
+        assertEquals(2, pairs.size());
+        assertEquals(a, pairs.get(0)[0]);
+        assertEquals("alpha", pairs.get(0)[1]);
+        assertEquals(b, pairs.get(1)[0]);
+        assertEquals("bravo", pairs.get(1)[1]);
+    }
+
+    @Test
+    void fetchTextsByIds_handlesHardDeletedIdsAsAbsent() throws Exception {
+        final long a = insert("alpha", new String[]{});
+        final long b = insert("bravo", new String[]{});
+        repo.hardDelete(db, a);
+
+        final List<Object[]> pairs = repo.fetchTextsByIds(db, List.of(a, b));
+        assertEquals(1, pairs.size());
+        assertEquals(b, pairs.get(0)[0]);
+    }
+
+    @Test
+    void setEmbedding_stampsNewProviderAndModelLeavingTextUntouched() throws Exception {
+        final long id = insertWithProvider("hello", "old-provider", "old-model");
+        final float[] newVec = embedder.embed("hello, again");  // any vector of the right dim
+
+        repo.setEmbedding(db, id, newVec, "new-provider", "new-model");
+
+        final MemoryRow after = repo.findById(db, id);
+        assertEquals("hello", after.text);  // text untouched
+        assertEquals("new-provider", after.embeddingProvider);
+        assertEquals("new-model", after.embeddingModel);
+
+        // And the row no longer shows up as stale under the new (provider, model).
+        final List<Long> stale = repo.findStaleEmbeddingIds(db, "new-provider", "new-model", -1, 100);
+        assertFalse(stale.contains(id));
+    }
+
+    @Test
+    void setEmbedding_leavesSoftDeletedRowsSoftDeleted() throws Exception {
+        final long id = insertWithProvider("hello", "old", "x");
+        repo.softDelete(db, id, "obsolete", null);
+
+        final float[] newVec = embedder.embed("hello");
+        repo.setEmbedding(db, id, newVec, "new", "y");
+
+        final MemoryRow after = repo.findById(db, id);
+        assertNotNull(after.deletedAt);  // tombstone preserved
+        assertEquals("new", after.embeddingProvider);
+    }
+
+    private long insertWithProvider(String text, String provider, String model) throws Exception {
+        final MemoryInsert m = new MemoryInsert();
+        m.userId            = USER_ID;
+        m.text              = text;
+        m.normalizedText    = TextNormalizer.normalize(text);
+        m.embedding         = embedder.embed(text);
+        m.tags              = new String[]{};
+        m.importance        = 0.5;
+        m.embeddingProvider = provider;
+        m.embeddingModel    = model;
+        return repo.insert(db, m);
+    }
+
+    // -------------------------------------------------------------------------------
 
     private long insert(String text, String[] tags) throws Exception {
         final MemoryInsert m = new MemoryInsert();

@@ -62,6 +62,13 @@ MAX_TEXT_CHARS = 16000
 # Maximum items per remember_batch call.
 MAX_BATCH_SIZE = 200
 
+# Switch to true alongside a new EMBEDDING_MODEL / EMBEDDING_PROVIDER /
+# EMBEDDING_DIMENSIONS to re-embed every stored memory under the new
+# model on next startup.  See REEMBED.md for the full procedure.
+# After a clean run the server auto-flips this back to false so a
+# subsequent restart doesn't re-trigger.
+REEMBED_ON_STARTUP = false
+
 # ===== DATABASE CONNECTION POOL SETTINGS =====
 # These settings control the C3P0 connection pool behavior
 # Uncomment and adjust for production/large applications

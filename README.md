@@ -120,6 +120,7 @@ shape, every subcommand's flags, and the `teach`-from-prose workflow.
 | [`OpenAI.md`](OpenAI.md) | Wiring Ownsona into ChatGPT and the OpenAI Responses API |
 | [`OWNSONA_SPEC.md`](OWNSONA_SPEC.md) | Functional spec, schema, security model |
 | [`CLI.md`](CLI.md) | Portable command-line client: build, configure, every subcommand, and the LLM-driven `teach`-from-prose workflow |
+| [`REEMBED.md`](REEMBED.md) | Switching the embedding model or provider: when/why, the same-dim flow, the different-dim flow, monitoring & recovery |
 
 ## Quick Start
 
