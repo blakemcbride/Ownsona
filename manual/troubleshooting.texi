@@ -1,0 +1,318 @@
+@node Troubleshooting
+@chapter Troubleshooting
+@cindex troubleshooting
+
+Symptom-to-cause lookups for problems that come up in practice.  Each
+entry names the failure mode, where to look, and what to fix.
+
+@menu
+* Server won't start::
+* MCP returns 401::
+* MCP returns 500 or EMBEDDING_ERROR::
+* No matches from recall::
+* Tomcat won't bind 443::
+* Deploy is slow or first request 404s::
+* Migration failures::
+* Re-embed walker problems::
+* Backup problems::
+* CLI: build failures::
+* CLI: server unreachable::
+@end menu
+
+@node Server won't start
+@section Server won't start
+@cindex won't start
+
+@subsection Symptom
+
+@code{systemctl status ownsona.service} shows the service failed, or
+the servlet refuses to load.
+
+@subsection Look in
+
+@example
+journalctl -u ownsona.service -e
+journalctl -u ownsona.service | grep -i exception
+@end example
+
+@subsection Common causes
+
+@table @asis
+@item Missing required @file{application.ini} key
+The static initializer fails fast on
+@code{Required application.ini key X is not set}.  Fix the ini in the
+source tree, rebuild, redeploy.
+
+@item Database unreachable
+@code{Connection refused} or @code{authentication failed} during pool
+init.  Verify with @code{psql -U ownsona -d ownsona} from the same
+host.
+
+@item Auto-migrator can't @code{CREATE TABLE}
+@code{migrator bootstrap failed: permission denied for schema public}.
+The @code{ownsona} role lacks @code{CREATE ON SCHEMA public}.  Run
+@code{sql/migrator_prep.sql} as the @code{postgres} superuser
+(@pxref{Upgrading an existing install}).
+
+@item Auto-migrator refuses to start
+@code{Database is at version N but code expects M --- refusing}.
+The DB is newer than the code (rollback scenario, or someone deployed
+an older WAR).  Either upgrade the code or restore the DB from a
+snapshot at version @code{M}.
+@end table
+
+@node MCP returns 401
+@section MCP returns 401
+@cindex AUTH_FAILED
+@cindex bearer token
+
+Every request comes back @code{401 Unauthorized}.
+
+@subsection Possible causes
+
+@itemize @bullet
+@item The bearer token in the client doesn't match
+@code{OWNSONA_API_TOKEN} in the deployed @file{application.ini}.
+
+@item You edited the source @file{application.ini} but didn't rebuild
+the WAR.  The deployed WAR still has the old token baked in.  Fix:
+@code{./bld -v build && ./bld war && cp work/Kiss.war
+/home/ownsona/tomcat/webapps/ROOT.war}.
+
+@item The client is sending the token to a stale URL (e.g.@: pointing
+at a test deployment after you rotated the token).
+@end itemize
+
+@subsection Verify
+
+@example
+curl -sS -X POST https://<host>/mcp \
+    -H "Authorization: Bearer $OWNSONA_API_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '@{"jsonrpc":"2.0","id":1,"method":"initialize","params":@{@}@}'
+@end example
+
+@code{200} with a server-info payload means the server is healthy and
+the @code{$OWNSONA_API_TOKEN} env var matches.
+
+@node MCP returns 500 or EMBEDDING_ERROR
+@section MCP returns 500 or @code{EMBEDDING_ERROR}
+
+A @code{remember} or @code{recall} call fails.
+
+@subsection Look in
+
+@example
+journalctl -u ownsona.service | tail -100
+@end example
+
+@subsection Common causes
+
+@itemize @bullet
+@item @b{OpenAI key invalid / quota exhausted.}  Response detail says
+@code{insufficient_quota} or @code{invalid_api_key}.  Top up the
+account or rotate the key in @file{application.ini}.
+
+@item @b{Embedding endpoint URL wrong.}  Connection refused or HTTP
+404.  Verify @code{EMBEDDING_ENDPOINT}.
+
+@item @b{Vector dimension mismatch.}
+@code{ERROR: expected 1536 dimensions, not 3072}.  The
+@code{EMBEDDING_DIMENSIONS} in @file{application.ini} doesn't match
+the @code{vector(N)} column type.  Fix one or the other.
+
+@item @b{Database connection pool exhausted.}  Symptom is hangs
+followed by timeouts.  Restart the service as a quick fix; look for
+connection leaks if it recurs.
+@end itemize
+
+@node No matches from recall
+@section No matches from @code{recall}
+
+@code{recall} returns @code{"matches": []} for a query that should
+clearly hit.
+
+@subsection Cause matrix
+
+@itemize @bullet
+@item @b{Store is empty.}  @code{ownsona list --limit 1} returns
+nothing.  Add facts first.
+
+@item @b{Tag filter excludes everything.}  The @code{tags} parameter
+is a strict filter --- a memory must have at least one of the listed
+tags to qualify.  Remove the filter or fix the tag list.
+
+@item @b{The fact was soft-deleted.}  Pass
+@code{ownsona list --include-deleted} to see tombstones.  If the row
+is there with a non-null @code{deleted_at}, it was forgotten.
+
+@item @b{The fact expired.}  @code{recall} excludes memories where
+@code{expires_at} has passed.  Check via SQL:
+
+@example
+SELECT id, text, expires_at FROM memories
+WHERE expires_at IS NOT NULL AND expires_at < now();
+@end example
+
+@item @b{Embedding model changed without re-embed.}  If you switched
+@code{EMBEDDING_MODEL} but @code{REEMBED_ON_STARTUP} was never set to
+@code{true}, old rows have vectors in the old model's space, query
+vectors are in the new model's space, and cosine distance is noise.
+Trigger a re-embed (@pxref{Embedding Migration}).
+@end itemize
+
+@node Tomcat won't bind 443
+@section Tomcat won't bind 443
+
+@subsection Symptom
+
+@code{BindException: Permission denied} in
+@code{journalctl -u ownsona.service}, or @code{Address already in use}.
+
+@subsection Causes
+
+@itemize @bullet
+@item @b{Missing @code{AmbientCapabilities}.}  Check
+@code{/etc/systemd/system/ownsona.service} has
+@code{AmbientCapabilities=CAP_NET_BIND_SERVICE}.  If not, the unit was
+edited and lost the cap.  Restore it from @file{sql/ownsona.service}.
+
+@item @b{Another process holds the port.}  @code{sudo ss -tlnp | grep :443}.
+Often a leftover manually-launched Tomcat (@code{startup.sh}).  Kill
+it.
+
+@item @b{Keystore file missing or unreadable by the @code{ownsona}
+user.}  @code{ls -l /home/ownsona/tomcat/conf/tomcat.p12}.  Should be
+@code{owner=ownsona, mode 600}.
+@end itemize
+
+@node Deploy is slow or first request 404s
+@section Deploy is slow or first request 404s
+
+@subsection Cause
+
+Tomcat's @code{autoDeploy} window: after you copy @code{Kiss.war} into
+@file{webapps/}, Tomcat takes ~10 s to undeploy the old app and
+deploy the new one.  During that window every request is 404.
+
+@subsection Action
+
+Wait.  If it's longer than ~30 s, check
+@code{tomcat/logs/localhost.<date>.log} for an exception in the
+servlet's static initializer (most often: missing
+@file{application.ini} key, or @code{unpackWARs="false"} in
+@code{server.xml}).
+
+@node Migration failures
+@section Migration failures
+
+@subsection Symptom
+
+Journal shows:
+
+@example
+migration v=N name="..." failed: ...
+@end example
+
+The servlet refuses to load.
+
+@subsection Diagnosis
+
+The failed migration's transaction rolled back, so the database is at
+the prior version.  Look at the underlying exception
+(@code{permission denied}, @code{column already exists}, etc.) and
+fix the underlying cause.  Once the fix is in place, redeploy --- the
+auto-migrator will retry the same migration from the same point.
+
+The most common cause for first-time installs is missing privileges.
+Run @code{sql/migrator_prep.sql} as the @code{postgres} superuser
+(@pxref{Upgrading an existing install}).
+
+@node Re-embed walker problems
+@section Re-embed walker problems
+
+Covered in detail in @ref{Recovery after a failed run}.  Summary:
+
+@itemize @bullet
+@item The walker is resumable.  Killing it and restarting just picks
+up from the next stale row.
+
+@item @code{REEMBED_ON_STARTUP=true} but no rows show up as stale?
+The walker is doing the right thing --- if every row already matches
+the active provider/model, there's nothing to do.  The walker logs
+@code{reembed: done count=0} and flips the flag.
+
+@item Walker died mid-run?  Look for the exception; the most common
+cause is an embedding-provider error (key invalid, rate-limited,
+endpoint unreachable).  Fix and restart.
+@end itemize
+
+@node Backup problems
+@section Backup problems
+
+@subsection Symptom
+
+@code{ownsona-backup.service} timer fires but no file lands in
+@file{/mnt/backups/}.
+
+@subsection Diagnosis
+
+@example
+sudo tail -100 /var/log/ownsona-backup.log
+mountpoint /mnt/backups       # is the bucket mounted?
+sudo /etc/mount-s3fs           # remount if not
+@end example
+
+If @code{s3fs} fails to mount, the credentials in
+@file{/etc/passwd-s3fs} are wrong, the bucket name is wrong, or the
+IAM user lacks
+@code{s3:GetObject}/@code{s3:PutObject}/@code{s3:ListBucket}.
+
+@node CLI: build failures
+@section CLI: build failures
+
+@subsection @code{curl.h: No such file or directory}
+
+libcurl development headers aren't installed.
+
+@itemize @bullet
+@item Fedora: @code{sudo dnf install libcurl-devel}
+@item Debian/Ubuntu: @code{sudo apt install libcurl4-openssl-dev}
+@item macOS: @code{brew install curl}
+@item MSYS2: @code{pacman -S mingw-w64-ucrt-x86_64-curl}
+@end itemize
+
+@subsection @code{undefined reference to curl_easy_init}
+
+The link step couldn't find libcurl.  Should normally be auto-detected;
+if not, the Makefile falls back to dynamic linking and prints a
+warning.  Check @code{which curl-config} returns a path.
+
+@subsection Build succeeds but binary segfaults
+
+Very rare.  Usually means an ABI mismatch between libcurl headers used
+to compile and the libcurl shared library found at runtime.  Rebuild
+on the same machine you'll run on, or statically link.
+
+@node CLI: server unreachable
+@section CLI: server unreachable
+
+@subsection Symptom
+
+Every subcommand fails with a connection error.
+
+@subsection Diagnosis
+
+@example
+ownsona --json list 2>&1 | head -20
+@end example
+
+@itemize @bullet
+@item @code{Could not resolve host}: DNS or @code{server_url} typo.
+@item @code{Connection refused}: nothing listening on the port (server
+down?).
+@item @code{SSL certificate problem}: hostname mismatch, expired cert,
+self-signed cert without a trust anchor.  Verify with @code{curl -I
+https://<host>/mcp}.
+@item @code{401 Unauthorized}: bearer token wrong.
+@end itemize

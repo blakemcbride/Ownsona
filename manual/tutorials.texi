@@ -1,0 +1,227 @@
+@node Tutorials
+@chapter Tutorials
+@cindex tutorials
+@cindex walkthroughs
+
+End-to-end walkthroughs for tasks that span multiple chapters.  Each
+tutorial is self-contained but links back into the reference chapters
+for detail.
+
+@menu
+* First memories::               Start an empty store, add a few facts, recall.
+* Importing from a journal::     Bulk-load a long-form text via `teach`.
+* Correcting a fact with a trail::    Forget + replace, leaving a tombstone.
+* Switching embedding providers::     End-to-end re-embed walkthrough.
+* Auditing what's stored::       List, search, group-by SQL.
+@end menu
+
+@node First memories
+@section First memories
+
+Goal: confirm the whole pipeline works end-to-end by storing your
+first three facts and recalling them.
+
+Assume the server is up and you've built the CLI (@pxref{The
+Command-Line Client}).
+
+@example
+ownsona add "My dog's name is Mochi."             --tags family,pets
+ownsona add "I prefer concise answers."           --tags preferences
+ownsona add "The Q3 forecast lives in ~/work/q3/" --tags work
+@end example
+
+Each call should print @code{Ok (id=N)}.
+
+Recall:
+
+@example
+ownsona query "what's my dog's name"
+@end example
+
+Should return the Mochi memory with a high score (around 0.85+).
+
+@example
+ownsona query "how should you answer me"
+@end example
+
+Should return the ``concise answers'' memory.  Note that the score is
+lower (around 0.5--0.6) because the query is more abstract --- semantic
+recall, not keyword match.
+
+List everything:
+
+@example
+ownsona list
+@end example
+
+Three rows, newest first.
+
+@node Importing from a journal
+@section Importing from a journal
+
+Goal: hand the @code{teach} subcommand a multi-thousand-word document
+and let it extract durable facts.
+
+Suppose @file{my-journal.txt} contains 30 KB of personal notes
+(travel, projects, family events, books read, etc.).
+
+@b{Step 1: dry-run, write to file for review.}
+
+@example
+ownsona teach my-journal.txt --subject Blake --output review.json
+@end example
+
+Open @file{review.json} in an editor.  You'll see a JSON array of
+facts in third-person.  Cull anything that's:
+
+@itemize @bullet
+@item Already in the store (re-runs of @code{teach} won't double-up
+thanks to @code{skip_if_near} dedup, but reviewing keeps the import
+clean).
+@item Time-sensitive and unlikely to stay true.
+@item Phrased awkwardly --- edit in place.
+@item Plain wrong (the LLM occasionally misreads context).
+@end itemize
+
+@b{Step 2: commit via @code{import}.}
+
+@example
+ownsona import review.json --dedup skip_if_near
+@end example
+
+You'll see a summary like @code{inserted=42 duplicates=3 errors=0
+(total=45)}.  The 3 duplicates are facts that already existed; nothing
+got double-stored.
+
+@b{Step 3: spot-check.}
+
+@example
+ownsona query "<something that should now be remembered>"
+@end example
+
+The new fact should be the top hit.
+
+@node Correcting a fact with a trail
+@section Correcting a fact with a trail
+
+Goal: replace an outdated fact, leave a tombstone that records the
+correction.
+
+Suppose memory id 42 says ``My dog's name is Mochi'' but the dog
+actually went by Coco from day one.  You want to:
+
+@itemize @bullet
+@item Add the correct fact.
+@item Forget the wrong one.
+@item Leave a trail so future @code{remember} calls about ``my dog's
+name'' will be flagged with @code{previously_corrected}.
+@end itemize
+
+@example
+# Add the correct fact, getting back its new id.
+ownsona add "My dog's name is Coco." --dedup skip_if_near
+# Output: Ok (id=99)
+
+# Forget the old fact, recording why and pointing at the replacement.
+ownsona forget 42 --reason "misremembered name" --replaced-by 99
+# Output: Forgotten (id=42)
+@end example
+
+Now if anyone tries to @code{remember "Mochi is my dog's name"} (or
+something semantically similar), the response will include a
+@code{previously_corrected} array showing the tombstone with its
+@code{forget_reason} and @code{replaced_by_id}.  The calling LLM can
+warn before re-introducing the corrected fact.
+
+@node Switching embedding providers
+@section Switching embedding providers
+
+Goal: move from @code{text-embedding-3-small} (1536-dim) to
+@code{text-embedding-3-large} at the same 1536-dim.
+
+This is a same-dimension switch, so no schema change is needed.  The
+full procedure lives in @ref{Embedding Migration}; the summary:
+
+@enumerate
+@item Back up the database.
+
+@item Edit @file{<tomcat>/webapps/ROOT/WEB-INF/backend/application.ini}:
+
+@example
+EMBEDDING_MODEL    = text-embedding-3-large
+REEMBED_ON_STARTUP = true
+@end example
+
+@item Restart:
+
+@example
+sudo systemctl restart ownsona.service
+@end example
+
+@item Watch the log:
+
+@example
+journalctl -u ownsona.service -f | grep reembed
+@end example
+
+@item Verify all rows moved:
+
+@example
+sudo -u ownsona psql -d ownsona -c \
+  "SELECT embedding_model, count(*) FROM memories GROUP BY 1;"
+@end example
+
+@item Update the source-tree @file{application.ini} so the next WAR
+build matches.
+@end enumerate
+
+A different-dimension switch adds one step: write a migration class
+that resizes the vector column.  See @ref{Procedure B: different-dimension switch}.
+
+@node Auditing what's stored
+@section Auditing what's stored
+
+Goal: get a high-level picture of what's in the store.
+
+@subsection Count by tag
+
+@example
+sudo -u ownsona psql -d ownsona <<'EOF'
+SELECT unnest(tags) AS tag, count(*) AS n
+FROM memories
+WHERE deleted_at IS NULL
+GROUP BY 1
+ORDER BY n DESC;
+EOF
+@end example
+
+@subsection Count by capture mode
+
+How many memories were explicitly requested vs.@: inferred by the LLM:
+
+@example
+SELECT metadata->>'capture_mode' AS mode, count(*)
+FROM memories
+WHERE deleted_at IS NULL
+GROUP BY 1;
+@end example
+
+@subsection Oldest and newest memories
+
+@example
+(SELECT id, text, created_at FROM memories WHERE deleted_at IS NULL ORDER BY created_at LIMIT 3)
+UNION ALL
+(SELECT id, text, created_at FROM memories WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 3);
+@end example
+
+@subsection Tombstone history
+
+@example
+SELECT id, text, deleted_at, forget_reason, replaced_by_id
+FROM memories
+WHERE deleted_at IS NOT NULL
+ORDER BY deleted_at DESC;
+@end example
+
+These are operator queries --- they bypass the MCP layer entirely,
+which is exactly the point: they're for you, not for the LLM.

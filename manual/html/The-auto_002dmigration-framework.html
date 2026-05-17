@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>The auto-migration framework (OwnSona Manual)</title>
+
+<meta name="description" content="The auto-migration framework (OwnSona Manual)">
+<meta name="keywords" content="The auto-migration framework (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Server-Internals.html" rel="up" title="Server Internals">
+<link href="The-per_002drecord-upgrader-framework.html" rel="next" title="The per-record upgrader framework">
+<link href="Dedup_002don_002dwrite-and-tombstones.html" rel="prev" title="Dedup-on-write and tombstones">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+span:hover a.copiable-link {visibility: visible}
+ul.mark-bullet {list-style-type: disc}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="The-auto_002dmigration-framework">
+<div class="nav-panel">
+<p>
+Next: <a href="The-per_002drecord-upgrader-framework.html" accesskey="n" rel="next">The per-record upgrader framework</a>, Previous: <a href="Dedup_002don_002dwrite-and-tombstones.html" accesskey="p" rel="prev">Dedup-on-write and tombstones</a>, Up: <a href="Server-Internals.html" accesskey="u" rel="up">Server Internals</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="The-auto_002dmigration-framework-1"><span>6.7 The auto-migration framework<a class="copiable-link" href="#The-auto_002dmigration-framework-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-DbMigrator"></a>
+<a class="index-entry-id" id="index-CURRENT_005fDB_005fVERSION"></a>
+<a class="index-entry-id" id="index-Migration"></a>
+
+<p>OwnSona&rsquo;s schema evolves through a Java-class-based auto-migration
+framework that runs at servlet startup.
+</p>
+<ul class="mini-toc">
+<li><a href="#Components" accesskey="1">Components</a></li>
+<li><a href="#Invariants" accesskey="2">Invariants</a></li>
+</ul>
+<div class="subsection-level-extent" id="Components">
+<h4 class="subsection"><span>6.7.1 Components<a class="copiable-link" href="#Components"> &para;</a></span></h4>
+
+<dl class="table">
+<dt><code class="code">Migration</code> interface</dt>
+<dd><p>A single <code class="code">apply(Connection db)</code> method, plus <code class="code">version()</code>
+(target version) and <code class="code">name()</code> (for logs).
+</p>
+</dd>
+<dt><code class="code">MigrationRegistry</code></dt>
+<dd><p>A static ordered list of <code class="code">Migration</code> instances plus
+<code class="code">CURRENT_DB_VERSION</code>.  The two must stay in lockstep; the
+framework fails fast at startup otherwise.
+</p>
+</dd>
+<dt><code class="code">DbMigrator</code></dt>
+<dd><p>Runs at <code class="code">MCPServer.&lt;clinit&gt;</code> via <code class="code">runOnStartup()</code>.  Creates
+a <code class="code">db_version</code> bookkeeping table on first run, finds the
+gap between the database&rsquo;s current version and
+<code class="code">CURRENT_DB_VERSION</code>, applies each missing migration in a
+separate transaction, recording the new version after each success.
+</p>
+</dd>
+<dt><code class="code">Migration002AddRecordVersion</code>, ...</dt>
+<dd><p>One class per applied change.  Once shipped, a migration is permanent
+&mdash; never edit a deployed one; write a new migration that fixes or
+supersedes it.
+</p></dd>
+</dl>
+
+</div>
+<div class="subsection-level-extent" id="Invariants">
+<h4 class="subsection"><span>6.7.2 Invariants<a class="copiable-link" href="#Invariants"> &para;</a></span></h4>
+
+<ul class="itemize mark-bullet">
+<li><b class="b">Migrations are additive.</b>  Add columns, indexes, nullable
+fields.  Never DROP, RENAME, or rewrite existing data.  The narrow
+exception is the embedding-dim change (see <a class="pxref" href="Embedding-Migration.html">Embedding Migration</a>),
+which clears derived data that the walker immediately rebuilds.
+
+</li><li><b class="b">Version 1 is the baseline</b> established by
+<samp class="file">sql/001_init.sql</samp>.  The first <code class="code">Migration</code> class is at
+version 2.
+
+</li><li><b class="b">Each migration runs in its own transaction.</b>  Failure rolls
+that migration back; <code class="code">db_version</code> stays at the prior value; next
+startup retries.
+
+</li><li><b class="b">Refuses to start</b> if the database&rsquo;s version is higher than
+the code expects (rollback scenario).  Restore from backup or upgrade
+the code.
+</li></ul>
+
+</div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="The-per_002drecord-upgrader-framework.html">The per-record upgrader framework</a>, Previous: <a href="Dedup_002don_002dwrite-and-tombstones.html">Dedup-on-write and tombstones</a>, Up: <a href="Server-Internals.html">Server Internals</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

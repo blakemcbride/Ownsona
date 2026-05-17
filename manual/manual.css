@@ -1,0 +1,110 @@
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}

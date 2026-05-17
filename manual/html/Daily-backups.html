@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>Daily backups (OwnSona Manual)</title>
+
+<meta name="description" content="Daily backups (OwnSona Manual)">
+<meta name="keywords" content="Daily backups (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Installation.html" rel="up" title="Installation">
+<link href="Restore-from-backup.html" rel="next" title="Restore from backup">
+<link href="Smoke-test-the-install.html" rel="prev" title="Smoke test the install">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+div.example {margin-left: 3.2em}
+span:hover a.copiable-link {visibility: visible}
+ul.mark-bullet {list-style-type: disc}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="Daily-backups">
+<div class="nav-panel">
+<p>
+Next: <a href="Restore-from-backup.html" accesskey="n" rel="next">Restore from backup</a>, Previous: <a href="Smoke-test-the-install.html" accesskey="p" rel="prev">Smoke test</a>, Up: <a href="Installation.html" accesskey="u" rel="up">Installation</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="Daily-backups-1"><span>3.13 Daily backups<a class="copiable-link" href="#Daily-backups-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-backups"></a>
+<a class="index-entry-id" id="index-s3fs"></a>
+
+<p>Backups go to an S3 bucket mounted at <samp class="file">/mnt/backups</samp> via
+<code class="code">s3fs</code>, triggered by a <code class="code">systemd</code> timer at 03:00 daily.  Two
+files per day:
+</p>
+<ul class="itemize mark-bullet">
+<li><code class="code">files-YYYY-MM-DD.tar.gz</code> &mdash; <samp class="file">/home</samp>, <samp class="file">/root</samp>,
+<samp class="file">/etc</samp>, <samp class="file">/usr/local</samp>, <samp class="file">/opt</samp>, <samp class="file">/var/spool/cron</samp>,
+plus a <samp class="file">/var/lib/ownsona-backup/</samp> metadata bundle (package list,
+crontabs, enabled units, OS info).
+</li><li><code class="code">database-YYYY-MM-DD.gz</code> &mdash; <code class="code">pg_dumpall</code> output (every
+database <b class="b">and</b> global state: roles, passwords, GRANTs, tablespaces).
+</li></ul>
+
+<p>Retention: every backup &le; 30 days old, plus the last day of every
+month forever.
+</p>
+<ul class="mini-toc">
+<li><a href="#Configure-s3fs" accesskey="1">Configure <code class="code">s3fs</code></a></li>
+<li><a href="#Install-the-backup-timer" accesskey="2">Install the backup timer</a></li>
+</ul>
+<div class="subsection-level-extent" id="Configure-s3fs">
+<h4 class="subsection"><span>3.13.1 Configure <code class="code">s3fs</code><a class="copiable-link" href="#Configure-s3fs"> &para;</a></span></h4>
+
+<p>Create an IAM user with
+<code class="code">s3:GetObject</code>/<code class="code">s3:PutObject</code>/<code class="code">s3:ListBucket</code> on the
+bucket.  Store its credentials in <samp class="file">/etc/passwd-s3fs</samp>:
+</p>
+<div class="example">
+<pre class="example-preformatted">echo &quot;&lt;bucket&gt;:&lt;KEY&gt;:&lt;SECRET&gt;&quot; | sudo tee /etc/passwd-s3fs
+sudo chmod 600 /etc/passwd-s3fs
+
+sudo mkdir -p /mnt/backups
+</pre></div>
+
+<p><samp class="file">/etc/mount-s3fs</samp> (root-owned, mode 0700) is a wrapper that mounts
+the bucket if it isn&rsquo;t already mounted:
+</p>
+<div class="example">
+<pre class="example-preformatted">#!/bin/sh
+mountpoint -q /mnt/backups || \
+    /usr/bin/s3fs &lt;bucket&gt; /mnt/backups \
+        -o passwd_file=/etc/passwd-s3fs \
+        -o allow_other \
+        -o use_path_request_style
+</pre></div>
+
+<div class="example">
+<pre class="example-preformatted">sudo chmod 700 /etc/mount-s3fs
+sudo /etc/mount-s3fs
+mountpoint /mnt/backups        # should print &quot;is a mountpoint&quot;
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="Install-the-backup-timer">
+<h4 class="subsection"><span>3.13.2 Install the backup timer<a class="copiable-link" href="#Install-the-backup-timer"> &para;</a></span></h4>
+
+<div class="example">
+<pre class="example-preformatted">sudo /home/ownsona/ownsona/sql/install_backup.sh
+</pre></div>
+
+<p>The installer copies <samp class="file">sql/ownsona-backup.sh</samp> to
+<samp class="file">/usr/local/sbin/</samp>, installs
+<samp class="file">ownsona-backup.{service,timer}</samp> under
+<samp class="file">/etc/systemd/system/</samp>, and <code class="code">enable --now</code>s the timer.
+</p>
+<p>Run one immediately:
+</p>
+<div class="example">
+<pre class="example-preformatted">sudo systemctl start ownsona-backup.service
+sudo tail -f /var/log/ownsona-backup.log
+sudo ls -lh /mnt/backups/
+</pre></div>
+
+</div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Restore-from-backup.html">Restore from backup</a>, Previous: <a href="Smoke-test-the-install.html">Smoke test</a>, Up: <a href="Installation.html">Installation</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

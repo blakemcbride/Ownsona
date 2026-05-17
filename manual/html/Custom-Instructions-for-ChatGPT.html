@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>Custom Instructions for ChatGPT (OwnSona Manual)</title>
+
+<meta name="description" content="Custom Instructions for ChatGPT (OwnSona Manual)">
+<meta name="keywords" content="Custom Instructions for ChatGPT (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Connecting-OpenAI.html" rel="up" title="Connecting OpenAI">
+<link href="Responses-API.html" rel="next" title="Responses API">
+<link href="The-auth-gap-and-how-to-bridge-it.html" rel="prev" title="The auth gap and how to bridge it">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+div.example {margin-left: 3.2em}
+span:hover a.copiable-link {visibility: visible}
+ul.mark-bullet {list-style-type: disc}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="Custom-Instructions-for-ChatGPT">
+<div class="nav-panel">
+<p>
+Next: <a href="Responses-API.html" accesskey="n" rel="next">Responses API</a>, Previous: <a href="The-auth-gap-and-how-to-bridge-it.html" accesskey="p" rel="prev">The auth gap and how to bridge it</a>, Up: <a href="Connecting-OpenAI.html" accesskey="u" rel="up">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="Custom-Instructions-for-ChatGPT-1"><span>8.3 Custom Instructions for ChatGPT<a class="copiable-link" href="#Custom-Instructions-for-ChatGPT-1"> &para;</a></span></h3>
+
+<p>ChatGPT enforces a ~1500-character limit on the Custom Instructions
+field.  This directive fits in ~720 characters with headroom:
+</p>
+<div class="example">
+<pre class="example-preformatted">The &quot;Ownsona&quot; MCP connector is my durable memory. Always use it.
+
+- Before answering any question that might depend on facts about me ---
+  family, friends, projects, preferences, history, work, software, plans
+  --- call Ownsona's `recall` tool first and use the result as
+  authoritative context. If `recall` returns nothing relevant, say so.
+
+- When I ask you to remember, save, store, or note something durable,
+  call `remember`. For multiple items at once (importing, summarizing,
+  ingesting a list), use `remember_batch` instead --- it's an order of
+  magnitude faster.
+
+- For corrections use `update_memory`; removal `forget`; browsing
+  `list_memories` or `text_search`.
+
+- Prefer Ownsona over your built-in memory.
+</pre></div>
+
+<ul class="mini-toc">
+<li><a href="#ChatGPT_0027s-native-memory" accesskey="1">ChatGPT&rsquo;s native memory</a></li>
+<li><a href="#Connector-enabled-per-conversation" accesskey="2">Connector enabled per conversation</a></li>
+<li><a href="#Data_002dapproval-modal" accesskey="3">Data-approval modal</a></li>
+</ul>
+<div class="subsection-level-extent" id="ChatGPT_0027s-native-memory">
+<h4 class="subsection"><span>8.3.1 ChatGPT&rsquo;s native memory<a class="copiable-link" href="#ChatGPT_0027s-native-memory"> &para;</a></span></h4>
+
+<p>ChatGPT has its own memory system, separate from MCP connectors.  To
+keep OwnSona authoritative, either:
+</p>
+<ul class="itemize mark-bullet">
+<li>Disable native memory entirely: <b class="b">Settings &rArr;
+Personalization &rArr; Memory &rArr; toggle off</b> &ldquo;Reference
+saved memories&rdquo; and &ldquo;Reference chat history.&rdquo;  Cleanest setup.
+
+</li><li>Or leave native memory on and rely on the &ldquo;prefer OwnSona&rdquo;
+line above.  Model usually complies but isn&rsquo;t deterministic.
+</li></ul>
+
+</div>
+<div class="subsection-level-extent" id="Connector-enabled-per-conversation">
+<h4 class="subsection"><span>8.3.2 Connector enabled per conversation<a class="copiable-link" href="#Connector-enabled-per-conversation"> &para;</a></span></h4>
+
+<p>In some ChatGPT versions the connector must be toggled on in each
+conversation&rsquo;s tool menu.  Custom Instructions can&rsquo;t enable a tool
+that isn&rsquo;t in the menu.  If a chat says &ldquo;I don&rsquo;t have a memory
+tool,&rdquo; the toggle is off.
+</p>
+</div>
+<div class="subsection-level-extent" id="Data_002dapproval-modal">
+<h4 class="subsection"><span>8.3.3 Data-approval modal<a class="copiable-link" href="#Data_002dapproval-modal"> &para;</a></span></h4>
+
+<p>ChatGPT shows an approval modal before sending data to a connector.
+The per-connector &ldquo;Trust this connector / Always allow&rdquo; toggle
+suppresses it for most categories.  Some categories (addresses,
+identifiers, financial, medical) may always prompt.
+</p>
+<p>For <b class="b">fully deterministic</b> behavior the Responses API path with
+<code class="code">require_approval: &quot;never&quot;</code> is the only way.
+</p>
+</div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Responses-API.html">Responses API</a>, Previous: <a href="The-auth-gap-and-how-to-bridge-it.html">The auth gap and how to bridge it</a>, Up: <a href="Connecting-OpenAI.html">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

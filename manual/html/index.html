@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>Top (OwnSona Manual)</title>
+
+<meta name="description" content="Top (OwnSona Manual)">
+<meta name="keywords" content="Top (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="#Top" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Introduction.html" rel="next" title="Introduction">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+span:hover a.copiable-link {visibility: visible}
+ul.toc-numbered-mark {list-style: none}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+
+
+
+
+
+<div class="top-level-extent" id="Top">
+<div class="nav-panel">
+<p>
+Next: <a href="Introduction.html" accesskey="n" rel="next">Introduction</a> &nbsp; [<a href="#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h1 class="top" id="OwnSona"><span>OwnSona<a class="copiable-link" href="#OwnSona"> &para;</a></span></h1>
+
+<p>This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+<a class="uref" href="https://kissweb.org">Kiss web development framework</a>, an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+</p>
+<p>Copyright &copy; 2018&ndash;2026 Blake McBride.
+</p>
+<p>Distributed under the BSD 2-Clause License.  See <samp class="file">LICENSE.txt</samp>
+in the source distribution for the full text.
+</p>
+
+<div class="region-contents" id="SEC_Contents">
+<h2 class="contents-heading">Table of Contents</h2>
+
+<div class="contents">
+
+<ul class="toc-numbered-mark">
+  <li><a id="toc-Introduction" href="Introduction.html">1 Introduction</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-The-problem" href="The-problem.html">1.1 The problem</a></li>
+    <li><a id="toc-The-pitch" href="The-pitch.html">1.2 The pitch</a></li>
+    <li><a id="toc-What_0027s-inside" href="What_0027s-inside.html">1.3 What&rsquo;s inside</a></li>
+    <li><a id="toc-Design-principles" href="Design-principles.html">1.4 Design principles</a></li>
+    <li><a id="toc-Status-and-scope" href="Status-and-scope.html">1.5 Status and scope</a></li>
+  </ul></li>
+  <li><a id="toc-Getting-Started" href="Getting-Started.html">2 Getting Started</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-Prerequisites" href="Prerequisites.html">2.1 Prerequisites</a></li>
+    <li><a id="toc-The-five_002dminute-path" href="The-five_002dminute-path.html">2.2 The five-minute path</a></li>
+    <li><a id="toc-Verify-the-install" href="Verify-the-install.html">2.3 Verify the install</a></li>
+    <li><a id="toc-Where-to-next" href="Where-to-next.html">2.4 Where to next</a></li>
+  </ul></li>
+  <li><a id="toc-Installation" href="Installation.html">3 Installation</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-Architecture-summary" href="Architecture-summary.html">3.1 Architecture summary</a></li>
+    <li><a id="toc-Prerequisites-1" href="Install-prerequisites.html">3.2 Prerequisites</a></li>
+    <li><a id="toc-Install-OS-packages" href="Install-OS-packages.html">3.3 Install OS packages</a></li>
+    <li><a id="toc-Create-the-ownsona-user" href="Create-the-ownsona-user.html">3.4 Create the ownsona user</a></li>
+    <li><a id="toc-PostgreSQL-with-pgvector" href="PostgreSQL-with-pgvector.html">3.5 PostgreSQL with pgvector</a></li>
+    <li><a id="toc-Apache-Tomcat-11" href="Apache-Tomcat-11.html">3.6 Apache Tomcat 11</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Download-and-extract" href="Apache-Tomcat-11.html#Download-and-extract">3.6.1 Download and extract</a></li>
+      <li><a id="toc-Heap-settings-_0028tomcat_002fbin_002fsetenv_002esh_0029" href="Apache-Tomcat-11.html#Heap-settings-_0028tomcat_002fbin_002fsetenv_002esh_0029">3.6.2 Heap settings (<samp class="file">tomcat/bin/setenv.sh</samp>)</a></li>
+      <li><a id="toc-Configure-HTTPS-and-autoDeploy-in-server_002exml" href="Apache-Tomcat-11.html#Configure-HTTPS-and-autoDeploy-in-server_002exml">3.6.3 Configure HTTPS and autoDeploy in <samp class="file">server.xml</samp></a></li>
+      <li><a id="toc-Permissions" href="Apache-Tomcat-11.html#Permissions">3.6.4 Permissions</a></li>
+    </ul></li>
+    <li><a id="toc-TLS-certificates" href="TLS-certificates.html">3.7 TLS certificates</a></li>
+    <li><a id="toc-Clone-and-build" href="Clone-and-build.html">3.8 Clone and build</a></li>
+    <li><a id="toc-Apply-the-database-migration" href="Apply-the-database-migration.html">3.9 Apply the database migration</a></li>
+    <li><a id="toc-Configure-application_002eini" href="Configure-application_002eini.html">3.10 Configure <samp class="file">application.ini</samp></a></li>
+    <li><a id="toc-Install-the-systemd-service" href="Install-the-systemd-service.html">3.11 Install the systemd service</a></li>
+    <li><a id="toc-Smoke-test" href="Smoke-test-the-install.html">3.12 Smoke test</a></li>
+    <li><a id="toc-Daily-backups" href="Daily-backups.html">3.13 Daily backups</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Configure-s3fs" href="Daily-backups.html#Configure-s3fs">3.13.1 Configure <code class="code">s3fs</code></a></li>
+      <li><a id="toc-Install-the-backup-timer" href="Daily-backups.html#Install-the-backup-timer">3.13.2 Install the backup timer</a></li>
+    </ul></li>
+    <li><a id="toc-Restore-from-backup" href="Restore-from-backup.html">3.14 Restore from backup</a></li>
+    <li><a id="toc-Upgrading-an-existing-install" href="Upgrading-an-existing-install.html">3.15 Upgrading an existing install</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-One_002dtime-prep-before-the-first-auto_002dmigrator-deploy" href="Upgrading-an-existing-install.html#One_002dtime-prep-before-the-first-auto_002dmigrator-deploy">3.15.1 One-time prep before the first auto-migrator deploy</a></li>
+      <li><a id="toc-Deploying-the-new-WAR" href="Upgrading-an-existing-install.html#Deploying-the-new-WAR">3.15.2 Deploying the new WAR</a></li>
+      <li><a id="toc-Rollback" href="Upgrading-an-existing-install.html#Rollback">3.15.3 Rollback</a></li>
+    </ul></li>
+    <li><a id="toc-Operational-reference" href="Operational-reference.html">3.16 Operational reference</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Service-control" href="Operational-reference.html#Service-control">3.16.1 Service control</a></li>
+      <li><a id="toc-Code-change-_003d_003e-deploy" href="Operational-reference.html#Code-change-_003d_003e-deploy">3.16.2 Code change &rArr; deploy</a></li>
+      <li><a id="toc-Backup-control" href="Operational-reference.html#Backup-control">3.16.3 Backup control</a></li>
+      <li><a id="toc-Log-retention-summary" href="Operational-reference.html#Log-retention-summary">3.16.4 Log retention summary</a></li>
+      <li><a id="toc-Rotating-the-bearer-token" href="Operational-reference.html#Rotating-the-bearer-token-1">3.16.5 Rotating the bearer token</a></li>
+      <li><a id="toc-Top-common-failure-modes" href="Operational-reference.html#Top-common-failure-modes">3.16.6 Top common failure modes</a></li>
+    </ul></li>
+  </ul></li>
+  <li><a id="toc-Configuration" href="Configuration.html">4 Configuration</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-Required-keys" href="Required-keys.html">4.1 Required keys</a></li>
+    <li><a id="toc-Optional-keys-with-defaults" href="Optional-keys-with-defaults.html">4.2 Optional keys with defaults</a></li>
+    <li><a id="toc-Database-keys" href="Database-keys.html">4.3 Database keys</a></li>
+    <li><a id="toc-Embedding-keys" href="Embedding-keys.html">4.4 Embedding keys</a></li>
+    <li><a id="toc-Tunables" href="Tunables.html">4.5 Tunables</a></li>
+    <li><a id="toc-Re_002dembedding-flag" href="Re_002dembedding-flag.html">4.6 Re-embedding flag</a></li>
+  </ul></li>
+  <li><a id="toc-MCP-Tools" href="MCP-Tools.html">5 MCP Tools</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-General-tool-conventions" href="General-tool-conventions.html">5.1 General tool conventions</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Common-types" href="General-tool-conventions.html#Common-types">5.1.1 Common types</a></li>
+      <li><a id="toc-Authentication" href="General-tool-conventions.html#Authentication">5.1.2 Authentication</a></li>
+    </ul></li>
+    <li><a id="toc-The-remember-tool" href="The-remember-tool.html">5.2 The <code class="code">remember</code> tool</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Inputs" href="The-remember-tool.html#Inputs">5.2.1 Inputs</a></li>
+      <li><a id="toc-Output" href="The-remember-tool.html#Output">5.2.2 Output</a></li>
+      <li><a id="toc-Errors" href="The-remember-tool.html#Errors">5.2.3 Errors</a></li>
+      <li><a id="toc-Example" href="The-remember-tool.html#Example">5.2.4 Example</a></li>
+    </ul></li>
+    <li><a id="toc-The-remember_005fbatch-tool" href="The-remember_005fbatch-tool.html">5.3 The <code class="code">remember_batch</code> tool</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Inputs-1" href="The-remember_005fbatch-tool.html#Inputs-1">5.3.1 Inputs</a></li>
+      <li><a id="toc-Output-1" href="The-remember_005fbatch-tool.html#Output-1">5.3.2 Output</a></li>
+      <li><a id="toc-Errors-1" href="The-remember_005fbatch-tool.html#Errors-1">5.3.3 Errors</a></li>
+    </ul></li>
+    <li><a id="toc-The-recall-tool" href="The-recall-tool.html">5.4 The <code class="code">recall</code> tool</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Inputs-2" href="The-recall-tool.html#Inputs-2">5.4.1 Inputs</a></li>
+      <li><a id="toc-Output-2" href="The-recall-tool.html#Output-2">5.4.2 Output</a></li>
+      <li><a id="toc-Errors-2" href="The-recall-tool.html#Errors-2">5.4.3 Errors</a></li>
+      <li><a id="toc-Example-1" href="The-recall-tool.html#Example-1">5.4.4 Example</a></li>
+    </ul></li>
+    <li><a id="toc-The-build_005fcontext_005fprompt-tool" href="The-build_005fcontext_005fprompt-tool.html">5.5 The <code class="code">build_context_prompt</code> tool</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Inputs-3" href="The-build_005fcontext_005fprompt-tool.html#Inputs-3">5.5.1 Inputs</a></li>
+      <li><a id="toc-Output-3" href="The-build_005fcontext_005fprompt-tool.html#Output-3">5.5.2 Output</a></li>
+      <li><a id="toc-Errors-3" href="The-build_005fcontext_005fprompt-tool.html#Errors-3">5.5.3 Errors</a></li>
+    </ul></li>
+    <li><a id="toc-The-list_005fmemories-tool" href="The-list_005fmemories-tool.html">5.6 The <code class="code">list_memories</code> tool</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Inputs-4" href="The-list_005fmemories-tool.html#Inputs-4">5.6.1 Inputs</a></li>
+      <li><a id="toc-Output-4" href="The-list_005fmemories-tool.html#Output-4">5.6.2 Output</a></li>
+      <li><a id="toc-Errors-4" href="The-list_005fmemories-tool.html#Errors-4">5.6.3 Errors</a></li>
+    </ul></li>
+    <li><a id="toc-The-update_005fmemory-tool" href="The-update_005fmemory-tool.html">5.7 The <code class="code">update_memory</code> tool</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Inputs-5" href="The-update_005fmemory-tool.html#Inputs-5">5.7.1 Inputs</a></li>
+      <li><a id="toc-Output-5" href="The-update_005fmemory-tool.html#Output-5">5.7.2 Output</a></li>
+      <li><a id="toc-Errors-5" href="The-update_005fmemory-tool.html#Errors-5">5.7.3 Errors</a></li>
+    </ul></li>
+    <li><a id="toc-The-confirm-tool" href="The-confirm-tool.html">5.8 The <code class="code">confirm</code> tool</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Inputs-6" href="The-confirm-tool.html#Inputs-6">5.8.1 Inputs</a></li>
+      <li><a id="toc-Output-6" href="The-confirm-tool.html#Output-6">5.8.2 Output</a></li>
+      <li><a id="toc-Errors-6" href="The-confirm-tool.html#Errors-6">5.8.3 Errors</a></li>
+    </ul></li>
+    <li><a id="toc-The-forget-tool" href="The-forget-tool.html">5.9 The <code class="code">forget</code> tool</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Inputs-7" href="The-forget-tool.html#Inputs-7">5.9.1 Inputs</a></li>
+      <li><a id="toc-Output-7" href="The-forget-tool.html#Output-7">5.9.2 Output</a></li>
+      <li><a id="toc-Errors-7" href="The-forget-tool.html#Errors-7">5.9.3 Errors</a></li>
+    </ul></li>
+    <li><a id="toc-The-text_005fsearch-tool" href="The-text_005fsearch-tool.html">5.10 The <code class="code">text_search</code> tool</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Inputs-8" href="The-text_005fsearch-tool.html#Inputs-8">5.10.1 Inputs</a></li>
+      <li><a id="toc-Output-8" href="The-text_005fsearch-tool.html#Output-8">5.10.2 Output</a></li>
+      <li><a id="toc-Errors-8" href="The-text_005fsearch-tool.html#Errors-8">5.10.3 Errors</a></li>
+    </ul></li>
+    <li><a id="toc-Error-codes" href="Error-codes.html">5.11 Error codes</a></li>
+  </ul></li>
+  <li><a id="toc-Server-Internals" href="Server-Internals.html">6 Server Internals</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-Process-model" href="Process-model.html">6.1 Process model</a></li>
+    <li><a id="toc-Request-lifecycle" href="Request-lifecycle.html">6.2 Request lifecycle</a></li>
+    <li><a id="toc-The-memories-table" href="The-memories-table.html">6.3 The <code class="code">memories</code> table</a></li>
+    <li><a id="toc-The-embedding-provider-abstraction" href="The-embedding-provider-abstraction.html">6.4 The embedding provider abstraction</a></li>
+    <li><a id="toc-Tag-normalization" href="Tag-normalization.html">6.5 Tag normalization</a></li>
+    <li><a id="toc-Dedup_002don_002dwrite-and-tombstones" href="Dedup_002don_002dwrite-and-tombstones.html">6.6 Dedup-on-write and tombstones</a></li>
+    <li><a id="toc-The-auto_002dmigration-framework" href="The-auto_002dmigration-framework.html">6.7 The auto-migration framework</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Components" href="The-auto_002dmigration-framework.html#Components">6.7.1 Components</a></li>
+      <li><a id="toc-Invariants" href="The-auto_002dmigration-framework.html#Invariants">6.7.2 Invariants</a></li>
+    </ul></li>
+    <li><a id="toc-The-per_002drecord-upgrader-framework" href="The-per_002drecord-upgrader-framework.html">6.8 The per-record upgrader framework</a></li>
+    <li><a id="toc-Security-model" href="Security-model.html">6.9 Security model</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Transport" href="Security-model.html#Transport">6.9.1 Transport</a></li>
+      <li><a id="toc-Authentication-1" href="Security-model.html#Authentication-1">6.9.2 Authentication</a></li>
+      <li><a id="toc-Secret-rejection" href="Security-model.html#Secret-rejection">6.9.3 Secret rejection</a></li>
+      <li><a id="toc-Database-privileges" href="Security-model.html#Database-privileges">6.9.4 Database privileges</a></li>
+      <li><a id="toc-User-isolation" href="Security-model.html#User-isolation">6.9.5 User isolation</a></li>
+    </ul></li>
+    <li><a id="toc-Logging" href="Logging.html">6.10 Logging</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-What-is-and-isn_0027t-logged" href="Logging.html#What-is-and-isn_0027t-logged">6.10.1 What is and isn&rsquo;t logged</a></li>
+    </ul></li>
+    <li><a id="toc-Treat-memories-as-data_002c-not-instructions" href="Treat-memories-as-data-not-instructions.html">6.11 Treat memories as data, not instructions</a></li>
+  </ul></li>
+  <li><a id="toc-Connecting-Claude" href="Connecting-Claude.html">7 Connecting Claude</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-What-you-need" href="What-you-need.html">7.1 What you need</a></li>
+    <li><a id="toc-Claude-Desktop" href="Claude-Desktop.html">7.2 Claude Desktop</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Verify" href="Claude-Desktop.html#Verify">7.2.1 Verify</a></li>
+    </ul></li>
+    <li><a id="toc-Claude-Code" href="Claude-Code.html">7.3 Claude Code</a></li>
+    <li><a id="toc-Anthropic-API" href="Anthropic-API.html">7.4 Anthropic API</a></li>
+    <li><a id="toc-Telling-Claude-to-use-it-by-default" href="Telling-Claude-to-use-it-by-default.html">7.5 Telling Claude to use it by default</a></li>
+    <li><a id="toc-When-Claude-refuses-to-call-a-tool" href="When-Claude-refuses-to-call-a-tool.html">7.6 When Claude refuses to call a tool</a></li>
+  </ul></li>
+  <li><a id="toc-Connecting-OpenAI" href="Connecting-OpenAI.html">8 Connecting OpenAI</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-ChatGPT-connector" href="ChatGPT-connector.html">8.1 ChatGPT connector</a></li>
+    <li><a id="toc-The-auth-gap-and-how-to-bridge-it" href="The-auth-gap-and-how-to-bridge-it.html">8.2 The auth gap and how to bridge it</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Option-A_003a-skip-the-ChatGPT-UI" href="The-auth-gap-and-how-to-bridge-it.html#Option-A_003a-skip-the-ChatGPT-UI">8.2.1 Option A: skip the ChatGPT UI</a></li>
+      <li><a id="toc-Option-B_003a-try-Mixed-first" href="The-auth-gap-and-how-to-bridge-it.html#Option-B_003a-try-Mixed-first">8.2.2 Option B: try Mixed first</a></li>
+      <li><a id="toc-Option-C_003a-No-auth-_002b-token-in-URL-_0028recommended-for-single_002duser_0029" href="The-auth-gap-and-how-to-bridge-it.html#Option-C_003a-No-auth-_002b-token-in-URL-_0028recommended-for-single_002duser_0029">8.2.3 Option C: No auth + token in URL (recommended for single-user)</a></li>
+      <li><a id="toc-Option-D_003a-OAuth-proxy-_0028proper-fix_0029" href="The-auth-gap-and-how-to-bridge-it.html#Option-D_003a-OAuth-proxy-_0028proper-fix_0029">8.2.4 Option D: OAuth proxy (proper fix)</a></li>
+    </ul></li>
+    <li><a id="toc-Custom-Instructions-for-ChatGPT" href="Custom-Instructions-for-ChatGPT.html">8.3 Custom Instructions for ChatGPT</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-ChatGPT_0027s-native-memory" href="Custom-Instructions-for-ChatGPT.html#ChatGPT_0027s-native-memory">8.3.1 ChatGPT&rsquo;s native memory</a></li>
+      <li><a id="toc-Connector-enabled-per-conversation" href="Custom-Instructions-for-ChatGPT.html#Connector-enabled-per-conversation">8.3.2 Connector enabled per conversation</a></li>
+      <li><a id="toc-Data_002dapproval-modal" href="Custom-Instructions-for-ChatGPT.html#Data_002dapproval-modal">8.3.3 Data-approval modal</a></li>
+    </ul></li>
+    <li><a id="toc-Responses-API" href="Responses-API.html">8.4 Responses API</a></li>
+    <li><a id="toc-Rotating-the-bearer-token-1" href="Rotating-the-bearer-token.html">8.5 Rotating the bearer token</a></li>
+  </ul></li>
+  <li><a id="toc-The-Command_002dLine-Client" href="The-Command_002dLine-Client.html">9 The Command-Line Client</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-Building-the-CLI" href="Building-the-CLI.html">9.1 Building the CLI</a></li>
+    <li><a id="toc-Configuring-the-CLI" href="Configuring-the-CLI.html">9.2 Configuring the CLI</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Default-config-file-location" href="Configuring-the-CLI.html#Default-config-file-location">9.2.1 Default config file location</a></li>
+      <li><a id="toc-Resolution-order" href="Configuring-the-CLI.html#Resolution-order">9.2.2 Resolution order</a></li>
+      <li><a id="toc-Config-file-format" href="Configuring-the-CLI.html#Config-file-format">9.2.3 Config file format</a></li>
+    </ul></li>
+    <li><a id="toc-Subcommand-reference" href="Subcommand-reference.html">9.3 Subcommand reference</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Common-flags" href="Subcommand-reference.html#Common-flags">9.3.1 Common flags</a></li>
+      <li><a id="toc-add-_0028remember_0029" href="Subcommand-reference.html#add-_0028remember_0029">9.3.2 add (remember)</a></li>
+      <li><a id="toc-query-_0028recall_0029" href="Subcommand-reference.html#query-_0028recall_0029">9.3.3 query (recall)</a></li>
+      <li><a id="toc-search-_0028text_005fsearch_0029" href="Subcommand-reference.html#search-_0028text_005fsearch_0029">9.3.4 search (text_search)</a></li>
+      <li><a id="toc-list" href="Subcommand-reference.html#list">9.3.5 list</a></li>
+      <li><a id="toc-update-_0028update_005fmemory_0029" href="Subcommand-reference.html#update-_0028update_005fmemory_0029">9.3.6 update (update_memory)</a></li>
+      <li><a id="toc-confirm" href="Subcommand-reference.html#confirm">9.3.7 confirm</a></li>
+      <li><a id="toc-forget" href="Subcommand-reference.html#forget">9.3.8 forget</a></li>
+      <li><a id="toc-prompt-_0028build_005fcontext_005fprompt_0029" href="Subcommand-reference.html#prompt-_0028build_005fcontext_005fprompt_0029">9.3.9 prompt (build_context_prompt)</a></li>
+      <li><a id="toc-import-_0028remember_005fbatch_0029" href="Subcommand-reference.html#import-_0028remember_005fbatch_0029">9.3.10 import (remember_batch)</a></li>
+    </ul></li>
+    <li><a id="toc-Output-and-JSON-modes" href="Output-and-JSON-modes.html">9.4 Output and JSON modes</a></li>
+    <li><a id="toc-Exit-codes" href="Exit-codes.html">9.5 Exit codes</a></li>
+  </ul></li>
+  <li><a id="toc-The-teach-Workflow" href="The-teach-Workflow.html">10 The <code class="code">teach</code> Workflow</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-What-it-does" href="What-it-does.html">10.1 What it does</a></li>
+    <li><a id="toc-Requirements-and-configuration" href="Requirements-and-configuration.html">10.2 Requirements and configuration</a></li>
+    <li><a id="toc-Default-behavior_003a-dry_002drun" href="Default-behavior_003a-dry_002drun.html">10.3 Default behavior: dry-run</a></li>
+    <li><a id="toc-Committing-the-extracted-facts" href="Committing-the-extracted-facts.html">10.4 Committing the extracted facts</a></li>
+    <li><a id="toc-Flags" href="Flags.html">10.5 Flags</a></li>
+    <li><a id="toc-Recommended-workflow" href="Recommended-workflow.html">10.6 Recommended workflow</a></li>
+    <li><a id="toc-Cost" href="Cost.html">10.7 Cost</a></li>
+    <li><a id="toc-Vendor-neutrality" href="Vendor-neutrality.html">10.8 Vendor neutrality</a></li>
+    <li><a id="toc-Why-the-teach-LLM-is-independent" href="Why-the-teach-LLM-is-independent.html">10.9 Why the teach LLM is independent</a></li>
+  </ul></li>
+  <li><a id="toc-Embedding-Migration" href="Embedding-Migration.html">11 Embedding Migration</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-When-and-why-you-might-switch" href="When-and-why-you-might-switch.html">11.1 When and why you might switch</a></li>
+    <li><a id="toc-What-is-and-isn_0027t-affected" href="What-is-and-isn_0027t-affected.html">11.2 What is and isn&rsquo;t affected</a></li>
+    <li><a id="toc-How-re_002dembedding-works-inside-the-server" href="How-re_002dembedding-works-inside-the-server.html">11.3 How re-embedding works inside the server</a></li>
+    <li><a id="toc-Procedure-A_003a-same_002ddimension-switch" href="Procedure-A_003a-same_002ddimension-switch.html">11.4 Procedure A: same-dimension switch</a></li>
+    <li><a id="toc-Procedure-B_003a-different_002ddimension-switch" href="Procedure-B_003a-different_002ddimension-switch.html">11.5 Procedure B: different-dimension switch</a></li>
+    <li><a id="toc-Monitoring-progress" href="Monitoring-progress.html">11.6 Monitoring progress</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Status-query" href="Monitoring-progress.html#Status-query">11.6.1 Status query</a></li>
+      <li><a id="toc-Rows-still-needing-re_002dembed" href="Monitoring-progress.html#Rows-still-needing-re_002dembed">11.6.2 Rows still needing re-embed</a></li>
+      <li><a id="toc-Watching-the-walker-live" href="Monitoring-progress.html#Watching-the-walker-live">11.6.3 Watching the walker live</a></li>
+    </ul></li>
+    <li><a id="toc-Recovery-after-a-failed-run" href="Recovery-after-a-failed-run.html">11.7 Recovery after a failed run</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Walker-interrupted" href="Recovery-after-a-failed-run.html#Walker-interrupted">11.7.1 Walker interrupted</a></li>
+      <li><a id="toc-Walker-failed-mid_002drun" href="Recovery-after-a-failed-run.html#Walker-failed-mid_002drun">11.7.2 Walker failed mid-run</a></li>
+      <li><a id="toc-Full-rollback" href="Recovery-after-a-failed-run.html#Full-rollback">11.7.3 Full rollback</a></li>
+    </ul></li>
+    <li><a id="toc-Cost-1" href="Cost-of-re_002dembedding.html">11.8 Cost</a></li>
+    <li><a id="toc-Pitfalls-and-gotchas" href="Pitfalls-and-gotchas.html">11.9 Pitfalls and gotchas</a></li>
+  </ul></li>
+  <li><a id="toc-Tutorials" href="Tutorials.html">12 Tutorials</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-First-memories" href="First-memories.html">12.1 First memories</a></li>
+    <li><a id="toc-Importing-from-a-journal" href="Importing-from-a-journal.html">12.2 Importing from a journal</a></li>
+    <li><a id="toc-Correcting-a-fact-with-a-trail" href="Correcting-a-fact-with-a-trail.html">12.3 Correcting a fact with a trail</a></li>
+    <li><a id="toc-Switching-embedding-providers" href="Switching-embedding-providers.html">12.4 Switching embedding providers</a></li>
+    <li><a id="toc-Auditing-what_0027s-stored" href="Auditing-what_0027s-stored.html">12.5 Auditing what&rsquo;s stored</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Count-by-tag" href="Auditing-what_0027s-stored.html#Count-by-tag">12.5.1 Count by tag</a></li>
+      <li><a id="toc-Count-by-capture-mode" href="Auditing-what_0027s-stored.html#Count-by-capture-mode">12.5.2 Count by capture mode</a></li>
+      <li><a id="toc-Oldest-and-newest-memories" href="Auditing-what_0027s-stored.html#Oldest-and-newest-memories">12.5.3 Oldest and newest memories</a></li>
+      <li><a id="toc-Tombstone-history" href="Auditing-what_0027s-stored.html#Tombstone-history">12.5.4 Tombstone history</a></li>
+    </ul></li>
+  </ul></li>
+  <li><a id="toc-Troubleshooting" href="Troubleshooting.html">13 Troubleshooting</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-Server-won_0027t-start" href="Server-won_0027t-start.html">13.1 Server won&rsquo;t start</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Symptom" href="Server-won_0027t-start.html#Symptom">13.1.1 Symptom</a></li>
+      <li><a id="toc-Look-in" href="Server-won_0027t-start.html#Look-in">13.1.2 Look in</a></li>
+      <li><a id="toc-Common-causes" href="Server-won_0027t-start.html#Common-causes">13.1.3 Common causes</a></li>
+    </ul></li>
+    <li><a id="toc-MCP-returns-401" href="MCP-returns-401.html">13.2 MCP returns 401</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Possible-causes" href="MCP-returns-401.html#Possible-causes">13.2.1 Possible causes</a></li>
+      <li><a id="toc-Verify-1" href="MCP-returns-401.html#Verify-1">13.2.2 Verify</a></li>
+    </ul></li>
+    <li><a id="toc-MCP-returns-500-or-EMBEDDING_005fERROR" href="MCP-returns-500-or-EMBEDDING_005fERROR.html">13.3 MCP returns 500 or <code class="code">EMBEDDING_ERROR</code></a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Look-in-1" href="MCP-returns-500-or-EMBEDDING_005fERROR.html#Look-in-1">13.3.1 Look in</a></li>
+      <li><a id="toc-Common-causes-1" href="MCP-returns-500-or-EMBEDDING_005fERROR.html#Common-causes-1">13.3.2 Common causes</a></li>
+    </ul></li>
+    <li><a id="toc-No-matches-from-recall" href="No-matches-from-recall.html">13.4 No matches from <code class="code">recall</code></a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Cause-matrix" href="No-matches-from-recall.html#Cause-matrix">13.4.1 Cause matrix</a></li>
+    </ul></li>
+    <li><a id="toc-Tomcat-won_0027t-bind-443" href="Tomcat-won_0027t-bind-443.html">13.5 Tomcat won&rsquo;t bind 443</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Symptom-1" href="Tomcat-won_0027t-bind-443.html#Symptom-1">13.5.1 Symptom</a></li>
+      <li><a id="toc-Causes" href="Tomcat-won_0027t-bind-443.html#Causes">13.5.2 Causes</a></li>
+    </ul></li>
+    <li><a id="toc-Deploy-is-slow-or-first-request-404s" href="Deploy-is-slow-or-first-request-404s.html">13.6 Deploy is slow or first request 404s</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Cause" href="Deploy-is-slow-or-first-request-404s.html#Cause">13.6.1 Cause</a></li>
+      <li><a id="toc-Action" href="Deploy-is-slow-or-first-request-404s.html#Action">13.6.2 Action</a></li>
+    </ul></li>
+    <li><a id="toc-Migration-failures" href="Migration-failures.html">13.7 Migration failures</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Symptom-2" href="Migration-failures.html#Symptom-2">13.7.1 Symptom</a></li>
+      <li><a id="toc-Diagnosis" href="Migration-failures.html#Diagnosis">13.7.2 Diagnosis</a></li>
+    </ul></li>
+    <li><a id="toc-Re_002dembed-walker-problems" href="Re_002dembed-walker-problems.html">13.8 Re-embed walker problems</a></li>
+    <li><a id="toc-Backup-problems" href="Backup-problems.html">13.9 Backup problems</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Symptom-3" href="Backup-problems.html#Symptom-3">13.9.1 Symptom</a></li>
+      <li><a id="toc-Diagnosis-1" href="Backup-problems.html#Diagnosis-1">13.9.2 Diagnosis</a></li>
+    </ul></li>
+    <li><a id="toc-CLI_003a-build-failures" href="CLI_003a-build-failures.html">13.10 CLI: build failures</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-curl_002eh_003a-No-such-file-or-directory" href="CLI_003a-build-failures.html#curl_002eh_003a-No-such-file-or-directory">13.10.1 <code class="code">curl.h: No such file or directory</code></a></li>
+      <li><a id="toc-undefined-reference-to-curl_005feasy_005finit" href="CLI_003a-build-failures.html#undefined-reference-to-curl_005feasy_005finit">13.10.2 <code class="code">undefined reference to curl_easy_init</code></a></li>
+      <li><a id="toc-Build-succeeds-but-binary-segfaults" href="CLI_003a-build-failures.html#Build-succeeds-but-binary-segfaults">13.10.3 Build succeeds but binary segfaults</a></li>
+    </ul></li>
+    <li><a id="toc-CLI_003a-server-unreachable" href="CLI_003a-server-unreachable.html">13.11 CLI: server unreachable</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Symptom-4" href="CLI_003a-server-unreachable.html#Symptom-4">13.11.1 Symptom</a></li>
+      <li><a id="toc-Diagnosis-2" href="CLI_003a-server-unreachable.html#Diagnosis-2">13.11.2 Diagnosis</a></li>
+    </ul></li>
+  </ul></li>
+  <li><a id="toc-Reference" href="Reference.html">14 Reference</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-Configuration-keys-table" href="Configuration-keys-table.html">14.1 Configuration keys table</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-Required" href="Configuration-keys-table.html#Required">14.1.1 Required</a></li>
+      <li><a id="toc-Optional-with-defaults" href="Configuration-keys-table.html#Optional-with-defaults">14.1.2 Optional with defaults</a></li>
+      <li><a id="toc-Connection-pool-tunables-_0028Kiss_002dprovided_0029" href="Configuration-keys-table.html#Connection-pool-tunables-_0028Kiss_002dprovided_0029">14.1.3 Connection pool tunables (Kiss-provided)</a></li>
+    </ul></li>
+    <li><a id="toc-Database-schema-reference" href="Database-schema-reference.html">14.2 Database schema reference</a>
+    <ul class="toc-numbered-mark">
+      <li><a id="toc-The-memories-table-1" href="Database-schema-reference.html#The-memories-table-2">14.2.1 The <code class="code">memories</code> table</a></li>
+      <li><a id="toc-Indexes-_0028current-shape_0029" href="Database-schema-reference.html#Indexes-_0028current-shape_0029">14.2.2 Indexes (current shape)</a></li>
+      <li><a id="toc-The-db_005fversion-table" href="Database-schema-reference.html#The-db_005fversion-table">14.2.3 The <code class="code">db_version</code> table</a></li>
+    </ul></li>
+    <li><a id="toc-File-and-directory-layout" href="File-and-directory-layout.html">14.3 File and directory layout</a></li>
+    <li><a id="toc-Environment-variables" href="Environment-variables.html">14.4 Environment variables</a></li>
+    <li><a id="toc-Kiss-framework-references" href="Kiss-framework-references.html">14.5 Kiss framework references</a></li>
+  </ul></li>
+  <li><a id="toc-Contributing" href="Contributing.html">15 Contributing</a>
+  <ul class="toc-numbered-mark">
+    <li><a id="toc-How-to-send-a-patch" href="How-to-send-a-patch.html">15.1 How to send a patch</a></li>
+    <li><a id="toc-Local-development" href="Local-development.html">15.2 Local development</a></li>
+    <li><a id="toc-Running-tests" href="Running-tests.html">15.3 Running tests</a></li>
+    <li><a id="toc-Coding-conventions" href="Coding-conventions.html">15.4 Coding conventions</a></li>
+    <li><a id="toc-Documentation" href="Documentation.html">15.5 Documentation</a></li>
+    <li><a id="toc-License" href="License.html">15.6 License</a></li>
+  </ul></li>
+  <li><a id="toc-Index" href="Index.html" rel="index">Index</a></li>
+</ul>
+</div>
+</div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Introduction.html" accesskey="n" rel="next">Introduction</a> &nbsp; [<a href="#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

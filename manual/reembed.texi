@@ -1,0 +1,505 @@
+@node Embedding Migration
+@chapter Embedding Migration
+@cindex embedding migration
+@cindex re-embed
+@cindex ReembedJob
+
+OwnSona stores every memory's text alongside a vector embedding of
+that text.  Recall, dedup-on-write, and conflict surfacing all rely on
+those vectors.  Sooner or later you will want to switch to a different
+embedding model or a different embedding provider, and the existing
+vectors will need to be replaced --- vectors from different models
+live in different spaces, and cosine distance between them is noise.
+
+This chapter explains @b{when and why} you might switch, and the
+@b{exact mechanics} of doing so cleanly.  It is the canonical
+operational reference for embedding migrations.
+
+@menu
+* When and why you might switch::
+* What is and isn't affected::
+* How re-embedding works inside the server::
+* Procedure A: same-dimension switch::
+* Procedure B: different-dimension switch::
+* Monitoring progress::
+* Recovery after a failed run::
+* Cost of re-embedding::
+* Pitfalls and gotchas::
+@end menu
+
+@node When and why you might switch
+@section When and why you might switch
+@cindex reasons to switch embedding
+
+Realistic triggers, in roughly increasing order of urgency:
+
+@itemize @bullet
+@item @b{Cost.}  A new model from the same provider, or a different
+provider entirely, comes in at half the per-token price.  At thousands
+of memories this matters less than at millions, but it matters.
+
+@item @b{Quality.}  A newer or larger model produces measurably better
+recall on your kind of facts.  Embedding-model leaderboards (e.g.@:
+MTEB) move every few months; what was state-of-the-art two years ago
+is often surpassed today.
+
+@item @b{Provider deprecation.}  Your current provider end-of-lifes
+the model you embedded under.  Migrating @b{before} they yank the API
+is cheaper than scrambling after.
+
+@item @b{Vendor diversity / data sovereignty.}  You decide you no
+longer want your memory texts traveling to a third party for
+embedding.  You move to a self-hosted model (Ollama,
+sentence-transformers, BGE, etc.).
+
+@item @b{Local privacy / air-gap.}  Same as above: the entire pipeline
+becomes on-host.  No outbound traffic at all.
+
+@item @b{You changed your mind about the dimension.}  You started with
+a 1536-dim model because that was the default and now want to drop to
+768 to save disk + index memory, or move up to 3072 for higher
+quality.
+@end itemize
+
+You are @b{not} changing the LLMs that use the memory store --- Claude,
+ChatGPT, Gemini connect over MCP and don't care which embedding model
+produced the vectors they're searching.  The CLI's @code{teach}
+subcommand uses an independent LLM for fact extraction (separate
+config, separate endpoint, separate API key) and has no data-shape
+effect on the server.  Switching the server's embedding provider has
+no effect on the @code{teach} LLM, and vice versa.
+
+@node What is and isn't affected
+@section What is and isn't affected
+
+Every memory row carries @code{embedding}, @code{embedding_provider},
+@code{embedding_model}, and a stored @code{text}.  A re-embed pass:
+
+@b{Replaces:}
+@itemize @bullet
+@item Every row's @code{embedding} with a vector from the new
+provider/model.
+@item Every row's @code{embedding_provider} and @code{embedding_model}
+to match the active config.
+@end itemize
+
+@b{Leaves untouched:}
+@itemize @bullet
+@item @code{text}, @code{normalized_text}, @code{tags},
+@code{importance}, @code{metadata}.
+@item @code{created_at}, @code{updated_at}, @code{deleted_at}.
+@item @code{expires_at}, @code{last_confirmed_at}.
+@item @code{forget_reason}, @code{replaced_by_id}.
+@item @code{record_version}, @code{user_id}.
+@item All indexes (rebuilt automatically by Postgres when the column
+type changes, or explicitly dropped + recreated for performance).
+@end itemize
+
+@b{Important: soft-deleted rows are re-embedded.}  Tombstones
+participate in dedup-on-write via @code{findSimilarTombstones}, so
+their vectors have to move into the new model's space along with
+everything else.  If the walker skipped them, the dedup-on-write check
+would start returning gibberish for previously-corrected facts.
+
+@node How re-embedding works inside the server
+@section How re-embedding works inside the server
+@cindex ReembedJob startup order
+@cindex MCPServer clinit
+
+The walker is @code{ReembedJob}
+(@file{src/main/precompiled/ai/ownsona/embeddings/ReembedJob.java}).
+It runs from @code{MCPServer.<clinit>} after @code{DbMigrator} and
+@code{RecordMigrator}, and only when @code{REEMBED_ON_STARTUP=true} in
+@file{application.ini}.  On clean completion it flips that flag back
+to @code{false} so a routine restart doesn't accidentally re-trigger
+the walker.
+
+Order at startup:
+
+@example
+1. DbMigrator        --- applies any new schema migrations
+2. RecordMigrator    --- runs per-row upgraders
+3. ReembedJob        --- re-embeds stale rows (only if REEMBED_ON_STARTUP=true)
+@end example
+
+The ordering matters: a different-dimension switch ships a
+@b{migration} that resizes the @code{embedding} column.  The migration
+runs first, then the walker fills the now-resized column with new
+vectors.
+
+The walker:
+
+@itemize @bullet
+@item Selects rows where @code{embedding IS NULL} @b{or}
+@code{embedding_provider IS DISTINCT FROM <active>} @b{or}
+@code{embedding_model IS DISTINCT FROM <active>}, paginating by id.
+@item Reads each batch's @code{text} in a single query.
+@item Calls @code{EmbeddingProvider.embedBatch()} once per batch
+(default batch size 50).
+@item Writes new vector + new provider + new model back, one row at a
+time, in a single transaction per batch.
+@end itemize
+
+A crash mid-walk loses at most one batch.  The next restart re-runs
+from exactly the rows still showing the old provider/model.  Resumable
+by virtue of the SELECT filter --- no state file, no checkpoint
+bookkeeping.
+
+@node Procedure A: same-dimension switch
+@section Procedure A: same-dimension switch
+@cindex same-dimension switch
+
+Use when: the new model produces vectors of the @b{same dimension} as
+the old one.  Examples:
+
+@itemize @bullet
+@item Stay at 1536; switch from @code{text-embedding-3-small} to
+@code{text-embedding-3-large@@1536} (OpenAI supports a
+@code{dimensions} parameter that truncates the larger model's output).
+@item Swap to a self-hosted 1536-dim model.
+@item Switch from one 768-dim model to another 768-dim model after a
+prior dim-change.
+@end itemize
+
+@b{No code or schema changes are required.}  The whole procedure is
+config + restart.
+
+@enumerate
+@item @b{Back up the database.}
+
+@example
+sudo systemctl stop ownsona.service
+pg_dump -h localhost -U ownsona ownsona > /var/backups/ownsona-pre-reembed-$(date +%F).sql
+sudo systemctl start ownsona.service
+@end example
+
+(Or rely on your nightly backup --- but a fresh dump immediately before
+re-embed is safer.)
+
+@item @b{Edit the deployed @file{application.ini}} at
+@file{<tomcat>/webapps/ROOT/WEB-INF/backend/application.ini}:
+
+@example
+EMBEDDING_PROVIDER   = openai
+EMBEDDING_MODEL      = text-embedding-3-large
+EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_API_KEY    = sk-...                # if it changed
+EMBEDDING_ENDPOINT   = https://api.openai.com/v1/embeddings
+
+REEMBED_ON_STARTUP   = true
+@end example
+
+@item @b{Restart the service.}
+
+@example
+sudo systemctl restart ownsona.service
+@end example
+
+@item @b{Watch the log.}
+
+@example
+journalctl -u ownsona.service -f
+@end example
+
+You'll see, in order:
+
+@example
+migrator: db_version at N, target N, nothing to apply
+record_migrator: done upgraded=0 failed=0
+reembed: starting active_provider=... active_model=... dims=...
+reembed: progress count=50
+reembed: progress count=100
+...
+reembed: done count=N
+ApplicationIniWriter: set REEMBED_ON_STARTUP = false in <path>
+@end example
+
+The server is @b{serving requests during the walker's run}.  Recall on
+rows already updated uses new-model vectors; recall on rows not yet
+updated uses old-model vectors.  Within either cohort, results are
+correct; across cohorts, scores are not meaningfully comparable.  For
+a single-user store this window is minutes, not hours.
+
+@item @b{Verify and propagate.}
+
+@example
+SELECT embedding_provider, embedding_model, count(*)
+FROM memories
+GROUP BY 1, 2;
+@end example
+
+Should show one row, with the new provider/model and a count matching
+@code{count(*)} overall.
+
+The walker auto-flips @code{REEMBED_ON_STARTUP=false} in the deployed
+@file{application.ini}, but the @b{source tree} still has it at
+@code{true}.  Before your next WAR build, update
+@file{src/main/backend/application.ini} (and the example file) to
+match, so the next deploy doesn't accidentally re-trigger the walker.
+@end enumerate
+
+@node Procedure B: different-dimension switch
+@section Procedure B: different-dimension switch
+@cindex different-dimension switch
+@cindex vector column resize
+
+Use when: the new model's output dimension differs from the existing
+column (e.g.@: moving from 1536 to 3072, or 1536 to 768).  The
+@code{vector(N)} column type @b{must be resized first} --- pgvector
+cannot store a 3072-element vector in a @code{vector(1536)} column.
+The schema change ships as an @b{additive migration} that runs before
+the walker.
+
+@enumerate
+@item @b{Write a new migration class} at
+@file{src/main/precompiled/ai/ownsona/migrations/MigrationNNN_resize_embedding_to_N.java}:
+
+@example
+package ai.ownsona.migrations;
+
+import org.kissweb.database.Connection;
+
+public final class Migration005ResizeEmbeddingTo3072 implements Migration @{
+    @@Override public int version() @{ return 5; @}
+    @@Override public String name()  @{ return "resize embedding to vector(3072)"; @}
+    @@Override public void apply(Connection db) throws Exception @{
+        // Relax NOT NULL so we can null out via the type change.
+        db.execute("ALTER TABLE memories ALTER COLUMN embedding DROP NOT NULL");
+        // Resize.  USING NULL = discard old vectors; the walker
+        // rebuilds them from each row's text on this same startup.
+        db.execute("ALTER TABLE memories ALTER COLUMN embedding TYPE vector(3072) USING NULL");
+    @}
+@}
+@end example
+
+@b{Why this can ship as an additive migration despite clearing the
+column:} the embedding column is @emph{derived data}.  The texts that
+produced the old vectors are still in the @code{text} column.  Nulling
+out the embedding column and re-filling it from the texts in the same
+startup sequence loses nothing the system can't rebuild.  This is a
+narrow, deliberate exception to the additive-only invariant ---
+dim-change migrations may clear the embedding column iff the same
+commit sets @code{REEMBED_ON_STARTUP=true}.
+
+@item @i{Optional: drop the HNSW index first.}  If you have thousands
+of rows, dropping the index before the walker and recreating it after
+avoids paying incremental HNSW insertion cost on every batch.  Add to
+the migration:
+
+@example
+db.execute("DROP INDEX IF EXISTS memories_embedding_idx");
+@end example
+
+The matching @code{CREATE INDEX} step at the end is one-time operator
+work --- a follow-up @code{psql} command after the walker finishes ---
+because it must run @b{after} the walker, not before it.
+
+@item @b{Register the migration and bump the version.}  In
+@file{src/main/precompiled/ai/ownsona/migrations/MigrationRegistry.java}:
+
+@example
+public static final int CURRENT_DB_VERSION = 5;
+...
+m.add(new Migration005ResizeEmbeddingTo3072());
+@end example
+
+@item @b{Update @file{application.ini}} (source tree, and on the server)
+with the new @code{EMBEDDING_MODEL}, @code{EMBEDDING_DIMENSIONS=3072},
+@code{EMBEDDING_API_KEY} (if it changed), and
+@code{REEMBED_ON_STARTUP=true}.
+
+@item @b{Back up the database.}
+
+@example
+pg_dump -h localhost -U ownsona ownsona > /var/backups/ownsona-pre-reembed-$(date +%F).sql
+@end example
+
+@item @b{Build, deploy, restart.}  Normal WAR-swap deploy:
+
+@example
+./bld -v build && ./bld war
+sudo cp work/Kiss.war /home/ownsona/tomcat/webapps/ROOT.war
+sudo systemctl restart ownsona.service
+@end example
+
+@item @b{Watch the log.}  In order:
+
+@example
+migrator: applied v=5 name="resize embedding to vector(3072)" ms=...
+record_migrator: done ...
+reembed: starting active_provider=... active_model=... dims=3072
+reembed: progress count=...
+reembed: done count=...
+ApplicationIniWriter: set REEMBED_ON_STARTUP = false ...
+@end example
+
+@item @b{If you dropped the HNSW index in step 2}, recreate it now that
+the walker has filled every row:
+
+@example
+sudo -u ownsona psql -d ownsona -c \
+    "CREATE INDEX memories_embedding_idx ON memories USING hnsw (embedding vector_cosine_ops);"
+@end example
+
+@item @b{Optional cleanup: restore NOT NULL} on the embedding column
+in a follow-up migration (@code{Migration006}).  Strictly optional ---
+the server always sets @code{embedding} on insert / update.  If you
+do, ship it in a later commit after you've confirmed every row has a
+non-NULL embedding.
+
+@item @b{Propagate} the source-tree @file{application.ini} flip (see
+step 5 of @ref{Procedure A: same-dimension switch}).
+@end enumerate
+
+@node Monitoring progress
+@section Monitoring progress
+
+@subsection Status query
+
+To see what state the store is currently in:
+
+@example
+SELECT embedding_provider, embedding_model, count(*)
+FROM memories
+GROUP BY 1, 2
+ORDER BY count(*) DESC;
+@end example
+
+Mid-walk this returns two rows (old and new), shifting as the walker
+progresses.  After completion it returns one row.
+
+@subsection Rows still needing re-embed
+
+@example
+SELECT count(*) FROM memories
+WHERE embedding IS NULL
+   OR embedding_provider IS DISTINCT FROM 'openai'
+   OR embedding_model    IS DISTINCT FROM 'text-embedding-3-large';
+@end example
+
+@subsection Watching the walker live
+
+@example
+journalctl -u ownsona.service -f | grep -E 'reembed:|migrator:'
+@end example
+
+The @code{reembed: progress count=N} lines tick by once per batch (50
+rows by default).
+
+@node Recovery after a failed run
+@section Recovery after a failed run
+@cindex re-embed failure
+@cindex rollback
+
+@subsection Walker interrupted
+
+The walker is resumable by design.  Kill the JVM mid-run, then
+@code{systemctl restart ownsona.service}, and it picks up exactly the
+rows still showing the old provider/model.  No state to clean up.
+
+@subsection Walker failed mid-run
+
+Look at the exception in @code{journalctl -u ownsona.service}.  Common
+causes:
+
+@itemize @bullet
+@item @b{Embedding endpoint unreachable / API key wrong.}  Fix
+@file{application.ini} and restart.
+
+@item @b{Rate-limit / 429.}  The walker treats this as a fatal error
+and aborts the run; the next restart resumes.  For a one-off run on a
+small store you'll usually outrun the rate limit; for a large store
+you may want to lower @code{BATCH_SIZE} in @file{ReembedJob.java}.
+
+@item @b{Different-dimension migration ran but
+@code{EMBEDDING_DIMENSIONS} in config doesn't match the column type.}
+The walker will try to write wrong-size vectors and fail at the
+database with a vector dimension mismatch error.  Fix the config and
+restart.
+@end itemize
+
+@subsection Full rollback
+
+If the new model is producing terrible recall and you want to revert:
+
+@enumerate
+@item Stop the service.
+@item Restore from the pre-deploy backup:
+
+@example
+sudo -u postgres psql ownsona < /var/backups/ownsona-pre-reembed-<date>.sql
+@end example
+
+@item Revert @file{application.ini} to the old @code{EMBEDDING_MODEL}
+/ @code{EMBEDDING_DIMENSIONS} / @code{EMBEDDING_API_KEY}.
+
+@item If you also ran a dim-change migration, redeploy a WAR built
+from the pre-dim-change commit (i.e.@: one whose
+@code{CURRENT_DB_VERSION} is lower).  @code{DbMigrator} refuses to
+start against a @emph{higher}-version DB, so you must restore the DB
+first or ship code matching the DB version.
+
+@item Start the service.
+@end enumerate
+
+This is the ``data is not cheap'' branch --- the backup is the only
+thing that gets you back cleanly.  Take backups @b{before} the deploy,
+not after.
+
+@node Cost of re-embedding
+@section Cost
+
+Embedding APIs are priced per token.  For a single-user store of a few
+thousand short memories, a full re-embed costs cents to single-digit
+dollars.  Rough estimates (OpenAI list prices, may have changed):
+
+@multitable @columnfractions .30 .35 .35
+@headitem Memories × avg tokens @tab @code{text-embedding-3-small} @tab @code{text-embedding-3-large}
+@item 1,000 × 40 tokens   @tab ~$0.001 @tab ~$0.005
+@item 10,000 × 40 tokens  @tab ~$0.01  @tab ~$0.05
+@item 100,000 × 40 tokens @tab ~$0.10  @tab ~$0.50
+@end multitable
+
+Self-hosted models (Ollama, sentence-transformers) cost zero per token
+but you pay in compute time on the host.
+
+@node Pitfalls and gotchas
+@section Pitfalls and gotchas
+
+@itemize @bullet
+@item @b{The auto-flip writes to the deployed copy of
+@file{application.ini}, not the source tree.}  After a successful run,
+the file at @file{<tomcat>/webapps/ROOT/WEB-INF/backend/application.ini}
+has @code{REEMBED_ON_STARTUP = false}, but
+@file{src/main/backend/application.ini} (the source you build from)
+still has it at @code{true}.  Update the source-tree copy before your
+next WAR build, or the next deploy will silently kick off a no-op
+walker on startup (harmless but wastes time and logs noise).
+
+@item @b{@file{application.ini} is gitignored}, so a PR review won't
+catch a stale source copy.  The example file ships
+@code{REEMBED_ON_STARTUP = false}, so fresh installs start in the
+right state.
+
+@item @b{@code{EMBEDDING_DIMENSIONS} must match the @code{vector(N)}
+column type.}  If they disagree, every write fails at the database
+with a vector dim mismatch.  Postgres enforces this, not OwnSona ---
+the error surfaces at insert/update time, not at startup.
+
+@item @b{Hard-deleted rows mid-walk don't break the walker.}  If a row
+is hard-deleted between the id scan and the per-batch text fetch, it
+silently drops out of the batch.  No re-embed, no error.
+
+@item @b{There's no MCP tool to trigger a re-embed.}  Deliberate ---
+admin operations stay outside the MCP surface so any LLM holding the
+bearer can't initiate them.  The trigger is editing
+@file{application.ini} and restarting, which is an operator action.
+
+@item @b{Vendor neutrality is preserved.}  The walker doesn't know or
+care whether the provider is OpenAI, Cohere, Voyage, BGE, Ollama, or
+anything else.  It only knows about the @code{EmbeddingProvider}
+interface.  To add a new provider, write a new @code{EmbeddingProvider}
+implementation and update the instantiation in
+@code{MCPServer.<clinit>} --- the rest of the system (migrations,
+walker, repository, tools) is provider-agnostic.
+@end itemize

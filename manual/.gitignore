@@ -1,0 +1,22 @@
+# TeX intermediate files (only created when building PDF).
+*.aux
+*.cp
+*.cps
+*.fn
+*.fns
+*.ky
+*.kys
+*.log
+*.pg
+*.pgs
+*.toc
+*.tp
+*.tps
+*.vr
+*.vrs
+
+# Single-page HTML and other build artifacts are generated on demand.
+# The multi-page html/ directory IS committed.
+ownsona.html
+ownsona.info
+ownsona.pdf

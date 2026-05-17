@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>Dedup-on-write and tombstones (OwnSona Manual)</title>
+
+<meta name="description" content="Dedup-on-write and tombstones (OwnSona Manual)">
+<meta name="keywords" content="Dedup-on-write and tombstones (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Server-Internals.html" rel="up" title="Server Internals">
+<link href="The-auto_002dmigration-framework.html" rel="next" title="The auto-migration framework">
+<link href="Tag-normalization.html" rel="prev" title="Tag normalization">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+span:hover a.copiable-link {visibility: visible}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="Dedup_002don_002dwrite-and-tombstones">
+<div class="nav-panel">
+<p>
+Next: <a href="The-auto_002dmigration-framework.html" accesskey="n" rel="next">The auto-migration framework</a>, Previous: <a href="Tag-normalization.html" accesskey="p" rel="prev">Tag normalization</a>, Up: <a href="Server-Internals.html" accesskey="u" rel="up">Server Internals</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="Dedup_002don_002dwrite-and-tombstones-1"><span>6.6 Dedup-on-write and tombstones<a class="copiable-link" href="#Dedup_002don_002dwrite-and-tombstones-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-dedup_005fpolicy"></a>
+<a class="index-entry-id" id="index-tombstones"></a>
+<a class="index-entry-id" id="index-previously_005fcorrected"></a>
+
+<p>Every <code class="code">remember</code> and <code class="code">remember_batch</code> call runs two checks
+<b class="b">before</b> insert:
+</p>
+<ol class="enumerate">
+<li> Exact normalized-text duplicate (defense-in-depth backed by a
+unique partial index).  If a matching active row exists, the
+<code class="code">remember</code> call returns that row&rsquo;s id with
+<code class="code">message: &quot;Already remembered&quot;</code>.
+
+</li><li> Semantic near-duplicate: run a similarity search at cosine
+<em class="math">&gt;= 0.90</em> against active rows in the top-K=5.  If any are found,
+the <code class="code">dedup_policy</code> parameter decides what happens:
+
+<dl class="table">
+<dt><code class="code">insert</code></dt>
+<dd><p>Skip the check entirely.  Always inserts.
+</p></dd>
+<dt><code class="code">skip_if_near</code></dt>
+<dd><p>Don&rsquo;t insert.  Return the existing memory id.
+</p></dd>
+<dt><code class="code">ask</code></dt>
+<dd><p>(Default.)  Insert anyway.  Include the near-duplicates in the
+response so the calling LLM sees what looked similar.
+</p></dd>
+</dl>
+
+</li><li> Tombstone check: same similarity search but restricted to
+soft-deleted rows.  If a near-duplicate tombstone is found, the
+response includes it as <code class="code">previously_corrected</code> so the calling LLM
+can warn: &ldquo;this fact was deleted with reason X.&rdquo;  This check does
+<b class="b">not</b> block the insert &mdash; it&rsquo;s a signal, not a veto.
+</li></ol>
+
+<p>Soft-deleted rows are dual-purpose: hidden from
+<code class="code">recall</code>/<code class="code">list_memories</code>/<code class="code">text_search</code> but consulted by
+the dedup-on-write check.  Hard delete (<code class="code">forget hard_delete=true</code>)
+is the only way to truly remove a memory&rsquo;s influence.
+</p>
+</div>
+
+
+
+</body>
+</html>

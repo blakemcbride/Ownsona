@@ -1,0 +1,167 @@
+@node Introduction
+@chapter Introduction
+@cindex introduction
+@cindex overview
+
+@cindex MCP
+@cindex Model Context Protocol
+OwnSona is a single-user, self-hosted memory server.  It stores durable
+facts about you in a PostgreSQL database and exposes them over the
+@uref{https://modelcontextprotocol.io, Model Context Protocol (MCP)} so
+that any MCP-capable large-language-model client --- Claude (Anthropic),
+ChatGPT (OpenAI), Gemini (Google), Grok (xAI), and an ever-growing list
+of others --- can read from and write to the same store.
+
+The name is a contraction of @emph{own persona}.  The store is your
+persona, the part of yourself you teach once and never have to teach
+again.
+
+@menu
+* The problem::                  Per-provider amnesia.
+* The pitch::                    One memory, every LLM.
+* What's inside::                Tech stack at a glance.
+* Design principles::            Choices the project makes deliberately.
+* Status and scope::             What's done, what's deliberately out of scope.
+@end menu
+
+@node The problem
+@section The problem
+
+Today, teaching an LLM anything durable about yourself is a
+per-provider chore.  You explain who you are to ChatGPT, then again to
+Claude, then again to Gemini.  Each one forgets between conversations.
+Switching providers, switching models, even upgrading to a newer
+release of the same provider can dump everything you've ever taught it.
+
+A handful of vendor-specific workarounds exist --- ChatGPT's
+``Memory,'' Claude's project files, Gemini's gems --- but none of them
+are portable.  Your memory of yourself is locked inside whichever
+vendor you happened to teach.  If a competitor launches a better model
+next year, the cost of switching includes re-teaching the new one
+everything.
+
+@node The pitch
+@section The pitch
+
+OwnSona breaks the cycle by being the durable memory store every
+MCP-capable LLM connects to.
+
+@itemize @bullet
+@item
+Tell Claude once that your dog's name is Mochi, that you prefer concise
+answers, that the quarterly forecast lives in @file{~/work/q3/}, or
+that you're a Go developer learning React --- and the next session in
+ChatGPT or Gemini already knows.
+
+@item
+A fact written by one model is recallable by the next.  Your context
+follows you across providers, across models, across years.
+
+@item
+You own the database.  It lives on a server you control.  Nothing
+about your memory store leaves your machine except the embedding API
+calls that vectorize new facts (and even those go to a configurable
+endpoint, including self-hosted models).
+@end itemize
+
+The mechanism is unspectacular: MCP standardizes tool-calling for
+LLMs, OwnSona implements seven tools, and any LLM client that speaks
+MCP can call them.  Under the hood, memories are stored in PostgreSQL
+with the @code{pgvector} extension; recall is vector-similarity search
+over OpenAI's @code{text-embedding-3-small} model by default
+(swappable).
+
+@node What's inside
+@section What's inside
+@cindex tech stack
+@cindex architecture
+
+@itemize @bullet
+@item
+@b{Backend:} Java 17+, built on the
+@uref{https://kissweb.org, Kiss web development framework}.  Kiss is
+an open-source Java full-stack framework; OwnSona uses its servlet
+container, JSON-RPC plumbing, c3p0 connection pool, @code{bld} build
+script, and the @code{MCPServerBase} base class this server extends.
+Documentation for Kiss itself --- manual, JSDoc, JavaDoc, training
+videos --- lives at @uref{https://kissweb.org}; the source is at
+@uref{https://github.com/blakemcbride/Kiss}.  Runs as a single
+servlet under Apache Tomcat 11 (embedded).
+
+@item
+@b{Storage:} PostgreSQL 16 with the @code{pgvector} extension for
+similarity search and @code{pg_trgm} for fuzzy text matching.
+
+@item
+@b{Embeddings:} OpenAI's @code{text-embedding-3-small} (1536-dim) by
+default, exposed through a swappable @code{EmbeddingProvider}
+interface.  Self-hosted alternatives (Ollama, sentence-transformers)
+work without changing any application code.
+
+@item
+@b{Auth:} A single bearer token compared in constant time.  The
+secret-scanner refuses to store text that looks like an API key,
+JWT, or PEM private key.
+
+@item
+@b{Transport:} HTTPS on port 443, terminated by Tomcat directly.
+
+@item
+@b{Supervision:} systemd, with a nightly @code{pg_dump} backup unit.
+@end itemize
+
+@node Design principles
+@section Design principles
+
+A few choices that have shaped every other choice:
+
+@table @asis
+@item Single user.
+The store has @b{one} user (you).  There are no multi-tenant primitives
+to design around.  When the design has to choose between flexibility
+and simplicity, it picks simplicity.
+
+@item Vendor neutrality on the server side.
+The only place a vendor name appears in the request or write path is
+the @code{EmbeddingProvider} implementation.  MCP tool descriptions
+are generic: they say ``the calling LLM,'' not ``Claude.''  Adding a
+new provider is one class plus an @file{application.ini} switch.
+
+@item Additive schema migrations only.
+The auto-migration framework will refuse to drop, rename, or rewrite
+existing data.  Schema changes add columns or indexes.  Destructive
+operations (column resizes for an embedding dim change, for example)
+are deliberate, narrow exceptions covered in @ref{Embedding Migration}.
+
+@item Code is cheap, data is precious.
+A WAR swap can be rolled back in seconds.  Restoring a database from
+backup costs you every memory written between the backup and the
+rollback.  Every operational procedure in this manual is built around
+that asymmetry: take the backup first, change the data carefully,
+keep the rollback path short.
+
+@item No admin operations in the MCP surface.
+The MCP tools any LLM can call are deliberately read/write-of-facts
+only.  Migration triggers, re-embedding, log inspection, schema
+fiddling --- all of those are operator actions, performed by editing
+@file{application.ini} and restarting, or by running SQL directly.
+This makes it impossible for an LLM with a leaked bearer token to
+cause structural damage to the store.
+@end table
+
+@node Status and scope
+@section Status and scope
+
+OwnSona is in active use as the author's personal memory store.  The
+core feature set is stable.  See @file{OwnSona-rollout-plan.md} in the
+source tree for the per-phase implementation status.
+
+Deliberately out of scope:
+
+@itemize @bullet
+@item @b{Multi-user tenancy.}  Not coming.
+@item @b{Hosted SaaS.}  Not coming.  Run your own.
+@item @b{Generative-LLM calls in the server's request path.}  Not coming;
+guardrail #1.  The CLI's @code{teach} subcommand uses an LLM to extract
+facts from prose, but that's client-side and the server doesn't know.
+@end itemize

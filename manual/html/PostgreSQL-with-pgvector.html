@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>PostgreSQL with pgvector (OwnSona Manual)</title>
+
+<meta name="description" content="PostgreSQL with pgvector (OwnSona Manual)">
+<meta name="keywords" content="PostgreSQL with pgvector (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Installation.html" rel="up" title="Installation">
+<link href="Apache-Tomcat-11.html" rel="next" title="Apache Tomcat 11">
+<link href="Create-the-ownsona-user.html" rel="prev" title="Create the ownsona user">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+div.example {margin-left: 3.2em}
+span:hover a.copiable-link {visibility: visible}
+ul.mark-bullet {list-style-type: disc}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="PostgreSQL-with-pgvector">
+<div class="nav-panel">
+<p>
+Next: <a href="Apache-Tomcat-11.html" accesskey="n" rel="next">Apache Tomcat 11</a>, Previous: <a href="Create-the-ownsona-user.html" accesskey="p" rel="prev">Create the ownsona user</a>, Up: <a href="Installation.html" accesskey="u" rel="up">Installation</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="PostgreSQL-with-pgvector-1"><span>3.5 PostgreSQL with pgvector<a class="copiable-link" href="#PostgreSQL-with-pgvector-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-PostgreSQL"></a>
+<a class="index-entry-id" id="index-pgvector"></a>
+
+<p>The Ubuntu package starts and enables PostgreSQL automatically:
+</p>
+<div class="example">
+<pre class="example-preformatted">sudo systemctl status postgresql
+</pre></div>
+
+<p>Create the application databases:
+</p>
+<div class="example">
+<pre class="example-preformatted">sudo -u postgres createdb ownsona
+sudo -u postgres createdb ownsona_test     # used by sql/run_tests.sh
+</pre></div>
+
+<p>Create the application role and run the schema migration.  The
+repository ships a one-shot setup script; pass it the password you
+want the application to use:
+</p>
+<div class="example">
+<pre class="example-preformatted">PGPW=&quot;$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)&quot;
+echo &quot;Save this somewhere safe: $PGPW&quot;
+
+cd /home/ownsona/ownsona     # see step 'Clone and build' if not yet cloned
+sql/setup_db.sh &quot;$PGPW&quot;
+</pre></div>
+
+<p>The script:
+</p>
+<ul class="itemize mark-bullet">
+<li>creates the <code class="code">ownsona</code> PostgreSQL role with the supplied
+password;
+</li><li>runs <samp class="file">sql/001_init.sql</samp> against the <code class="code">ownsona</code> database
+(creates the <code class="code">vector</code> and <code class="code">pg_trgm</code> extensions, the
+<code class="code">memories</code> table, all indexes including the HNSW vector index,
+the duplicate-prevention partial unique index, and the
+<code class="code">updated_at</code> trigger);
+</li><li>grants the <code class="code">ownsona</code> role the table and sequence privileges
+it needs plus <code class="code">CREATE ON SCHEMA public</code> and ownership of
+<code class="code">memories</code> (and its sequence).  The auto-migrator
+(see <a class="pxref" href="Upgrading-an-existing-install.html">Upgrading an existing install</a>) needs these to create its
+<code class="code">db_version</code> bookkeeping table and apply future migrations
+without requiring the postgres superuser at runtime.
+</li></ul>
+
+<p>Run the migration against the test database too:
+</p>
+<div class="example">
+<pre class="example-preformatted">sudo -u postgres psql -d ownsona_test -f sql/001_init.sql
+</pre></div>
+
+<p>You will use <code class="code">$PGPW</code> again in <a class="ref" href="Configure-application_002eini.html">Configure <samp class="file">application.ini</samp></a>.
+</p>
+</div>
+
+
+
+</body>
+</html>

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>General tool conventions (OwnSona Manual)</title>
+
+<meta name="description" content="General tool conventions (OwnSona Manual)">
+<meta name="keywords" content="General tool conventions (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="MCP-Tools.html" rel="up" title="MCP Tools">
+<link href="The-remember-tool.html" rel="next" title="The remember tool">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+div.example {margin-left: 3.2em}
+span:hover a.copiable-link {visibility: visible}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="General-tool-conventions">
+<div class="nav-panel">
+<p>
+Next: <a href="The-remember-tool.html" accesskey="n" rel="next">The <code class="code">remember</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="General-tool-conventions-1"><span>5.1 General tool conventions<a class="copiable-link" href="#General-tool-conventions-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-JSON_002dRPC"></a>
+<a class="index-entry-id" id="index-tool-envelope"></a>
+
+<p>All tool calls are JSON-RPC 2.0 over HTTPS POST to <code class="code">/mcp</code>:
+</p>
+<div class="example">
+<pre class="example-preformatted">POST /mcp HTTP/1.1
+Authorization: Bearer &lt;OWNSONA_API_TOKEN&gt;
+Content-Type: application/json
+
+{
+  &quot;jsonrpc&quot;: &quot;2.0&quot;,
+  &quot;id&quot;: 1,
+  &quot;method&quot;: &quot;tools/call&quot;,
+  &quot;params&quot;: {
+    &quot;name&quot;: &quot;&lt;tool-name&gt;&quot;,
+    &quot;arguments&quot;: { ... }
+  }
+}
+</pre></div>
+
+<p>The server returns a JSON-RPC response whose <code class="code">result.content[0].text</code>
+field holds the tool&rsquo;s structured payload as a JSON string.  Every
+successful payload begins with <code class="code">&quot;ok&quot;: true</code>; every error payload
+begins with <code class="code">&quot;ok&quot;: false, &quot;error&quot;: {...}</code>.
+</p>
+<ul class="mini-toc">
+<li><a href="#Common-types" accesskey="1">Common types</a></li>
+<li><a href="#Authentication" accesskey="2">Authentication</a></li>
+</ul>
+<div class="subsection-level-extent" id="Common-types">
+<h4 class="subsection"><span>5.1.1 Common types<a class="copiable-link" href="#Common-types"> &para;</a></span></h4>
+
+<dl class="table">
+<dt>Memory ID</dt>
+<dd><p>A 64-bit integer (Postgres <code class="code">BIGSERIAL</code>).  Stable for the row&rsquo;s
+lifetime; never reused after a hard-delete.
+</p>
+</dd>
+<dt>Timestamps</dt>
+<dd><p>ISO 8601 with timezone, e.g. <code class="code">&quot;2026-05-17T14:00:00Z&quot;</code>.
+</p>
+</dd>
+<dt>Tags</dt>
+<dd><p>Lowercase short strings, alphanumeric plus hyphen.  See
+<a class="ref" href="Tag-normalization.html">Tag normalization</a>.
+</p>
+</dd>
+<dt>Vectors</dt>
+<dd><p>Never returned in tool output; an implementation detail of the
+similarity search.
+</p></dd>
+</dl>
+
+</div>
+<div class="subsection-level-extent" id="Authentication">
+<h4 class="subsection"><span>5.1.2 Authentication<a class="copiable-link" href="#Authentication"> &para;</a></span></h4>
+
+<p>Every request must carry <code class="code">Authorization: Bearer &lt;token&gt;</code>.  The
+token is compared in constant time against
+<code class="code">OWNSONA_API_TOKEN</code> from <samp class="file">application.ini</samp>.  Missing or
+wrong token returns HTTP 401 with <code class="code">AUTH_FAILED</code>.
+</p>
+</div>
+</div>
+
+
+
+</body>
+</html>

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>Procedure B: different-dimension switch (OwnSona Manual)</title>
+
+<meta name="description" content="Procedure B: different-dimension switch (OwnSona Manual)">
+<meta name="keywords" content="Procedure B: different-dimension switch (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Embedding-Migration.html" rel="up" title="Embedding Migration">
+<link href="Monitoring-progress.html" rel="next" title="Monitoring progress">
+<link href="Procedure-A_003a-same_002ddimension-switch.html" rel="prev" title="Procedure A: same-dimension switch">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+div.example {margin-left: 3.2em}
+span:hover a.copiable-link {visibility: visible}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="Procedure-B_003a-different_002ddimension-switch">
+<div class="nav-panel">
+<p>
+Next: <a href="Monitoring-progress.html" accesskey="n" rel="next">Monitoring progress</a>, Previous: <a href="Procedure-A_003a-same_002ddimension-switch.html" accesskey="p" rel="prev">Procedure A: same-dimension switch</a>, Up: <a href="Embedding-Migration.html" accesskey="u" rel="up">Embedding Migration</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="Procedure-B_003a-different_002ddimension-switch-1"><span>11.5 Procedure B: different-dimension switch<a class="copiable-link" href="#Procedure-B_003a-different_002ddimension-switch-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-different_002ddimension-switch"></a>
+<a class="index-entry-id" id="index-vector-column-resize"></a>
+
+<p>Use when: the new model&rsquo;s output dimension differs from the existing
+column (e.g. moving from 1536 to 3072, or 1536 to 768).  The
+<code class="code">vector(N)</code> column type <b class="b">must be resized first</b> &mdash; pgvector
+cannot store a 3072-element vector in a <code class="code">vector(1536)</code> column.
+The schema change ships as an <b class="b">additive migration</b> that runs before
+the walker.
+</p>
+<ol class="enumerate">
+<li> <b class="b">Write a new migration class</b> at
+<samp class="file">src/main/precompiled/ai/ownsona/migrations/MigrationNNN_resize_embedding_to_N.java</samp>:
+
+<div class="example">
+<pre class="example-preformatted">package ai.ownsona.migrations;
+
+import org.kissweb.database.Connection;
+
+public final class Migration005ResizeEmbeddingTo3072 implements Migration {
+    @Override public int version() { return 5; }
+    @Override public String name()  { return &quot;resize embedding to vector(3072)&quot;; }
+    @Override public void apply(Connection db) throws Exception {
+        // Relax NOT NULL so we can null out via the type change.
+        db.execute(&quot;ALTER TABLE memories ALTER COLUMN embedding DROP NOT NULL&quot;);
+        // Resize.  USING NULL = discard old vectors; the walker
+        // rebuilds them from each row's text on this same startup.
+        db.execute(&quot;ALTER TABLE memories ALTER COLUMN embedding TYPE vector(3072) USING NULL&quot;);
+    }
+}
+</pre></div>
+
+<p><b class="b">Why this can ship as an additive migration despite clearing the
+column:</b> the embedding column is <em class="emph">derived data</em>.  The texts that
+produced the old vectors are still in the <code class="code">text</code> column.  Nulling
+out the embedding column and re-filling it from the texts in the same
+startup sequence loses nothing the system can&rsquo;t rebuild.  This is a
+narrow, deliberate exception to the additive-only invariant &mdash;
+dim-change migrations may clear the embedding column iff the same
+commit sets <code class="code">REEMBED_ON_STARTUP=true</code>.
+</p>
+</li><li> <i class="i">Optional: drop the HNSW index first.</i>  If you have thousands
+of rows, dropping the index before the walker and recreating it after
+avoids paying incremental HNSW insertion cost on every batch.  Add to
+the migration:
+
+<div class="example">
+<pre class="example-preformatted">db.execute(&quot;DROP INDEX IF EXISTS memories_embedding_idx&quot;);
+</pre></div>
+
+<p>The matching <code class="code">CREATE INDEX</code> step at the end is one-time operator
+work &mdash; a follow-up <code class="code">psql</code> command after the walker finishes &mdash;
+because it must run <b class="b">after</b> the walker, not before it.
+</p>
+</li><li> <b class="b">Register the migration and bump the version.</b>  In
+<samp class="file">src/main/precompiled/ai/ownsona/migrations/MigrationRegistry.java</samp>:
+
+<div class="example">
+<pre class="example-preformatted">public static final int CURRENT_DB_VERSION = 5;
+...
+m.add(new Migration005ResizeEmbeddingTo3072());
+</pre></div>
+
+</li><li> <b class="b">Update <samp class="file">application.ini</samp></b> (source tree, and on the server)
+with the new <code class="code">EMBEDDING_MODEL</code>, <code class="code">EMBEDDING_DIMENSIONS=3072</code>,
+<code class="code">EMBEDDING_API_KEY</code> (if it changed), and
+<code class="code">REEMBED_ON_STARTUP=true</code>.
+
+</li><li> <b class="b">Back up the database.</b>
+
+<div class="example">
+<pre class="example-preformatted">pg_dump -h localhost -U ownsona ownsona &gt; /var/backups/ownsona-pre-reembed-$(date +%F).sql
+</pre></div>
+
+</li><li> <b class="b">Build, deploy, restart.</b>  Normal WAR-swap deploy:
+
+<div class="example">
+<pre class="example-preformatted">./bld -v build &amp;&amp; ./bld war
+sudo cp work/Kiss.war /home/ownsona/tomcat/webapps/ROOT.war
+sudo systemctl restart ownsona.service
+</pre></div>
+
+</li><li> <b class="b">Watch the log.</b>  In order:
+
+<div class="example">
+<pre class="example-preformatted">migrator: applied v=5 name=&quot;resize embedding to vector(3072)&quot; ms=...
+record_migrator: done ...
+reembed: starting active_provider=... active_model=... dims=3072
+reembed: progress count=...
+reembed: done count=...
+ApplicationIniWriter: set REEMBED_ON_STARTUP = false ...
+</pre></div>
+
+</li><li> <b class="b">If you dropped the HNSW index in step 2</b>, recreate it now that
+the walker has filled every row:
+
+<div class="example">
+<pre class="example-preformatted">sudo -u ownsona psql -d ownsona -c \
+    &quot;CREATE INDEX memories_embedding_idx ON memories USING hnsw (embedding vector_cosine_ops);&quot;
+</pre></div>
+
+</li><li> <b class="b">Optional cleanup: restore NOT NULL</b> on the embedding column
+in a follow-up migration (<code class="code">Migration006</code>).  Strictly optional &mdash;
+the server always sets <code class="code">embedding</code> on insert / update.  If you
+do, ship it in a later commit after you&rsquo;ve confirmed every row has a
+non-NULL embedding.
+
+</li><li> <b class="b">Propagate</b> the source-tree <samp class="file">application.ini</samp> flip (see
+step 5 of <a class="ref" href="Procedure-A_003a-same_002ddimension-switch.html">Procedure A: same-dimension switch</a>).
+</li></ol>
+
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Monitoring-progress.html">Monitoring progress</a>, Previous: <a href="Procedure-A_003a-same_002ddimension-switch.html">Procedure A: same-dimension switch</a>, Up: <a href="Embedding-Migration.html">Embedding Migration</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>Procedure A: same-dimension switch (OwnSona Manual)</title>
+
+<meta name="description" content="Procedure A: same-dimension switch (OwnSona Manual)">
+<meta name="keywords" content="Procedure A: same-dimension switch (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Embedding-Migration.html" rel="up" title="Embedding Migration">
+<link href="Procedure-B_003a-different_002ddimension-switch.html" rel="next" title="Procedure B: different-dimension switch">
+<link href="How-re_002dembedding-works-inside-the-server.html" rel="prev" title="How re-embedding works inside the server">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+div.example {margin-left: 3.2em}
+span:hover a.copiable-link {visibility: visible}
+ul.mark-bullet {list-style-type: disc}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="Procedure-A_003a-same_002ddimension-switch">
+<div class="nav-panel">
+<p>
+Next: <a href="Procedure-B_003a-different_002ddimension-switch.html" accesskey="n" rel="next">Procedure B: different-dimension switch</a>, Previous: <a href="How-re_002dembedding-works-inside-the-server.html" accesskey="p" rel="prev">How re-embedding works inside the server</a>, Up: <a href="Embedding-Migration.html" accesskey="u" rel="up">Embedding Migration</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="Procedure-A_003a-same_002ddimension-switch-1"><span>11.4 Procedure A: same-dimension switch<a class="copiable-link" href="#Procedure-A_003a-same_002ddimension-switch-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-same_002ddimension-switch"></a>
+
+<p>Use when: the new model produces vectors of the <b class="b">same dimension</b> as
+the old one.  Examples:
+</p>
+<ul class="itemize mark-bullet">
+<li>Stay at 1536; switch from <code class="code">text-embedding-3-small</code> to
+<code class="code">text-embedding-3-large@1536</code> (OpenAI supports a
+<code class="code">dimensions</code> parameter that truncates the larger model&rsquo;s output).
+</li><li>Swap to a self-hosted 1536-dim model.
+</li><li>Switch from one 768-dim model to another 768-dim model after a
+prior dim-change.
+</li></ul>
+
+<p><b class="b">No code or schema changes are required.</b>  The whole procedure is
+config + restart.
+</p>
+<ol class="enumerate">
+<li> <b class="b">Back up the database.</b>
+
+<div class="example">
+<pre class="example-preformatted">sudo systemctl stop ownsona.service
+pg_dump -h localhost -U ownsona ownsona &gt; /var/backups/ownsona-pre-reembed-$(date +%F).sql
+sudo systemctl start ownsona.service
+</pre></div>
+
+<p>(Or rely on your nightly backup &mdash; but a fresh dump immediately before
+re-embed is safer.)
+</p>
+</li><li> <b class="b">Edit the deployed <samp class="file">application.ini</samp></b> at
+<samp class="file">&lt;tomcat&gt;/webapps/ROOT/WEB-INF/backend/application.ini</samp>:
+
+<div class="example">
+<pre class="example-preformatted">EMBEDDING_PROVIDER   = openai
+EMBEDDING_MODEL      = text-embedding-3-large
+EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_API_KEY    = sk-...                # if it changed
+EMBEDDING_ENDPOINT   = https://api.openai.com/v1/embeddings
+
+REEMBED_ON_STARTUP   = true
+</pre></div>
+
+</li><li> <b class="b">Restart the service.</b>
+
+<div class="example">
+<pre class="example-preformatted">sudo systemctl restart ownsona.service
+</pre></div>
+
+</li><li> <b class="b">Watch the log.</b>
+
+<div class="example">
+<pre class="example-preformatted">journalctl -u ownsona.service -f
+</pre></div>
+
+<p>You&rsquo;ll see, in order:
+</p>
+<div class="example">
+<pre class="example-preformatted">migrator: db_version at N, target N, nothing to apply
+record_migrator: done upgraded=0 failed=0
+reembed: starting active_provider=... active_model=... dims=...
+reembed: progress count=50
+reembed: progress count=100
+...
+reembed: done count=N
+ApplicationIniWriter: set REEMBED_ON_STARTUP = false in &lt;path&gt;
+</pre></div>
+
+<p>The server is <b class="b">serving requests during the walker&rsquo;s run</b>.  Recall on
+rows already updated uses new-model vectors; recall on rows not yet
+updated uses old-model vectors.  Within either cohort, results are
+correct; across cohorts, scores are not meaningfully comparable.  For
+a single-user store this window is minutes, not hours.
+</p>
+</li><li> <b class="b">Verify and propagate.</b>
+
+<div class="example">
+<pre class="example-preformatted">SELECT embedding_provider, embedding_model, count(*)
+FROM memories
+GROUP BY 1, 2;
+</pre></div>
+
+<p>Should show one row, with the new provider/model and a count matching
+<code class="code">count(*)</code> overall.
+</p>
+<p>The walker auto-flips <code class="code">REEMBED_ON_STARTUP=false</code> in the deployed
+<samp class="file">application.ini</samp>, but the <b class="b">source tree</b> still has it at
+<code class="code">true</code>.  Before your next WAR build, update
+<samp class="file">src/main/backend/application.ini</samp> (and the example file) to
+match, so the next deploy doesn&rsquo;t accidentally re-trigger the walker.
+</p></li></ol>
+
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Procedure-B_003a-different_002ddimension-switch.html">Procedure B: different-dimension switch</a>, Previous: <a href="How-re_002dembedding-works-inside-the-server.html">How re-embedding works inside the server</a>, Up: <a href="Embedding-Migration.html">Embedding Migration</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

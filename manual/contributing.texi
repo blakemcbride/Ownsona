@@ -1,0 +1,158 @@
+@node Contributing
+@chapter Contributing
+@cindex contributing
+
+OwnSona is a single-user system that happens to be open source.
+Contributions are welcome, with two priorities the project does not
+trade away:
+
+@itemize @bullet
+@item @b{Vendor neutrality on the server side.}  No generative-LLM
+calls in the request or write path.  The only vendor-coupled seam is
+@code{EmbeddingProvider}.  Tool descriptions stay generic.
+
+@item @b{Additive schema migrations.}  No drops, no renames, no data
+rewrites inside a migration class.  The narrow exception is the
+embedding-dim resize case documented in @ref{Embedding Migration}.
+@end itemize
+
+@menu
+* How to send a patch::
+* Local development::
+* Running tests::
+* Coding conventions::
+* Documentation::
+* License::
+@end menu
+
+@node How to send a patch
+@section How to send a patch
+
+The canonical home for OwnSona is
+@uref{https://github.com/blakemcbride/Ownsona}.
+
+@enumerate
+@item Fork the repo.
+@item Branch from @code{main}.
+@item Make your change.  Keep commits small and explain the
+@emph{why} in the commit message.
+@item Open a pull request against @code{main}.
+@end enumerate
+
+For non-trivial changes --- new features, schema additions, new MCP
+tools --- open an issue first to discuss the design.  OwnSona's
+single-user, vendor-neutral, additive-migrations posture rejects some
+designs that would be reasonable in a multi-tenant system; a quick
+conversation upfront avoids wasted work.
+
+@node Local development
+@section Local development
+
+@example
+git clone https://github.com/blakemcbride/Ownsona.git
+cd Ownsona
+cp src/main/backend/application.ini.example src/main/backend/application.ini
+$EDITOR src/main/backend/application.ini       # fill in DB + secrets
+./bld develop                                   # frontend + backend dev servers
+@end example
+
+Hot reload covers files under @file{src/main/backend/} (services in
+Java, Groovy, or Lisp).  Files under @file{src/main/core/} (Kiss) and
+@file{src/main/precompiled/} require a restart of the dev server (or
+a @code{./bld -v build} + restart).
+
+@node Running tests
+@section Running tests
+
+@example
+sql/run_tests.sh
+@end example
+
+Runs every JUnit 5 test under @file{src/test/precompiled/}.  Tests
+gated on @code{OWNSONA_TEST_DATABASE_URL} silently skip without it:
+
+@example
+createdb -U postgres ownsona_test
+psql -U postgres -d ownsona_test -f sql/001_init.sql
+
+OWNSONA_TEST_DATABASE_URL="postgresql://ownsona:<pw>@@localhost:5432/ownsona_test" \
+    sql/run_tests.sh
+@end example
+
+@b{Don't point the test URL at production.}  Integration tests
+@code{TRUNCATE memories} between cases.
+
+@node Coding conventions
+@section Coding conventions
+@cindex style
+
+@itemize @bullet
+@item @b{Kiss patterns first.}  Use Kiss's @code{Connection}/@code{Record}
+API and @code{MainServlet.openNewConnection()} / @code{closeConnection(db,
+success)}, not raw JDBC.  Use @code{org.kissweb.json.@{JSONObject,
+JSONArray@}}, not external JSON libraries.
+
+@item @b{If-statement bodies on the next line.}  Required by project
+style; see @file{CLAUDE.md}.
+
+@example
+// CORRECT
+if (x == null)
+    return;
+
+// CORRECT
+if (x == null) @{
+    return;
+@}
+
+// WRONG
+if (x == null) return;
+@end example
+
+@item @b{Comments explain @emph{why}, not @emph{what}.}  Well-named
+identifiers cover the @emph{what}.  Comments are for non-obvious
+constraints, workarounds, or surprises.
+
+@item @b{Additive migrations.}  See guardrail above.  A new schema
+change is a new @code{Migration} class @b{plus} a registry entry
+@b{plus} a @code{CURRENT_DB_VERSION} bump, all in one commit.
+
+@item @b{Tests for behavior changes.}  If you fix a bug, add a test
+that fails without your fix.
+@end itemize
+
+@node Documentation
+@section Documentation
+
+This manual lives at @file{manual/} as GNU TexInfo source.  Build:
+
+@example
+cd manual
+make            # HTML, output to manual/html/
+make pdf        # PDF (requires texi2pdf + a TeX install)
+make info       # GNU info reader format
+@end example
+
+The multi-page HTML output under @file{manual/html/} is committed
+alongside the source, so anyone browsing the repo on disk can read it
+without installing texinfo.  When you edit a chapter, rebuild and
+commit both the @file{.texi} change and the regenerated HTML.
+
+Short-form reference docs at the repo root
+(@file{README.md}, @file{INSTALL.md}, @file{CLI.md}, @file{REEMBED.md},
+@file{MCPServer.md}, @file{OPENAI.md}, @file{OWNSONA_SPEC.md}) are
+maintained alongside the manual.  They are concise quick-references;
+the manual is the long-form authoritative version.  If they
+disagree, the manual wins --- update the short-form doc to match.
+
+@node License
+@section License
+
+Distributed under the BSD 2-Clause License.  See @file{LICENSE.txt}
+in the source distribution for the full text.
+
+Copyright @copyright{} 2018--2026 Blake McBride.
+
+The OwnSona CLI vendors
+@uref{https://github.com/DaveGamble/cJSON, cJSON} (MIT-licensed;
+retains its own license header in @file{cli/src/cJSON.@{c,h@}}).

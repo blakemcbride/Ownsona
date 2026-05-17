@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>The memories table (OwnSona Manual)</title>
+
+<meta name="description" content="The memories table (OwnSona Manual)">
+<meta name="keywords" content="The memories table (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Server-Internals.html" rel="up" title="Server Internals">
+<link href="The-embedding-provider-abstraction.html" rel="next" title="The embedding provider abstraction">
+<link href="Request-lifecycle.html" rel="prev" title="Request lifecycle">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+span:hover a.copiable-link {visibility: visible}
+ul.mark-bullet {list-style-type: disc}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="The-memories-table">
+<div class="nav-panel">
+<p>
+Next: <a href="The-embedding-provider-abstraction.html" accesskey="n" rel="next">The embedding provider abstraction</a>, Previous: <a href="Request-lifecycle.html" accesskey="p" rel="prev">Request lifecycle</a>, Up: <a href="Server-Internals.html" accesskey="u" rel="up">Server Internals</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="The-memories-table-1"><span>6.3 The <code class="code">memories</code> table<a class="copiable-link" href="#The-memories-table-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-memories-table"></a>
+<a class="index-entry-id" id="index-schema"></a>
+
+<p>The single durable table.  Every column and what it&rsquo;s for:
+</p>
+<dl class="table">
+<dt><code class="code">id <code class="code">BIGSERIAL PRIMARY KEY</code></code></dt>
+<dd><p>Surrogate key.  Never reused.
+</p>
+</dd>
+<dt><code class="code">user_id <code class="code">TEXT NOT NULL DEFAULT 'default'</code></code></dt>
+<dd><p>Multi-user scaffolding.  Always <code class="code">'default'</code> in single-user mode.
+</p>
+</dd>
+<dt><code class="code">text <code class="code">TEXT NOT NULL</code></code></dt>
+<dd><p>The user-facing fact, exactly as remembered.
+</p>
+</dd>
+<dt><code class="code">normalized_text <code class="code">TEXT</code></code></dt>
+<dd><p>Whitespace-collapsed, lowercased version of <code class="code">text</code>.  Drives the
+exact-duplicate detection via the unique partial index.
+</p>
+</dd>
+<dt><code class="code">embedding <code class="code">vector(1536) NOT NULL</code></code></dt>
+<dd><p>The <code class="code">pgvector</code> vector that drives recall.  Dimension must match
+<code class="code">Config.EMBEDDING_DIMENSIONS</code>.
+</p>
+</dd>
+<dt><code class="code">tags <code class="code">TEXT[] NOT NULL DEFAULT '{}'</code></code></dt>
+<dd><p>Canonicalized lowercase tags.  Indexed via GIN.
+</p>
+</dd>
+<dt><code class="code">importance <code class="code">DOUBLE PRECISION NOT NULL DEFAULT 0.5</code></code></dt>
+<dd><p>Reserved for future ranking work.
+</p>
+</dd>
+<dt><code class="code">source_provider, source_client, source_conversation_id <code class="code">TEXT</code></code></dt>
+<dd><p>Provenance fields recorded when the remembering client provides them.
+</p>
+</dd>
+<dt><code class="code">embedding_provider <code class="code">TEXT NOT NULL DEFAULT 'openai'</code></code></dt>
+<dt><code class="code">embedding_model    <code class="code">TEXT NOT NULL DEFAULT 'text-embedding-3-small'</code></code></dt>
+<dd><p>Recorded per row so a re-embed walker can tell which rows have moved
+into the active model&rsquo;s space.  See <a class="ref" href="Embedding-Migration.html">Embedding Migration</a>.
+</p>
+</dd>
+<dt><code class="code">created_at, updated_at <code class="code">TIMESTAMPTZ NOT NULL DEFAULT now()</code></code></dt>
+<dt><code class="code">deleted_at <code class="code">TIMESTAMPTZ</code></code></dt>
+<dd><p><code class="code">updated_at</code> is maintained by a trigger.  <code class="code">deleted_at</code> is
+NULL for active rows, populated on soft-delete.
+</p>
+</dd>
+<dt><code class="code">metadata <code class="code">JSONB NOT NULL DEFAULT '{}'</code></code></dt>
+<dd><p>Catch-all for non-indexed structured data.  Currently holds
+<code class="code">capture_mode</code> and <code class="code">session_id</code> when supplied.
+</p>
+</dd>
+<dt><code class="code">record_version <code class="code">INT NOT NULL DEFAULT 1</code></code></dt>
+<dd><p>Per-record schema version.  Drives the per-record upgrader framework
+(see <a class="pxref" href="The-per_002drecord-upgrader-framework.html">The per-record upgrader framework</a>).
+</p>
+</dd>
+<dt><code class="code">expires_at <code class="code">TIMESTAMPTZ</code></code></dt>
+<dt><code class="code">last_confirmed_at <code class="code">TIMESTAMPTZ</code></code></dt>
+<dd><p>Freshness fields.  Recall excludes rows past <code class="code">expires_at</code>.
+</p>
+</dd>
+<dt><code class="code">forget_reason <code class="code">TEXT</code></code></dt>
+<dt><code class="code">replaced_by_id <code class="code">BIGINT REFERENCES memories(id)</code></code></dt>
+<dd><p>Tombstone metadata &mdash; only set on rows that have been soft-deleted
+with a <code class="code">reason</code>/<code class="code">replaced_by_id</code> via the <code class="code">forget</code> tool.
+</p></dd>
+</dl>
+
+<p>Indexes:
+</p>
+<ul class="itemize mark-bullet">
+<li><code class="code">memories_user_id_idx</code> &mdash; B-tree on <code class="code">user_id</code>.
+</li><li><code class="code">memories_created_at_idx</code> &mdash; B-tree on <code class="code">created_at DESC</code>.
+</li><li><code class="code">memories_deleted_at_idx</code> &mdash; B-tree on <code class="code">deleted_at</code>.
+</li><li><code class="code">memories_tags_idx</code> &mdash; GIN on <code class="code">tags</code>.
+</li><li><code class="code">memories_text_trgm_idx</code> &mdash; GIN on <code class="code">text gin_trgm_ops</code>,
+backs <code class="code">text_search</code>.
+</li><li><code class="code">memories_embedding_idx</code> &mdash; HNSW with
+<code class="code">vector_cosine_ops</code>.  Picked over IVFFLAT because IVFFLAT&rsquo;s
+k-means seeding requires a populated table.
+</li><li><code class="code">memories_unique_normalized_active</code> &mdash; partial unique on
+<code class="code">(user_id, normalized_text) WHERE deleted_at IS NULL AND
+normalized_text IS NOT NULL</code>.  Defense in depth against duplicate
+inserts; the service-layer dedup check fires first.
+</li></ul>
+
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="The-embedding-provider-abstraction.html">The embedding provider abstraction</a>, Previous: <a href="Request-lifecycle.html">Request lifecycle</a>, Up: <a href="Server-Internals.html">Server Internals</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

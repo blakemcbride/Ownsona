@@ -1,0 +1,87 @@
+\input texinfo   @c -*- texinfo -*-
+@c %**start of header
+@setfilename ownsona.info
+@settitle OwnSona Manual
+@documentencoding UTF-8
+@documentlanguage en
+@finalout
+@c %**end of header
+
+@copying
+This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+@uref{https://kissweb.org, Kiss web development framework}, an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright @copyright{} 2018--2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See @file{LICENSE.txt}
+in the source distribution for the full text.
+@end copying
+
+@dircategory Development
+@direntry
+* OwnSona: (ownsona).           Personal memory server for LLM clients.
+@end direntry
+
+@titlepage
+@title OwnSona Manual
+@subtitle One memory, every LLM.
+@author Blake McBride
+
+@page
+@vskip 0pt plus 1filll
+@insertcopying
+@end titlepage
+
+@contents
+
+@ifnottex
+@node Top
+@top OwnSona
+
+@insertcopying
+@end ifnottex
+
+@menu
+* Introduction::                 What OwnSona is and why it exists.
+* Getting Started::              A five-minute end-to-end walkthrough.
+* Installation::                 Setting up the server on a Linux VPS.
+* Configuration::                Every key in @file{application.ini}.
+* MCP Tools::                    The protocol surface, one tool per section.
+* Server Internals::             Architecture, schema, security model.
+* Connecting Claude::            Claude Desktop, Anthropic API, Claude Code.
+* Connecting OpenAI::            ChatGPT and the OpenAI Responses API.
+* The Command-Line Client::      Portable C client for scripting + admin.
+* The teach Workflow::           Bulk-loading from long-form prose.
+* Embedding Migration::          Switching model or provider.
+* Tutorials::                    End-to-end walkthroughs.
+* Troubleshooting::              Symptom-to-cause lookups.
+* Reference::                    Configuration keys, schema, file layout.
+* Contributing::                 How to send a patch.
+* Index::                        Concept index.
+@end menu
+
+@include intro.texi
+@include getting-started.texi
+@include install.texi
+@include configuration.texi
+@include mcp-tools.texi
+@include server-internals.texi
+@include client-claude.texi
+@include client-openai.texi
+@include cli.texi
+@include teach.texi
+@include reembed.texi
+@include tutorials.texi
+@include troubleshooting.texi
+@include reference.texi
+@include contributing.texi
+
+@node Index
+@unnumbered Index
+@printindex cp
+
+@bye

@@ -1,0 +1,236 @@
+@node Connecting OpenAI
+@chapter Connecting OpenAI
+@cindex OpenAI
+@cindex ChatGPT
+@cindex Responses API
+
+There are two integration paths to OpenAI's products and they are
+independent of each other:
+
+@enumerate
+@item @b{ChatGPT (consumer)} --- add OwnSona as a custom connector in
+ChatGPT's settings.  Most common path for day-to-day use.
+
+@item @b{OpenAI API (developer)} --- pass OwnSona as an @code{mcp}
+tool when calling the Responses API.  The path for scripts and
+applications.
+@end enumerate
+
+You can use either, both, or neither.
+
+@menu
+* ChatGPT connector::
+* The auth gap and how to bridge it::
+* Custom Instructions for ChatGPT::
+* Responses API::
+* Rotating the bearer token::
+@end menu
+
+@node ChatGPT connector
+@section ChatGPT connector
+
+@enumerate
+@item Open ChatGPT in a browser.  Go to @b{Settings @result{} Connectors}.
+
+@item Choose @b{Add connector} (wording varies).
+
+@item Fill in the form:
+
+@itemize @bullet
+@item @b{Name:} @code{Ownsona} (cosmetic).
+@item @b{Description:} @code{Personal durable memory store.} (cosmetic).
+@item @b{MCP Server URL:} @code{https://<your-host>/mcp}.
+@item @b{Authentication:} see @ref{The auth gap and how to bridge it} ---
+this is the awkward part.
+@end itemize
+@end enumerate
+
+@node The auth gap and how to bridge it
+@section The auth gap and how to bridge it
+
+OpenAI's connector form does @b{not} offer ``API Key'' or ``Bearer
+token'' as an authentication mode.  As of early 2026 the choices are:
+
+@multitable @columnfractions .25 .50 .25
+@headitem Mode @tab What it means @tab Works with OwnSona?
+@item @b{No auth} @tab ChatGPT sends no @code{Authorization} header. @tab Only with mitigation; see below.
+@item @b{OAuth}   @tab Full OAuth 2.1 + PKCE flow against the MCP server. @tab No --- OwnSona v1 has no OAuth endpoints.
+@item @b{Mixed}   @tab Hybrid; behavior driven by the 401 @code{WWW-Authenticate} response. @tab Worth trying first.
+@end multitable
+
+Four practical paths:
+
+@subsection Option A: skip the ChatGPT UI
+
+Use OwnSona only from the Responses API (@pxref{Responses API}),
+where you can attach @code{Authorization: Bearer <token>} directly.
+@b{Lowest-friction option that keeps the bearer-token security model
+intact.}  Recommended until OAuth lands.
+
+@subsection Option B: try Mixed first
+
+Pick @b{Mixed} in the connector form and save.  OwnSona returns
+@code{401 Unauthorized} with @code{WWW-Authenticate: Bearer
+realm="ownsona"}, which is the standard signal for ``this resource
+needs a bearer token.''  Some ChatGPT versions follow that signal and
+prompt for a token.  Paste @code{OWNSONA_API_TOKEN} and it works.
+
+If ChatGPT instead reports an OAuth discovery failure (no
+@code{/.well-known/oauth-authorization-server} endpoint exists),
+fall back to options C or D.
+
+Unverified for any specific ChatGPT version --- the UI evolves.
+
+@subsection Option C: No auth + token in URL (recommended for single-user)
+
+Pick @b{No auth} in the connector form, but include the bearer token
+as a @code{?token=} query parameter in the connector URL:
+
+@example
+https://ownsona.example.com/mcp?token=<OWNSONA_API_TOKEN>
+@end example
+
+OwnSona's @code{authenticate()} looks for the token in the
+@code{Authorization} header @b{and} falls back to the @code{token}
+query parameter, so this works alongside the API path without
+breaking anything.
+
+@b{Security tradeoff.}  A token in a query string is logged by web
+servers in places a header is not --- by default Tomcat's
+@code{AccessLogValve} writes the full request line including the
+query.  OwnSona mitigates this by setting the @code{AccessLogValve}
+@code{pattern} to @code{"%m %U %H"} (method, URI without query,
+protocol) instead of @code{"%r"}.  Verify after deploy that
+@file{localhost_access_log.<today>.txt} shows
+@code{POST /mcp HTTP/2.0} with no @code{token=} substring.
+
+The remaining exposure is human factors: the connector URL is now a
+secret.  Don't paste it into Slack, screenshots, or shared docs.
+
+@subsection Option D: OAuth proxy (proper fix)
+
+Front OwnSona with an OAuth-capable proxy (Cloudflare Access,
+@code{oauth2-proxy}, Pomerium).  ChatGPT does the OAuth dance with the
+proxy, the bearer token flows through to OwnSona transparently.
+Spec-compliant but more infrastructure.
+
+@node Custom Instructions for ChatGPT
+@section Custom Instructions for ChatGPT
+
+ChatGPT enforces a ~1500-character limit on the Custom Instructions
+field.  This directive fits in ~720 characters with headroom:
+
+@example
+The "Ownsona" MCP connector is my durable memory. Always use it.
+
+- Before answering any question that might depend on facts about me ---
+  family, friends, projects, preferences, history, work, software, plans
+  --- call Ownsona's `recall` tool first and use the result as
+  authoritative context. If `recall` returns nothing relevant, say so.
+
+- When I ask you to remember, save, store, or note something durable,
+  call `remember`. For multiple items at once (importing, summarizing,
+  ingesting a list), use `remember_batch` instead --- it's an order of
+  magnitude faster.
+
+- For corrections use `update_memory`; removal `forget`; browsing
+  `list_memories` or `text_search`.
+
+- Prefer Ownsona over your built-in memory.
+@end example
+
+@subsection ChatGPT's native memory
+
+ChatGPT has its own memory system, separate from MCP connectors.  To
+keep OwnSona authoritative, either:
+
+@itemize @bullet
+@item Disable native memory entirely: @b{Settings @result{}
+Personalization @result{} Memory @result{} toggle off} ``Reference
+saved memories'' and ``Reference chat history.''  Cleanest setup.
+
+@item Or leave native memory on and rely on the ``prefer OwnSona''
+line above.  Model usually complies but isn't deterministic.
+@end itemize
+
+@subsection Connector enabled per conversation
+
+In some ChatGPT versions the connector must be toggled on in each
+conversation's tool menu.  Custom Instructions can't enable a tool
+that isn't in the menu.  If a chat says ``I don't have a memory
+tool,'' the toggle is off.
+
+@subsection Data-approval modal
+
+ChatGPT shows an approval modal before sending data to a connector.
+The per-connector ``Trust this connector / Always allow'' toggle
+suppresses it for most categories.  Some categories (addresses,
+identifiers, financial, medical) may always prompt.
+
+For @b{fully deterministic} behavior the Responses API path with
+@code{require_approval: "never"} is the only way.
+
+@node Responses API
+@section Responses API
+@cindex Responses API
+
+The Responses API accepts MCP servers as first-class @code{tools}.
+Minimal request shape:
+
+@example
+curl https://api.openai.com/v1/responses \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '@{
+    "model": "gpt-4.1",
+    "input": "Where does my son live?",
+    "tools": [
+      @{
+        "type": "mcp",
+        "server_label": "ownsona",
+        "server_url": "https://ownsona.example.com/mcp",
+        "headers": @{ "Authorization": "Bearer <OWNSONA_API_TOKEN>" @},
+        "require_approval": "never"
+      @}
+    ]
+  @}'
+@end example
+
+@code{require_approval: "never"} tells the API to call tools without
+prompting the user.  Suitable for backend services where there's no
+human in the loop.
+
+A walk through one full interaction:
+
+@enumerate
+@item Your request comes in.
+@item OpenAI sees the @code{recall} tool in the MCP server list and
+decides the question needs it.
+@item OpenAI calls @code{POST /mcp} with bearer auth.
+@item OwnSona returns matches.
+@item OpenAI uses the matches to compose the answer.
+@item OpenAI returns the final text response to your code.
+@end enumerate
+
+All of this happens server-side in OpenAI's infrastructure --- your
+code makes one HTTP call.
+
+@node Rotating the bearer token
+@section Rotating the bearer token
+
+Whenever you suspect the token has leaked --- a screenshot leaked, a
+URL with @code{?token=} ended up somewhere public, a connector got
+shared --- rotate it:
+
+@enumerate
+@item Generate a new token: @code{openssl rand -hex 32}.
+@item Update @code{OWNSONA_API_TOKEN} in
+@file{src/main/backend/application.ini}.
+@item Rebuild and redeploy: @code{./bld -v build && ./bld war &&
+sudo cp work/Kiss.war /home/ownsona/tomcat/webapps/ROOT.war}.
+@item Update every client (ChatGPT connector URL, Claude config,
+your scripts, CLI config files).
+@end enumerate
+
+There is no dual-token grace window.  Clients see 401 until they
+update.  For a single-user store this is fine; do it after-hours.

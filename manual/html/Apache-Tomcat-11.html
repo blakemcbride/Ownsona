@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>Apache Tomcat 11 (OwnSona Manual)</title>
+
+<meta name="description" content="Apache Tomcat 11 (OwnSona Manual)">
+<meta name="keywords" content="Apache Tomcat 11 (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Installation.html" rel="up" title="Installation">
+<link href="TLS-certificates.html" rel="next" title="TLS certificates">
+<link href="PostgreSQL-with-pgvector.html" rel="prev" title="PostgreSQL with pgvector">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+div.example {margin-left: 3.2em}
+span:hover a.copiable-link {visibility: visible}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="Apache-Tomcat-11">
+<div class="nav-panel">
+<p>
+Next: <a href="TLS-certificates.html" accesskey="n" rel="next">TLS certificates</a>, Previous: <a href="PostgreSQL-with-pgvector.html" accesskey="p" rel="prev">PostgreSQL with pgvector</a>, Up: <a href="Installation.html" accesskey="u" rel="up">Installation</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="Apache-Tomcat-11-1"><span>3.6 Apache Tomcat 11<a class="copiable-link" href="#Apache-Tomcat-11-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-Tomcat"></a>
+
+<ul class="mini-toc">
+<li><a href="#Download-and-extract" accesskey="1">Download and extract</a></li>
+<li><a href="#Heap-settings-_0028tomcat_002fbin_002fsetenv_002esh_0029" accesskey="2">Heap settings (<samp class="file">tomcat/bin/setenv.sh</samp>)</a></li>
+<li><a href="#Configure-HTTPS-and-autoDeploy-in-server_002exml" accesskey="3">Configure HTTPS and autoDeploy in <samp class="file">server.xml</samp></a></li>
+<li><a href="#Permissions" accesskey="4">Permissions</a></li>
+</ul>
+<div class="subsection-level-extent" id="Download-and-extract">
+<h4 class="subsection"><span>3.6.1 Download and extract<a class="copiable-link" href="#Download-and-extract"> &para;</a></span></h4>
+
+<p>Pick the latest Tomcat 11.0.x from <a class="uref" href="https://tomcat.apache.org/">https://tomcat.apache.org/</a>.
+As <code class="code">ownsona</code>:
+</p>
+<div class="example">
+<pre class="example-preformatted">cd /home/ownsona
+curl -L -O https://dlcdn.apache.org/tomcat/tomcat-11/v11.0.X/bin/apache-tomcat-11.0.X.tar.gz
+tar xf apache-tomcat-11.0.X.tar.gz
+mv apache-tomcat-11.0.X tomcat
+rm apache-tomcat-11.0.X.tar.gz
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="Heap-settings-_0028tomcat_002fbin_002fsetenv_002esh_0029">
+<h4 class="subsection"><span>3.6.2 Heap settings (<samp class="file">tomcat/bin/setenv.sh</samp>)<a class="copiable-link" href="#Heap-settings-_0028tomcat_002fbin_002fsetenv_002esh_0029"> &para;</a></span></h4>
+
+<p>The heap defaults shipped with Tomcat are too aggressive for a 2 GB
+VM.  Create or edit <samp class="file">/home/ownsona/tomcat/bin/setenv.sh</samp>:
+</p>
+<div class="example">
+<pre class="example-preformatted">#!/bin/sh
+# Heap sized for a 2 GB VM. Larger boxes can raise -Xmx.
+export CATALINA_OPTS=&quot;-Xms256M -Xmx768M -Djava.awt.headless=true \
+    -XX:+UseG1GC -XX:+DisableExplicitGC \
+    -Djava.library.path=/usr/local/apr/lib&quot;
+</pre></div>
+
+<p>Application secrets and URLs go in <samp class="file">application.ini</samp> &mdash;
+see <a class="pxref" href="Configure-application_002eini.html">Configure <samp class="file">application.ini</samp></a>.  Don&rsquo;t put them in
+<samp class="file">setenv.sh</samp>.
+</p>
+<div class="example">
+<pre class="example-preformatted">chmod +x /home/ownsona/tomcat/bin/setenv.sh
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="Configure-HTTPS-and-autoDeploy-in-server_002exml">
+<h4 class="subsection"><span>3.6.3 Configure HTTPS and autoDeploy in <samp class="file">server.xml</samp><a class="copiable-link" href="#Configure-HTTPS-and-autoDeploy-in-server_002exml"> &para;</a></span></h4>
+
+<p>Edit <samp class="file">/home/ownsona/tomcat/conf/server.xml</samp> and make four changes:
+</p>
+<ol class="enumerate">
+<li> <b class="b">HTTP connector on port 80</b> (Tomcat defaults to 8080):
+
+<div class="example">
+<pre class="example-preformatted">&lt;Connector port=&quot;80&quot; protocol=&quot;HTTP/1.1&quot;
+           connectionTimeout=&quot;20000&quot;
+           redirectPort=&quot;443&quot; /&gt;
+</pre></div>
+
+</li><li> <b class="b">HTTPS connector on port 443</b>, with one or more
+<code class="code">SSLHostConfig</code> blocks:
+
+<div class="example">
+<pre class="example-preformatted">&lt;Connector port=&quot;443&quot; protocol=&quot;org.apache.coyote.http11.Http11NioProtocol&quot;
+           maxThreads=&quot;150&quot; SSLEnabled=&quot;true&quot;&gt;
+    &lt;UpgradeProtocol className=&quot;org.apache.coyote.http2.Http2Protocol&quot; /&gt;
+    &lt;SSLHostConfig hostName=&quot;ownsona.example.com&quot;&gt;
+        &lt;Certificate certificateKeystoreFile=&quot;conf/tomcat.p12&quot;
+                     certificateKeystoreType=&quot;PKCS12&quot;
+                     certificateKeystorePassword=&quot;&lt;keystore-pw&gt;&quot;
+                     type=&quot;RSA&quot; /&gt;
+    &lt;/SSLHostConfig&gt;
+&lt;/Connector&gt;
+</pre></div>
+
+</li><li> <b class="b"><code class="code">&lt;Host&gt;</code> element with autoDeploy and unpackWARs</b>:
+
+<div class="example">
+<pre class="example-preformatted">&lt;Host name=&quot;localhost&quot; appBase=&quot;webapps&quot;
+      unpackWARs=&quot;true&quot; autoDeploy=&quot;true&quot;&gt;
+</pre></div>
+
+<p>Both must be <code class="code">true</code>.  With <code class="code">unpackWARs=&quot;false&quot;</code> the Kiss
+webapp NPEs at startup because <code class="code">ServletContext.getRealPath(&quot;/&quot;)</code>
+returns null.
+</p>
+</li><li> <b class="b"><code class="code">AccessLogValve</code> with retention</b>:
+
+<div class="example">
+<pre class="example-preformatted">&lt;Valve className=&quot;org.apache.catalina.valves.AccessLogValve&quot; directory=&quot;logs&quot;
+       prefix=&quot;localhost_access_log&quot; suffix=&quot;.txt&quot;
+       pattern=&quot;%h %l %u %t &amp;quot;%r&amp;quot; %s %b&quot;
+       maxDays=&quot;90&quot; /&gt;
+</pre></div>
+
+<p>Without <code class="code">maxDays</code>, daily access log files accumulate forever.
+</p></li></ol>
+
+</div>
+<div class="subsection-level-extent" id="Permissions">
+<h4 class="subsection"><span>3.6.4 Permissions<a class="copiable-link" href="#Permissions"> &para;</a></span></h4>
+
+<div class="example">
+<pre class="example-preformatted">sudo chown -R ownsona:ownsona /home/ownsona/tomcat
+</pre></div>
+
+</div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="TLS-certificates.html">TLS certificates</a>, Previous: <a href="PostgreSQL-with-pgvector.html">PostgreSQL with pgvector</a>, Up: <a href="Installation.html">Installation</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

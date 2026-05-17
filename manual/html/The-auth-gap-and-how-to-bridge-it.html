@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>The auth gap and how to bridge it (OwnSona Manual)</title>
+
+<meta name="description" content="The auth gap and how to bridge it (OwnSona Manual)">
+<meta name="keywords" content="The auth gap and how to bridge it (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Connecting-OpenAI.html" rel="up" title="Connecting OpenAI">
+<link href="Custom-Instructions-for-ChatGPT.html" rel="next" title="Custom Instructions for ChatGPT">
+<link href="ChatGPT-connector.html" rel="prev" title="ChatGPT connector">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+div.example {margin-left: 3.2em}
+span:hover a.copiable-link {visibility: visible}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="The-auth-gap-and-how-to-bridge-it">
+<div class="nav-panel">
+<p>
+Next: <a href="Custom-Instructions-for-ChatGPT.html" accesskey="n" rel="next">Custom Instructions for ChatGPT</a>, Previous: <a href="ChatGPT-connector.html" accesskey="p" rel="prev">ChatGPT connector</a>, Up: <a href="Connecting-OpenAI.html" accesskey="u" rel="up">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="The-auth-gap-and-how-to-bridge-it-1"><span>8.2 The auth gap and how to bridge it<a class="copiable-link" href="#The-auth-gap-and-how-to-bridge-it-1"> &para;</a></span></h3>
+
+<p>OpenAI&rsquo;s connector form does <b class="b">not</b> offer &ldquo;API Key&rdquo; or &ldquo;Bearer
+token&rdquo; as an authentication mode.  As of early 2026 the choices are:
+</p>
+<table class="multitable">
+<thead><tr><th width="25%">Mode</th><th width="50%">What it means</th><th width="25%">Works with OwnSona?</th></tr></thead>
+<tbody><tr><td width="25%"><b class="b">No auth</b></td><td width="50%">ChatGPT sends no <code class="code">Authorization</code> header.</td><td width="25%">Only with mitigation; see below.</td></tr>
+<tr><td width="25%"><b class="b">OAuth</b></td><td width="50%">Full OAuth 2.1 + PKCE flow against the MCP server.</td><td width="25%">No &mdash; OwnSona v1 has no OAuth endpoints.</td></tr>
+<tr><td width="25%"><b class="b">Mixed</b></td><td width="50%">Hybrid; behavior driven by the 401 <code class="code">WWW-Authenticate</code> response.</td><td width="25%">Worth trying first.</td></tr>
+</tbody>
+</table>
+
+<p>Four practical paths:
+</p>
+<ul class="mini-toc">
+<li><a href="#Option-A_003a-skip-the-ChatGPT-UI" accesskey="1">Option A: skip the ChatGPT UI</a></li>
+<li><a href="#Option-B_003a-try-Mixed-first" accesskey="2">Option B: try Mixed first</a></li>
+<li><a href="#Option-C_003a-No-auth-_002b-token-in-URL-_0028recommended-for-single_002duser_0029" accesskey="3">Option C: No auth + token in URL (recommended for single-user)</a></li>
+<li><a href="#Option-D_003a-OAuth-proxy-_0028proper-fix_0029" accesskey="4">Option D: OAuth proxy (proper fix)</a></li>
+</ul>
+<div class="subsection-level-extent" id="Option-A_003a-skip-the-ChatGPT-UI">
+<h4 class="subsection"><span>8.2.1 Option A: skip the ChatGPT UI<a class="copiable-link" href="#Option-A_003a-skip-the-ChatGPT-UI"> &para;</a></span></h4>
+
+<p>Use OwnSona only from the Responses API (see <a class="pxref" href="Responses-API.html">Responses API</a>),
+where you can attach <code class="code">Authorization: Bearer &lt;token&gt;</code> directly.
+<b class="b">Lowest-friction option that keeps the bearer-token security model
+intact.</b>  Recommended until OAuth lands.
+</p>
+</div>
+<div class="subsection-level-extent" id="Option-B_003a-try-Mixed-first">
+<h4 class="subsection"><span>8.2.2 Option B: try Mixed first<a class="copiable-link" href="#Option-B_003a-try-Mixed-first"> &para;</a></span></h4>
+
+<p>Pick <b class="b">Mixed</b> in the connector form and save.  OwnSona returns
+<code class="code">401 Unauthorized</code> with <code class="code">WWW-Authenticate: Bearer
+realm=&quot;ownsona&quot;</code>, which is the standard signal for &ldquo;this resource
+needs a bearer token.&rdquo;  Some ChatGPT versions follow that signal and
+prompt for a token.  Paste <code class="code">OWNSONA_API_TOKEN</code> and it works.
+</p>
+<p>If ChatGPT instead reports an OAuth discovery failure (no
+<code class="code">/.well-known/oauth-authorization-server</code> endpoint exists),
+fall back to options C or D.
+</p>
+<p>Unverified for any specific ChatGPT version &mdash; the UI evolves.
+</p>
+</div>
+<div class="subsection-level-extent" id="Option-C_003a-No-auth-_002b-token-in-URL-_0028recommended-for-single_002duser_0029">
+<h4 class="subsection"><span>8.2.3 Option C: No auth + token in URL (recommended for single-user)<a class="copiable-link" href="#Option-C_003a-No-auth-_002b-token-in-URL-_0028recommended-for-single_002duser_0029"> &para;</a></span></h4>
+
+<p>Pick <b class="b">No auth</b> in the connector form, but include the bearer token
+as a <code class="code">?token=</code> query parameter in the connector URL:
+</p>
+<div class="example">
+<pre class="example-preformatted">https://ownsona.example.com/mcp?token=&lt;OWNSONA_API_TOKEN&gt;
+</pre></div>
+
+<p>OwnSona&rsquo;s <code class="code">authenticate()</code> looks for the token in the
+<code class="code">Authorization</code> header <b class="b">and</b> falls back to the <code class="code">token</code>
+query parameter, so this works alongside the API path without
+breaking anything.
+</p>
+<p><b class="b">Security tradeoff.</b>  A token in a query string is logged by web
+servers in places a header is not &mdash; by default Tomcat&rsquo;s
+<code class="code">AccessLogValve</code> writes the full request line including the
+query.  OwnSona mitigates this by setting the <code class="code">AccessLogValve</code>
+<code class="code">pattern</code> to <code class="code">&quot;%m %U %H&quot;</code> (method, URI without query,
+protocol) instead of <code class="code">&quot;%r&quot;</code>.  Verify after deploy that
+<samp class="file">localhost_access_log.&lt;today&gt;.txt</samp> shows
+<code class="code">POST /mcp HTTP/2.0</code> with no <code class="code">token=</code> substring.
+</p>
+<p>The remaining exposure is human factors: the connector URL is now a
+secret.  Don&rsquo;t paste it into Slack, screenshots, or shared docs.
+</p>
+</div>
+<div class="subsection-level-extent" id="Option-D_003a-OAuth-proxy-_0028proper-fix_0029">
+<h4 class="subsection"><span>8.2.4 Option D: OAuth proxy (proper fix)<a class="copiable-link" href="#Option-D_003a-OAuth-proxy-_0028proper-fix_0029"> &para;</a></span></h4>
+
+<p>Front OwnSona with an OAuth-capable proxy (Cloudflare Access,
+<code class="code">oauth2-proxy</code>, Pomerium).  ChatGPT does the OAuth dance with the
+proxy, the bearer token flows through to OwnSona transparently.
+Spec-compliant but more infrastructure.
+</p>
+</div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Custom-Instructions-for-ChatGPT.html">Custom Instructions for ChatGPT</a>, Previous: <a href="ChatGPT-connector.html">ChatGPT connector</a>, Up: <a href="Connecting-OpenAI.html">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

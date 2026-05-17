@@ -1,0 +1,284 @@
+@node The Command-Line Client
+@chapter The Command-Line Client
+@cindex CLI
+@cindex ownsona command
+
+OwnSona ships with a small standalone CLI under @file{cli/} for
+reading from and writing to the memory store from the terminal.  It's
+useful for scripting, ad-hoc edits, and bulk-loading facts.  Written in
+portable C; builds on Linux, macOS, and Windows (MSYS2 UCRT64) with one
+runtime dependency: libcurl.
+
+Each MCP tool maps to a subcommand:
+
+@example
+ownsona add    "<text>"           # remember
+ownsona query  "<question>"       # recall
+ownsona search "<substring>"      # text_search
+ownsona list                      # list_memories
+ownsona update <id> "<text>"      # update_memory
+ownsona confirm <id>              # confirm
+ownsona forget <id>               # forget
+ownsona prompt "<user prompt>"    # build_context_prompt
+ownsona import FILE               # remember_batch (JSON or one-per-line)
+ownsona teach  FILE               # extract facts from prose via an LLM
+@end example
+
+The @code{teach} subcommand is covered in its own chapter
+(@pxref{The teach Workflow}).  The others are documented here.
+
+@menu
+* Building the CLI::
+* Configuring the CLI::
+* Subcommand reference::
+* Output and JSON modes::
+* Exit codes::
+@end menu
+
+@node Building the CLI
+@section Building the CLI
+
+Install build dependencies per platform (one-line):
+
+@table @asis
+@item Linux (Fedora)
+@code{sudo dnf install gcc make libcurl-devel openssl-devel zlib-devel}
+
+@item Linux (Debian / Ubuntu)
+@code{sudo apt install build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev}
+
+@item macOS (Homebrew)
+@code{brew install curl openssl@@3 pkg-config}
+
+@item Windows (MSYS2 UCRT64)
+@code{pacman -S mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-curl mingw-w64-ucrt-x86_64-openssl}
+@end table
+
+Then build:
+
+@example
+cd cli
+make            # builds ./ownsona (or ownsona.exe on Windows)
+make test       # sanity-check the binary, no server traffic
+@end example
+
+The Makefile detects the platform via @code{uname -s} and asks
+@code{curl-config --static-libs} for static linker flags.  Static
+linking works on macOS Homebrew and MSYS2 UCRT64; on Fedora and
+Debian/Ubuntu it falls back to dynamic linking (libcurl required on
+the target machine).
+
+The binary is small (~80--100 KB dynamically linked, ~3-5 MB
+statically).
+
+@node Configuring the CLI
+@section Configuring the CLI
+
+Two kinds of settings:
+
+@itemize @bullet
+@item @b{MCP server credentials} --- always needed.
+@item @b{LLM credentials} --- only needed by the @code{teach} subcommand.
+@end itemize
+
+@subsection Default config file location
+
+If you do not pass @code{--config PATH} and do not set
+@code{$OWNSONA_CONFIG}, the CLI looks at an OS-specific default:
+
+@multitable @columnfractions .25 .75
+@headitem OS @tab Default config path
+@item Linux / BSD @tab @file{~/.config/ownsona/config.ini}
+@item macOS       @tab @file{~/Library/Application Support/ownsona/config.ini}
+@item Windows     @tab @code{%LOCALAPPDATA%\ownsona\config.ini}
+@end multitable
+
+Create the parent directory if it doesn't exist
+(@code{mkdir -p ~/.config/ownsona} on Linux, etc.).
+
+@subsection Resolution order
+
+For every setting, highest priority wins:
+
+@enumerate
+@item CLI flag (@code{--config}, @code{--server}, @code{--token}, ...).
+@item Environment variable (@code{OWNSONA_SERVER}, @code{OWNSONA_TOKEN},
+@code{OWNSONA_LLM_API_KEY}, etc.).
+@item Config file at @code{$OWNSONA_CONFIG} or the OS-specific default.
+@item Built-in defaults (only for LLM-side keys).
+@end enumerate
+
+@subsection Config file format
+
+INI-style.  @code{#} and @code{;} start comments.  @code{[sections]}
+are parsed but ignored.  A template ships at
+@file{cli/config.ini.example}:
+
+@example
+# --- MCP server (required for every subcommand) ---
+server_url = https://your.host/mcp
+token      = <bearer-token>
+
+# --- LLM (used only by `teach`) ---
+llm_api_key  = sk-...
+llm_model    = gpt-4o
+llm_base_url = https://api.openai.com/v1
+subject_name = Blake
+@end example
+
+The token is the same bearer token any other MCP client uses against
+your OwnSona server.  Treat it as a secret.
+
+@node Subcommand reference
+@section Subcommand reference
+
+Global options come @b{before} the subcommand name; subcommand options
+come after:
+
+@example
+ownsona [--config PATH] [--server URL] [--token TOKEN] [--json] <command> [...]
+@end example
+
+Run @code{ownsona --help} for top-level help, @code{ownsona <command>
+--help} for per-command help.
+
+@subsection Common flags
+
+@table @code
+@item --tags T1,T2,...
+Comma-separated tags.  Used by @code{add}, @code{update}, @code{query}
+(as a filter), @code{import} (default for line-format files),
+@code{teach}.
+
+@item --limit N
+Cap on returned rows.  Used by @code{query}, @code{search}, @code{list},
+@code{prompt}.
+
+@item --dedup POLICY
+One of @code{insert}, @code{skip_if_near}, @code{ask}.  Default
+@code{ask} for @code{add}; @code{skip_if_near} for @code{teach}.
+
+@item --expires-at, --last-confirmed-at
+ISO 8601 timestamps on @code{add} and @code{update}.
+@end table
+
+@subsection add (remember)
+
+@example
+ownsona add "My dog's name is Mochi." --tags family,pets
+@end example
+
+Output: @code{Ok (id=42)}.
+
+@subsection query (recall)
+
+@example
+ownsona query "what is my dog's name"
+@end example
+
+Output:
+
+@example
+1 match
+  [42] score=0.913  My dog's name is Mochi.
+    tags: family pets
+    at:   2026-05-16T12:00:00Z
+@end example
+
+@subsection search (text_search)
+
+Plain substring search:
+
+@example
+ownsona search "Mochi"
+@end example
+
+@subsection list
+
+Recent memories, newest first.  @code{--include-deleted} also shows
+tombstones.
+
+@example
+ownsona list --limit 20
+@end example
+
+@subsection update (update_memory)
+
+@example
+ownsona update 42 "My dog's name is Mochi and she's a Shiba Inu."
+@end example
+
+@subsection confirm
+
+Refresh @code{last_confirmed_at} without rebuilding the embedding:
+
+@example
+ownsona confirm 42
+@end example
+
+@subsection forget
+
+Soft-delete by default; @code{--hard} drops the row entirely.  Pair
+with @code{--reason} or @code{--replaced-by} to leave a tombstone trail
+(rejected with @code{--hard}, since there's no row left to attach the
+reason to).
+
+@example
+ownsona forget 42
+ownsona forget 42 --reason "misremembered name" --replaced-by 99
+ownsona forget 42 --hard
+@end example
+
+@subsection prompt (build_context_prompt)
+
+@example
+ownsona prompt "What should I name my new dog?" --max-chars 1000
+@end example
+
+Pipe straight into another LLM:
+
+@example
+ownsona prompt "What should I name my new dog?" | some-llm-cli
+@end example
+
+@subsection import (remember_batch)
+
+Bulk-load from a JSON array or a one-fact-per-line text file.  The CLI
+chunks the input into batches of 200 (@code{MAX_BATCH_SIZE}).
+
+@example
+ownsona import facts.txt  --tags preferences --dedup skip_if_near
+ownsona import facts.json --dedup skip_if_near
+@end example
+
+JSON file format:
+
+@example
+[
+  @{"text": "I live in Texas.",  "tags": ["personal"], "expires_at": "2030-01-01T00:00:00Z"@},
+  @{"text": "I drive a Subaru.", "tags": ["personal"], "importance": 0.3@}
+]
+@end example
+
+Text-line file format: one fact per line, blank lines and lines
+starting with @code{#} are skipped.
+
+@node Output and JSON modes
+@section Output and JSON modes
+
+Output is human-readable by default.  Pass @code{--json} (a global
+flag) to get the raw MCP response, suitable for piping into @code{jq}:
+
+@example
+ownsona --json list --limit 5 | jq '.matches[] | @{id, text@}'
+@end example
+
+@node Exit codes
+@section Exit codes
+
+@multitable @columnfractions .15 .85
+@headitem Code @tab Meaning
+@item 0 @tab Success.
+@item 1 @tab Server error, transport failure, or @code{ok:false} tool result.
+@item 2 @tab Usage error (bad flag, missing arg, etc.).
+@end multitable

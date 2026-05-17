@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>Subcommand reference (OwnSona Manual)</title>
+
+<meta name="description" content="Subcommand reference (OwnSona Manual)">
+<meta name="keywords" content="Subcommand reference (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="The-Command_002dLine-Client.html" rel="up" title="The Command-Line Client">
+<link href="Output-and-JSON-modes.html" rel="next" title="Output and JSON modes">
+<link href="Configuring-the-CLI.html" rel="prev" title="Configuring the CLI">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+div.example {margin-left: 3.2em}
+span:hover a.copiable-link {visibility: visible}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="Subcommand-reference">
+<div class="nav-panel">
+<p>
+Next: <a href="Output-and-JSON-modes.html" accesskey="n" rel="next">Output and JSON modes</a>, Previous: <a href="Configuring-the-CLI.html" accesskey="p" rel="prev">Configuring the CLI</a>, Up: <a href="The-Command_002dLine-Client.html" accesskey="u" rel="up">The Command-Line Client</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="Subcommand-reference-1"><span>9.3 Subcommand reference<a class="copiable-link" href="#Subcommand-reference-1"> &para;</a></span></h3>
+
+<p>Global options come <b class="b">before</b> the subcommand name; subcommand options
+come after:
+</p>
+<div class="example">
+<pre class="example-preformatted">ownsona [--config PATH] [--server URL] [--token TOKEN] [--json] &lt;command&gt; [...]
+</pre></div>
+
+<p>Run <code class="code">ownsona --help</code> for top-level help, <code class="code">ownsona &lt;command&gt;
+--help</code> for per-command help.
+</p>
+<ul class="mini-toc">
+<li><a href="#Common-flags" accesskey="1">Common flags</a></li>
+<li><a href="#add-_0028remember_0029" accesskey="2">add (remember)</a></li>
+<li><a href="#query-_0028recall_0029" accesskey="3">query (recall)</a></li>
+<li><a href="#search-_0028text_005fsearch_0029" accesskey="4">search (text_search)</a></li>
+<li><a href="#list" accesskey="5">list</a></li>
+<li><a href="#update-_0028update_005fmemory_0029" accesskey="6">update (update_memory)</a></li>
+<li><a href="#confirm" accesskey="7">confirm</a></li>
+<li><a href="#forget" accesskey="8">forget</a></li>
+<li><a href="#prompt-_0028build_005fcontext_005fprompt_0029" accesskey="9">prompt (build_context_prompt)</a></li>
+<li><a href="#import-_0028remember_005fbatch_0029">import (remember_batch)</a></li>
+</ul>
+<div class="subsection-level-extent" id="Common-flags">
+<h4 class="subsection"><span>9.3.1 Common flags<a class="copiable-link" href="#Common-flags"> &para;</a></span></h4>
+
+<dl class="table">
+<dt><code class="code">--tags T1,T2,...</code></dt>
+<dd><p>Comma-separated tags.  Used by <code class="code">add</code>, <code class="code">update</code>, <code class="code">query</code>
+(as a filter), <code class="code">import</code> (default for line-format files),
+<code class="code">teach</code>.
+</p>
+</dd>
+<dt><code class="code">--limit N</code></dt>
+<dd><p>Cap on returned rows.  Used by <code class="code">query</code>, <code class="code">search</code>, <code class="code">list</code>,
+<code class="code">prompt</code>.
+</p>
+</dd>
+<dt><code class="code">--dedup POLICY</code></dt>
+<dd><p>One of <code class="code">insert</code>, <code class="code">skip_if_near</code>, <code class="code">ask</code>.  Default
+<code class="code">ask</code> for <code class="code">add</code>; <code class="code">skip_if_near</code> for <code class="code">teach</code>.
+</p>
+</dd>
+<dt><code class="code">--expires-at, --last-confirmed-at</code></dt>
+<dd><p>ISO 8601 timestamps on <code class="code">add</code> and <code class="code">update</code>.
+</p></dd>
+</dl>
+
+</div>
+<div class="subsection-level-extent" id="add-_0028remember_0029">
+<h4 class="subsection"><span>9.3.2 add (remember)<a class="copiable-link" href="#add-_0028remember_0029"> &para;</a></span></h4>
+
+<div class="example">
+<pre class="example-preformatted">ownsona add &quot;My dog's name is Mochi.&quot; --tags family,pets
+</pre></div>
+
+<p>Output: <code class="code">Ok (id=42)</code>.
+</p>
+</div>
+<div class="subsection-level-extent" id="query-_0028recall_0029">
+<h4 class="subsection"><span>9.3.3 query (recall)<a class="copiable-link" href="#query-_0028recall_0029"> &para;</a></span></h4>
+
+<div class="example">
+<pre class="example-preformatted">ownsona query &quot;what is my dog's name&quot;
+</pre></div>
+
+<p>Output:
+</p>
+<div class="example">
+<pre class="example-preformatted">1 match
+  [42] score=0.913  My dog's name is Mochi.
+    tags: family pets
+    at:   2026-05-16T12:00:00Z
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="search-_0028text_005fsearch_0029">
+<h4 class="subsection"><span>9.3.4 search (text_search)<a class="copiable-link" href="#search-_0028text_005fsearch_0029"> &para;</a></span></h4>
+
+<p>Plain substring search:
+</p>
+<div class="example">
+<pre class="example-preformatted">ownsona search &quot;Mochi&quot;
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="list">
+<h4 class="subsection"><span>9.3.5 list<a class="copiable-link" href="#list"> &para;</a></span></h4>
+
+<p>Recent memories, newest first.  <code class="code">--include-deleted</code> also shows
+tombstones.
+</p>
+<div class="example">
+<pre class="example-preformatted">ownsona list --limit 20
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="update-_0028update_005fmemory_0029">
+<h4 class="subsection"><span>9.3.6 update (update_memory)<a class="copiable-link" href="#update-_0028update_005fmemory_0029"> &para;</a></span></h4>
+
+<div class="example">
+<pre class="example-preformatted">ownsona update 42 &quot;My dog's name is Mochi and she's a Shiba Inu.&quot;
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="confirm">
+<h4 class="subsection"><span>9.3.7 confirm<a class="copiable-link" href="#confirm"> &para;</a></span></h4>
+
+<p>Refresh <code class="code">last_confirmed_at</code> without rebuilding the embedding:
+</p>
+<div class="example">
+<pre class="example-preformatted">ownsona confirm 42
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="forget">
+<h4 class="subsection"><span>9.3.8 forget<a class="copiable-link" href="#forget"> &para;</a></span></h4>
+
+<p>Soft-delete by default; <code class="code">--hard</code> drops the row entirely.  Pair
+with <code class="code">--reason</code> or <code class="code">--replaced-by</code> to leave a tombstone trail
+(rejected with <code class="code">--hard</code>, since there&rsquo;s no row left to attach the
+reason to).
+</p>
+<div class="example">
+<pre class="example-preformatted">ownsona forget 42
+ownsona forget 42 --reason &quot;misremembered name&quot; --replaced-by 99
+ownsona forget 42 --hard
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="prompt-_0028build_005fcontext_005fprompt_0029">
+<h4 class="subsection"><span>9.3.9 prompt (build_context_prompt)<a class="copiable-link" href="#prompt-_0028build_005fcontext_005fprompt_0029"> &para;</a></span></h4>
+
+<div class="example">
+<pre class="example-preformatted">ownsona prompt &quot;What should I name my new dog?&quot; --max-chars 1000
+</pre></div>
+
+<p>Pipe straight into another LLM:
+</p>
+<div class="example">
+<pre class="example-preformatted">ownsona prompt &quot;What should I name my new dog?&quot; | some-llm-cli
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="import-_0028remember_005fbatch_0029">
+<h4 class="subsection"><span>9.3.10 import (remember_batch)<a class="copiable-link" href="#import-_0028remember_005fbatch_0029"> &para;</a></span></h4>
+
+<p>Bulk-load from a JSON array or a one-fact-per-line text file.  The CLI
+chunks the input into batches of 200 (<code class="code">MAX_BATCH_SIZE</code>).
+</p>
+<div class="example">
+<pre class="example-preformatted">ownsona import facts.txt  --tags preferences --dedup skip_if_near
+ownsona import facts.json --dedup skip_if_near
+</pre></div>
+
+<p>JSON file format:
+</p>
+<div class="example">
+<pre class="example-preformatted">[
+  {&quot;text&quot;: &quot;I live in Texas.&quot;,  &quot;tags&quot;: [&quot;personal&quot;], &quot;expires_at&quot;: &quot;2030-01-01T00:00:00Z&quot;},
+  {&quot;text&quot;: &quot;I drive a Subaru.&quot;, &quot;tags&quot;: [&quot;personal&quot;], &quot;importance&quot;: 0.3}
+]
+</pre></div>
+
+<p>Text-line file format: one fact per line, blank lines and lines
+starting with <code class="code">#</code> are skipped.
+</p>
+</div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Output-and-JSON-modes.html">Output and JSON modes</a>, Previous: <a href="Configuring-the-CLI.html">Configuring the CLI</a>, Up: <a href="The-Command_002dLine-Client.html">The Command-Line Client</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

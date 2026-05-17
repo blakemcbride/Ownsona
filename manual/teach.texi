@@ -1,0 +1,190 @@
+@node The teach Workflow
+@chapter The @code{teach} Workflow
+@cindex teach
+@cindex prose import
+@cindex autobiography
+
+The @code{teach} subcommand of the CLI takes a plain-text file ---
+autobiography draft, journal, notes, anything narrative --- and uses
+an LLM to extract durable third-person facts, then submits them as a
+batch of memories.  It's the fastest way to seed your store with the
+content of a document you've already written.
+
+This is the only subcommand that calls a generative LLM directly.
+The server is not involved in the extraction; the CLI talks to the
+chat-completion endpoint on its own.  The extracted facts go into the
+server via the same @code{remember_batch} path any other client
+uses.
+
+@menu
+* What it does::
+* Requirements and configuration::
+* Default behavior: dry-run::
+* Committing the extracted facts::
+* Flags::
+* Recommended workflow::
+* Cost::
+* Vendor neutrality::
+* Why the teach LLM is independent::
+@end menu
+
+@node What it does
+@section What it does
+
+@enumerate
+@item Reads the file and splits it into chunks (default 4000 characters,
+broken at paragraph then sentence boundaries).
+
+@item For each chunk, POSTs to your configured chat-completion endpoint
+(@code{@{llm_base_url@}/chat/completions}) with a system prompt that
+instructs the model to extract durable facts as a JSON array.
+
+@item Collects all returned facts across chunks.
+
+@item @b{Default behavior: dry-run.}  Prints the JSON to stdout (or
+@code{--output FILE}) so you can review before committing.
+
+@item If you pass @code{--commit}, submits the facts via
+@code{remember_batch} in 200-at-a-time chunks, with
+@code{dedup_policy=skip_if_near} by default so re-runs after manuscript
+edits don't double up.
+@end enumerate
+
+@node Requirements and configuration
+@section Requirements and configuration
+
+@code{teach} needs the LLM keys filled in.  In your CLI config file
+(see @ref{The Command-Line Client}):
+
+@example
+llm_api_key  = sk-...
+llm_model    = gpt-4o              # default; --model overrides per-run
+llm_base_url = https://api.openai.com/v1
+subject_name = Blake               # how `teach` refers to you in facts
+@end example
+
+Or via environment:
+@code{OWNSONA_LLM_API_KEY}, @code{OWNSONA_LLM_MODEL},
+@code{OWNSONA_LLM_BASE_URL}, @code{OWNSONA_SUBJECT}.
+
+Or per-invocation: @code{--api-key}, @code{--model}, @code{--base-url},
+@code{--subject}.
+
+@node Default behavior: dry-run
+@section Default behavior: dry-run
+
+Without @code{--commit}, the command runs the LLM extraction and
+prints a JSON array of proposed facts:
+
+@example
+ownsona teach my-life.txt --subject Blake
+@end example
+
+You'll see something like:
+
+@example
+[
+  @{ "text": "Blake started programming in 1982.", "tags": ["history"] @},
+  @{ "text": "Blake's first computer was an Apple II+.", "tags": ["history","computing"] @},
+  @{ "text": "Blake lives in Tennessee.", "tags": ["personal","location"] @},
+  ...
+]
+@end example
+
+You can redirect to a file with @code{--output review.json} and edit
+by hand.
+
+@node Committing the extracted facts
+@section Committing the extracted facts
+
+Once you're happy with the extraction:
+
+@example
+ownsona teach my-life.txt --subject Blake --commit
+@end example
+
+Or, after dry-run + manual review of @code{review.json}, use
+@code{import} (no second LLM call):
+
+@example
+ownsona import review.json --dedup skip_if_near
+@end example
+
+The two-step path (dry-run @result{} review @result{} import) avoids
+spending a second LLM call when you decide to edit the result.
+
+@node Flags
+@section Flags
+
+@multitable @columnfractions .30 .70
+@headitem Flag @tab Purpose
+@item @code{--subject NAME}     @tab How to refer to you in facts (default @code{the user}; set to your name).
+@item @code{--model NAME}       @tab Override the LLM model for this run.
+@item @code{--chunk-size N}     @tab Characters per LLM call (default 4000; valid 500--32000).
+@item @code{--tags T1,T2}       @tab Apply these tags to every extracted fact.
+@item @code{--dedup POLICY}     @tab @code{dedup_policy} for the resulting @code{remember_batch} (default @code{skip_if_near}).
+@item @code{--max-facts N}      @tab Sanity cap on total extracted facts (default 10000).
+@item @code{--commit}           @tab Actually insert (default is dry-run).
+@item @code{--yes}              @tab With @code{--commit}, skip the y/N confirmation prompt.
+@item @code{--output FILE}      @tab In dry-run, write JSON here instead of stdout.
+@end multitable
+
+@node Recommended workflow
+@section Recommended workflow
+
+@example
+# 1) Extract to a file for review.
+ownsona teach my-life.txt --subject Blake --output review.json
+
+# 2) Open review.json, edit if you want.
+
+# 3) Submit the reviewed file via `import` (no second LLM call).
+ownsona import review.json --dedup skip_if_near
+@end example
+
+@code{--dedup skip_if_near} is the right default for re-runs: if you
+edit the manuscript and re-extract, near-duplicates from the prior
+run will be skipped instead of creating doubles.
+
+@node Cost
+@section Cost
+
+A 100K-word autobiography is about 150 chunks of 4000 characters each.
+Approximate cost:
+
+@multitable @columnfractions .35 .65
+@headitem Model @tab Approx. cost for 100K words
+@item @code{gpt-4o-mini} @tab $0.05 -- $0.15
+@item @code{gpt-4o}      @tab $1 -- $3
+@end multitable
+
+Numbers vary with chunk size and how dense the extraction is.
+Dry-runs cost the same as commits --- the LLM call is the expense,
+the @code{remember_batch} insertion is free.
+
+@node Vendor neutrality
+@section Vendor neutrality
+
+The @code{--model} flag and @code{llm_base_url} config key let you
+point @code{teach} at any service that exposes OpenAI's
+@code{/chat/completions} shape: OpenAI, OpenRouter, Anthropic via a
+compat proxy, a local Ollama server, etc.  Default is OpenAI's
+endpoint.
+
+@node Why the teach LLM is independent
+@section Why the teach LLM is independent
+
+The CLI's @code{teach} LLM is configured @b{separately} from the
+server's embedding provider, and there's no mechanical link between
+them.  Changing one doesn't affect the other.
+
+In practice, when you switch the server's embedding provider, you
+often want to swap @code{teach}'s extraction LLM at the same time
+(same vendor, same key, same billing).  But the choice is yours:
+you can run OpenAI embeddings on the server and a self-hosted
+Llama for @code{teach} extraction if you prefer.
+
+Switching @code{teach}'s LLM does @b{not} require a re-embed.
+@code{teach} only produces text; the server embeds the text
+exactly the same way regardless of where the text came from.
+See @ref{Embedding Migration} for when a re-embed @emph{is} needed.

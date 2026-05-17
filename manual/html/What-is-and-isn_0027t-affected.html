@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>What is and isn't affected (OwnSona Manual)</title>
+
+<meta name="description" content="What is and isn't affected (OwnSona Manual)">
+<meta name="keywords" content="What is and isn't affected (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Embedding-Migration.html" rel="up" title="Embedding Migration">
+<link href="How-re_002dembedding-works-inside-the-server.html" rel="next" title="How re-embedding works inside the server">
+<link href="When-and-why-you-might-switch.html" rel="prev" title="When and why you might switch">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+span:hover a.copiable-link {visibility: visible}
+ul.mark-bullet {list-style-type: disc}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="What-is-and-isn_0027t-affected">
+<div class="nav-panel">
+<p>
+Next: <a href="How-re_002dembedding-works-inside-the-server.html" accesskey="n" rel="next">How re-embedding works inside the server</a>, Previous: <a href="When-and-why-you-might-switch.html" accesskey="p" rel="prev">When and why you might switch</a>, Up: <a href="Embedding-Migration.html" accesskey="u" rel="up">Embedding Migration</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="What-is-and-isn_0027t-affected-1"><span>11.2 What is and isn&rsquo;t affected<a class="copiable-link" href="#What-is-and-isn_0027t-affected-1"> &para;</a></span></h3>
+
+<p>Every memory row carries <code class="code">embedding</code>, <code class="code">embedding_provider</code>,
+<code class="code">embedding_model</code>, and a stored <code class="code">text</code>.  A re-embed pass:
+</p>
+<p><b class="b">Replaces:</b>
+</p><ul class="itemize mark-bullet">
+<li>Every row&rsquo;s <code class="code">embedding</code> with a vector from the new
+provider/model.
+</li><li>Every row&rsquo;s <code class="code">embedding_provider</code> and <code class="code">embedding_model</code>
+to match the active config.
+</li></ul>
+
+<p><b class="b">Leaves untouched:</b>
+</p><ul class="itemize mark-bullet">
+<li><code class="code">text</code>, <code class="code">normalized_text</code>, <code class="code">tags</code>,
+<code class="code">importance</code>, <code class="code">metadata</code>.
+</li><li><code class="code">created_at</code>, <code class="code">updated_at</code>, <code class="code">deleted_at</code>.
+</li><li><code class="code">expires_at</code>, <code class="code">last_confirmed_at</code>.
+</li><li><code class="code">forget_reason</code>, <code class="code">replaced_by_id</code>.
+</li><li><code class="code">record_version</code>, <code class="code">user_id</code>.
+</li><li>All indexes (rebuilt automatically by Postgres when the column
+type changes, or explicitly dropped + recreated for performance).
+</li></ul>
+
+<p><b class="b">Important: soft-deleted rows are re-embedded.</b>  Tombstones
+participate in dedup-on-write via <code class="code">findSimilarTombstones</code>, so
+their vectors have to move into the new model&rsquo;s space along with
+everything else.  If the walker skipped them, the dedup-on-write check
+would start returning gibberish for previously-corrected facts.
+</p>
+</div>
+
+
+
+</body>
+</html>

@@ -1,0 +1,158 @@
+@node Getting Started
+@chapter Getting Started
+@cindex getting started
+@cindex quick start
+
+This chapter walks you from zero to a running server, your first stored
+memory, and your first recall, in roughly five command-blocks.  Each
+step references the chapter that covers it in depth.
+
+@menu
+* Prerequisites::                What you need before you start.
+* The five-minute path::         Just enough to see it work.
+* Verify the install::           Smoke-test every tool.
+* Where to next::                Reading order for the rest of the manual.
+@end menu
+
+@node Prerequisites
+@section Prerequisites
+
+@itemize @bullet
+@item A Linux host you control.  A small VPS (1 vCPU, 1 GB RAM) is
+enough.  The author runs his production instance on a $5/month VPS.
+
+@item Root or sudo access on that host.
+
+@item Java 17 or newer.  OpenJDK is fine.
+
+@item PostgreSQL 16 or newer, with the @code{pgvector} extension
+package available.
+
+@item A domain name pointing at the host's public IP, and the ability
+to obtain a TLS certificate for it.  The setup walkthrough uses Let's
+Encrypt.
+
+@item An OpenAI API key for embeddings, or another provider's key if
+you intend to swap providers (see @ref{Embedding Migration}).  A
+self-hosted embedding model is also fine but requires a bit more
+plumbing.
+
+@item An MCP-capable LLM client.  Claude Desktop is the easiest place
+to start.
+@end itemize
+
+@node The five-minute path
+@section The five-minute path
+
+The full install lives in @ref{Installation}.  This is the abbreviated
+form.
+
+@enumerate
+@item @b{Clone the repo.}
+
+@example
+git clone https://github.com/blakemcbride/Ownsona.git
+cd Ownsona
+@end example
+
+@item @b{Provision the database.}
+
+@example
+sudo -u postgres createuser --pwprompt ownsona
+sudo -u postgres createdb -O ownsona ownsona
+sql/setup_db.sh '<the-password-you-just-set>'
+@end example
+
+This creates the schema, installs the @code{pgvector} and @code{pg_trgm}
+extensions, and grants the @code{ownsona} role the privileges the
+auto-migrator needs.
+
+@item @b{Configure the server.}
+
+@example
+cp src/main/backend/application.ini.example src/main/backend/application.ini
+$EDITOR src/main/backend/application.ini
+@end example
+
+At minimum, set @code{DatabasePassword}, @code{OWNSONA_API_TOKEN} (any
+long random string), and @code{EMBEDDING_API_KEY}.
+
+@item @b{Build and deploy.}
+
+@example
+./bld -v build
+./bld war
+sudo cp work/Kiss.war /home/ownsona/tomcat/webapps/ROOT.war
+@end example
+
+(See @ref{Installation} for how to set up the @code{ownsona} system user
+and the @code{ownsona.service} systemd unit.)
+
+@item @b{Smoke-test the live endpoint.}
+
+@example
+OWNSONA_API_TOKEN=<your-token> sql/smoke_test.sh https://your.host/mcp
+@end example
+
+A successful smoke test exercises every MCP tool against the live
+server and prints @code{OK} for each.
+@end enumerate
+
+@node Verify the install
+@section Verify the install
+
+Once @file{sql/smoke_test.sh} reports success, your server is working.
+The next step is to point a client at it.
+
+@b{From the command line.}  Build the CLI (see @ref{The Command-Line Client})
+and try:
+
+@example
+ownsona add "I started using OwnSona today." --tags meta
+ownsona query "when did I start using OwnSona"
+@end example
+
+You should see your newly stored fact come back as the top recall hit.
+
+@b{From Claude Desktop.}  Edit
+@file{~/Library/Application Support/Claude/claude_desktop_config.json}
+(macOS) or the Windows equivalent, and add:
+
+@example
+@{
+  "mcpServers": @{
+    "ownsona": @{
+      "url": "https://your.host/mcp",
+      "headers": @{ "Authorization": "Bearer <your-token>" @}
+    @}
+  @}
+@}
+@end example
+
+Restart Claude Desktop.  Ask it ``what tools do you have?''  You should
+see @code{remember}, @code{recall}, @code{remember_batch},
+@code{build_context_prompt}, @code{list_memories}, @code{update_memory},
+@code{forget}, @code{text_search}, and @code{confirm}.
+
+@b{From ChatGPT (Responses API).}  See @ref{Connecting OpenAI}.
+
+@node Where to next
+@section Where to next
+
+@itemize @bullet
+@item If you got stuck during install, the long-form walkthrough is
+@ref{Installation}.  The chapter is deliberately verbose --- every
+sudo command is explained.
+
+@item If your server is up and you want to understand what every MCP
+tool does, read @ref{MCP Tools}.
+
+@item If you want to bulk-load existing notes into the store (e.g.@:
+from a journal or autobiography draft), see @ref{The teach Workflow}.
+
+@item If you want to swap the embedding model or provider some day,
+the procedure is in @ref{Embedding Migration}.
+
+@item If something breaks, @ref{Troubleshooting} indexes symptoms to
+causes.
+@end itemize

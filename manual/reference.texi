@@ -1,0 +1,234 @@
+@node Reference
+@chapter Reference
+@cindex reference
+
+Catalogues that are easier to consult as tables than to read as prose.
+
+@menu
+* Configuration keys table::
+* Database schema reference::
+* File and directory layout::
+* Environment variables::
+* Kiss framework references::
+@end menu
+
+@node Configuration keys table
+@section Configuration keys table
+
+Every key recognized in @file{src/main/backend/application.ini}.
+
+@subsection Required
+
+@multitable @columnfractions .30 .70
+@headitem Key @tab Purpose
+@item @code{DatabaseHost} @tab Postgres host.
+@item @code{DatabasePort} @tab Postgres port.
+@item @code{DatabaseName} @tab Database name (typically @code{ownsona}).
+@item @code{DatabaseUser} @tab Application role.
+@item @code{DatabasePassword} @tab Password for the application role.
+@item @code{OWNSONA_API_TOKEN} @tab Bearer token MCP clients must present.
+@item @code{EMBEDDING_API_KEY} @tab API key for the embeddings endpoint.
+@item @code{EMBEDDING_ENDPOINT} @tab Full URL of the @code{/embeddings} endpoint.
+@item @code{EMBEDDING_MODEL} @tab Embedding model identifier.
+@item @code{EMBEDDING_DIMENSIONS} @tab Vector length. Must match @code{vector(N)} column.
+@end multitable
+
+@subsection Optional with defaults
+
+@multitable @columnfractions .30 .15 .55
+@headitem Key @tab Default @tab Purpose
+@item @code{DatabaseType} @tab @code{PostgreSQL} @tab Kiss DB driver type (only PostgreSQL supported).
+@item @code{DatabaseConnectionParameters} @tab (none) @tab Appended to JDBC URL.
+@item @code{OWNSONA_USER_ID} @tab @code{default} @tab User-id stamped on every memory.
+@item @code{EMBEDDING_PROVIDER} @tab @code{openai} @tab Provider name recorded per row.
+@item @code{DEFAULT_RECALL_LIMIT} @tab @code{8} @tab Default @code{limit} for @code{recall}.
+@item @code{MAX_RECALL_LIMIT} @tab @code{50} @tab Hard cap on @code{limit}.
+@item @code{MAX_TEXT_CHARS} @tab @code{16000} @tab Hard cap on memory text length.
+@item @code{MAX_BATCH_SIZE} @tab @code{200} @tab Max items per @code{remember_batch}.
+@item @code{REEMBED_ON_STARTUP} @tab @code{false} @tab Triggers the re-embed walker. Auto-flipped after success.
+@item @code{MaxWorkerThreads} @tab @code{30} @tab Kiss tunable: concurrent request cap.
+@item @code{UserInactiveSeconds} @tab @code{900} @tab Kiss tunable: session inactivity timeout.
+@end multitable
+
+@subsection Connection pool tunables (Kiss-provided)
+
+Rarely changed.  Defaults come from c3p0; override when your workload
+calls for it.
+
+@multitable @columnfractions .40 .60
+@headitem Key @tab Purpose
+@item @code{DatabaseMinPoolSize} @tab Minimum connections kept hot.
+@item @code{DatabaseInitialPoolSize} @tab Pool size at startup.
+@item @code{DatabaseMaxPoolSize} @tab Hard cap on pool size.
+@item @code{DatabaseAcquireIncrement} @tab Connections added per growth step.
+@item @code{DatabaseCheckoutTimeout} @tab Millis to wait before timing out.
+@item @code{DatabaseMaxStatements} @tab Prepared-statement cache size.
+@item @code{DatabaseIdleTestPeriod} @tab Seconds between idle-connection tests.
+@item @code{DatabaseMaxIdleTime} @tab Seconds before removing idle connections.
+@end multitable
+
+@node Database schema reference
+@section Database schema reference
+
+The full schema lives in @file{sql/001_init.sql}.  Migrations after
+that point are Java classes under
+@file{src/main/precompiled/ai/ownsona/migrations/}.
+
+@subsection The @code{memories} table
+
+Documented per-column in @ref{The memories table}.
+
+@subsection Indexes (current shape)
+
+@multitable @columnfractions .35 .15 .50
+@headitem Index @tab Type @tab Purpose
+@item @code{memories_user_id_idx} @tab B-tree @tab Per-user filter.
+@item @code{memories_created_at_idx} @tab B-tree @tab Listing newest first.
+@item @code{memories_deleted_at_idx} @tab B-tree @tab Tombstone filter.
+@item @code{memories_tags_idx} @tab GIN @tab Tag filter on @code{tags}.
+@item @code{memories_text_trgm_idx} @tab GIN @tab Trigram for @code{text_search}.
+@item @code{memories_embedding_idx} @tab HNSW @tab Cosine-similarity recall.
+@item @code{memories_unique_normalized_active} @tab Unique partial @tab Exact-duplicate prevention.
+@end multitable
+
+@subsection The @code{db_version} table
+
+Created by @code{DbMigrator} on first startup.
+
+@multitable @columnfractions .25 .25 .50
+@headitem Column @tab Type @tab Purpose
+@item @code{version} @tab @code{INT PRIMARY KEY} @tab Migration's target version.
+@item @code{applied_at} @tab @code{TIMESTAMPTZ NOT NULL DEFAULT now()} @tab When it ran.
+@item @code{note} @tab @code{TEXT} @tab Migration's @code{name()}.
+@end multitable
+
+@node File and directory layout
+@section File and directory layout
+
+@example
+ownsona/                                   # repo root
+    bld                                     # Kiss build script
+    src/
+        main/
+            backend/
+                application.ini.example     # redacted template (tracked)
+                application.ini             # live secrets (gitignored)
+                KissInit.groovy             # Kiss app bootstrap
+            core/                           # Kiss framework (do NOT modify)
+                org/kissweb/MCPServerBase.java
+                org/kissweb/restServer/MainServlet.java
+            precompiled/
+                ai/ownsona/
+                    MCPServer.java          # @@WebServlet("/mcp")
+                    Config.java             # application.ini loader
+                    SecretScanner.java
+                    TextNormalizer.java
+                    TagNormalizer.java
+                    VectorFormat.java
+                    ApplicationIniWriter.java
+                    embeddings/
+                        EmbeddingProvider.java
+                        OpenAIEmbeddingProvider.java
+                        MockEmbeddingProvider.java
+                        ReembedJob.java
+                    memory/
+                        MemoryService.java
+                        MemoryRepository.java
+                        ...
+                    migrations/
+                        Migration.java
+                        MigrationRegistry.java
+                        DbMigrator.java
+                        Migration002AddRecordVersion.java
+                        Migration003AddFreshness.java
+                        Migration004AddTombstones.java
+        test/
+            precompiled/ai/ownsona/         # JUnit 5 tests
+    sql/
+        001_init.sql                        # bootstrap schema
+        setup_db.sh                         # role + extensions + 001_init.sql
+        migrator_prep.sql                   # one-time prep for existing installs
+        smoke_test.sh                       # end-to-end curl drive
+        run_tests.sh                        # JUnit runner
+        ownsona.service                     # systemd unit
+        ownsona-backup.service / .timer
+    cli/                                    # portable C command-line client
+        Makefile
+        config.ini.example
+        include/ownsona.h
+        src/*.c
+    manual/                                 # this manual (TexInfo + HTML output)
+    REEMBED.md                              # short reference; full chapter is in manual/
+    OWNSONA_SPEC.md                         # functional spec
+    INSTALL.md                              # install walkthrough (long-form)
+    MCPServer.md                            # server design notes
+    OpenAI.md                               # OpenAI integration notes
+    CLI.md                                  # CLI reference (short-form)
+    README.md
+@end example
+
+@node Environment variables
+@section Environment variables
+
+Most settings live in @file{application.ini} or the CLI's
+@file{config.ini}, but a few work via environment:
+
+@multitable @columnfractions .35 .65
+@headitem Variable @tab Purpose
+@item @code{OWNSONA_TEST_DATABASE_URL} @tab JDBC URL for a separate test database.  Gates the integration tests in @code{sql/run_tests.sh}; absent = skip.
+@item @code{OWNSONA_API_TOKEN} @tab Used by @file{sql/smoke_test.sh} when invoked from the shell.
+@item @code{OWNSONA_SERVER} @tab CLI override for @code{server_url}.
+@item @code{OWNSONA_TOKEN} @tab CLI override for @code{token}.
+@item @code{OWNSONA_CONFIG} @tab CLI override for the config-file path.
+@item @code{OWNSONA_LLM_API_KEY} @tab CLI: API key for the @code{teach} LLM.
+@item @code{OWNSONA_LLM_MODEL} @tab CLI: model name for the @code{teach} LLM.
+@item @code{OWNSONA_LLM_BASE_URL} @tab CLI: base URL for the @code{teach} chat-completion endpoint.
+@item @code{OWNSONA_SUBJECT} @tab CLI: how @code{teach} should refer to you in extracted facts.
+@end multitable
+
+@node Kiss framework references
+@section Kiss framework references
+@cindex Kiss
+@cindex Kiss framework
+
+OwnSona is built on the
+@uref{https://kissweb.org, Kiss web development framework}, an
+open-source Java full-stack framework.  Kiss provides:
+
+@itemize @bullet
+@item The @code{MainServlet} container glue that loads
+@file{application.ini}, sets up the C3P0 connection pool, and exposes
+the @code{Connection}/@code{Record} database API used throughout
+OwnSona.
+@item The @code{MCPServerBase} class @code{MCPServer.java} extends ---
+parses JSON-RPC envelopes, dispatches to tool handlers, formats tool
+results.
+@item The custom @code{bld} build script (no Maven, no Gradle).
+@item The @code{org.kissweb.json} classes used for all server-side
+JSON manipulation.
+@item The @code{IniFile} class @code{ApplicationIniWriter} works
+alongside.
+@end itemize
+
+Where to read more:
+
+@multitable @columnfractions .35 .65
+@headitem Resource @tab URL
+@item Kiss home page         @tab @uref{https://kissweb.org}
+@item Kiss source            @tab @uref{https://github.com/blakemcbride/Kiss}
+@item Kiss user manual       @tab @uref{https://kissweb.org/manual.html}
+@item Frontend JSDoc         @tab @uref{https://kissweb.org/jsdoc/}
+@item Backend JavaDoc        @tab generated locally with @code{./bld javadoc} into @file{work/javadoc/}
+@end multitable
+
+OwnSona's relationship to Kiss: OwnSona is a Kiss @emph{application}.
+The Kiss source ships inside the OwnSona repo at
+@file{src/main/core/} and is the part of the codebase OwnSona @b{must
+not modify} (rebuilding from the upstream Kiss release is the way to
+update Kiss itself).  OwnSona's own code lives in
+@file{src/main/precompiled/} and @file{src/main/backend/}.
+
+When in doubt about where a feature lives --- the database pool, the
+INI loader, the servlet base class --- start by asking whether it's a
+Kiss feature.  Most ``how does the framework do X'' answers are in
+Kiss's manual, not in this one.

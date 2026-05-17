@@ -1,0 +1,577 @@
+@node MCP Tools
+@chapter MCP Tools
+@cindex MCP tools
+@cindex tools
+
+OwnSona exposes its functionality as nine MCP tools.  Each one is a
+JSON-RPC method on the @code{/mcp} endpoint, callable by any MCP
+client that presents the right bearer token.  This chapter is the
+reference for every tool's inputs, outputs, errors, and example calls.
+
+@menu
+* General tool conventions::     Inputs, outputs, errors, IDs, timestamps.
+* The remember tool::            Store a new fact.
+* The remember_batch tool::      Bulk-load up to 200 facts in one call.
+* The recall tool::              Vector-similarity search.
+* The build_context_prompt tool:: Pack relevant facts into a prompt envelope.
+* The list_memories tool::       Paginated listing for review.
+* The update_memory tool::       Edit an existing memory.
+* The confirm tool::             Refresh last_confirmed_at.
+* The forget tool::              Soft-delete or hard-delete.
+* The text_search tool::         Plain-substring search.
+* Error codes::                  The full error vocabulary.
+@end menu
+
+@node General tool conventions
+@section General tool conventions
+@cindex JSON-RPC
+@cindex tool envelope
+
+All tool calls are JSON-RPC 2.0 over HTTPS POST to @code{/mcp}:
+
+@example
+POST /mcp HTTP/1.1
+Authorization: Bearer <OWNSONA_API_TOKEN>
+Content-Type: application/json
+
+@{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": @{
+    "name": "<tool-name>",
+    "arguments": @{ ... @}
+  @}
+@}
+@end example
+
+The server returns a JSON-RPC response whose @code{result.content[0].text}
+field holds the tool's structured payload as a JSON string.  Every
+successful payload begins with @code{"ok": true}; every error payload
+begins with @code{"ok": false, "error": @{...@}}.
+
+@subsection Common types
+
+@table @asis
+@item Memory ID
+A 64-bit integer (Postgres @code{BIGSERIAL}).  Stable for the row's
+lifetime; never reused after a hard-delete.
+
+@item Timestamps
+ISO 8601 with timezone, e.g.@: @code{"2026-05-17T14:00:00Z"}.
+
+@item Tags
+Lowercase short strings, alphanumeric plus hyphen.  See
+@ref{Tag normalization}.
+
+@item Vectors
+Never returned in tool output; an implementation detail of the
+similarity search.
+@end table
+
+@subsection Authentication
+
+Every request must carry @code{Authorization: Bearer <token>}.  The
+token is compared in constant time against
+@code{OWNSONA_API_TOKEN} from @file{application.ini}.  Missing or
+wrong token returns HTTP 401 with @code{AUTH_FAILED}.
+
+@node The remember tool
+@section The @code{remember} tool
+@cindex remember
+
+Stores a single durable fact.
+
+@subsection Inputs
+
+@table @code
+@item text
+@b{Required string.}  The fact to remember.  Up to @code{MAX_TEXT_CHARS}
+characters (default 16000).  Texts shaped like secrets (API keys, JWTs,
+PEM private-key markers) are rejected with @code{SECRET_REJECTED}.
+
+@item tags
+Array of strings.  Optional.  Normalized to lowercase canonical forms
+(see @ref{Tag normalization}).
+
+@item source_provider
+String.  Optional.  Name of the LLM or client that produced this
+memory.  Useful for auditing.
+
+@item importance
+Number, 0--1.  Optional, default 0.5.  Reserved for future ranking
+work; currently stored but not used in recall scoring.
+
+@item capture_mode
+String.  Optional.  Either @code{"explicit"} (user explicitly asked to
+remember) or @code{"inferred"} (LLM decided on its own).  Recorded as
+provenance.
+
+@item session_id
+String.  Optional.  Opaque conversation identifier.  Stored as-is.
+
+@item dedup_policy
+String.  Optional.  One of @code{"insert"} (skip the semantic-dedup
+check), @code{"skip_if_near"} (return the existing id if a
+near-duplicate is found), or @code{"ask"} (default: insert anyway, but
+include the near-duplicates in the response).
+
+@item expires_at
+ISO 8601 timestamp.  Optional.  Recall excludes this memory after the
+date passes.  Useful for time-limited facts.
+
+@item last_confirmed_at
+ISO 8601 timestamp.  Optional.  When this fact was last verified as
+still true.  Defaults to @code{now()} on insert.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "memory_id": 123,
+  "message": "Ok",
+  "near_duplicates": [...],         // present if dedup_policy = "ask"
+  "previously_corrected": [...]     // present if any tombstones nearby
+@}
+@end example
+
+If the request was rejected for being a near-duplicate
+(@code{dedup_policy = "skip_if_near"}), the existing memory's id is
+returned:
+
+@example
+@{
+  "ok": true,
+  "memory_id": 99,
+  "message": "Already remembered",
+  "near_duplicates": [...]
+@}
+@end example
+
+@subsection Errors
+
+@code{INVALID_INPUT}, @code{SECRET_REJECTED}, @code{EMBEDDING_ERROR},
+@code{DATABASE_ERROR}.
+
+@subsection Example
+
+@example
+@{
+  "name": "remember",
+  "arguments": @{
+    "text": "My son Colby lives in Los Angeles.",
+    "tags": ["family"],
+    "capture_mode": "explicit"
+  @}
+@}
+@end example
+
+@node The remember_batch tool
+@section The @code{remember_batch} tool
+@cindex remember_batch
+@cindex bulk import
+
+Stores up to @code{MAX_BATCH_SIZE} (default 200) memories in a single
+call.  The embedding provider is invoked @b{once} for the whole batch,
+making this dramatically faster than calling @code{remember} 200
+times.
+
+@subsection Inputs
+
+@table @code
+@item items
+@b{Required array.}  Each item has the same shape as a @code{remember}
+argument: @code{text} required, plus optional @code{tags},
+@code{source_provider}, @code{importance}, @code{capture_mode},
+@code{session_id}, @code{dedup_policy}, @code{expires_at},
+@code{last_confirmed_at}.
+
+@item source_provider
+String.  Optional default applied to items that don't specify their
+own.
+
+@item dedup_policy
+String.  Optional default policy applied to items that don't specify
+their own.  Default @code{"ask"}.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "results": [
+    @{ "ok": true,  "memory_id": 200, "message": "Ok" @},
+    @{ "ok": true,  "memory_id": 201, "message": "Ok" @},
+    @{ "ok": false, "error": @{ "code": "SECRET_REJECTED", ... @} @}
+  ],
+  "summary": @{
+    "total": 3,
+    "succeeded": 2,
+    "failed": 1
+  @}
+@}
+@end example
+
+Per-item failures do @b{not} fail the batch.  Each item's outcome
+lands in its own slot in @code{results}.
+
+@subsection Errors
+
+Batch-level: @code{INVALID_INPUT} (e.g.@: @code{items} not an array,
+or exceeds @code{MAX_BATCH_SIZE}), @code{EMBEDDING_ERROR}.  Per-item
+errors appear inside @code{results}.
+
+@node The recall tool
+@section The @code{recall} tool
+@cindex recall
+@cindex vector search
+
+Finds memories semantically similar to a query, ordered by cosine
+similarity.
+
+@subsection Inputs
+
+@table @code
+@item query
+@b{Required string.}  The natural-language question or topic to search
+for.
+
+@item limit
+Integer.  Optional, default @code{DEFAULT_RECALL_LIMIT} (8), capped at
+@code{MAX_RECALL_LIMIT} (50).
+
+@item min_score
+Number, 0--1.  Optional.  Filter out matches below this score.
+
+@item tags
+Array of strings.  Optional.  Filter to memories with at least one
+matching tag.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "matches": [
+    @{
+      "id": 123,
+      "text": "The user's son Colby lives in Los Angeles.",
+      "score": 0.8421,
+      "created_at": "2026-05-05T12:00:00Z",
+      "updated_at": "2026-05-05T12:00:00Z",
+      "last_confirmed_at": "2026-05-05T12:00:00Z",
+      "tags": ["family"],
+      "source_provider": "openai",
+      "capture_mode": "explicit"
+    @},
+    ...
+  ]
+@}
+@end example
+
+The tool description instructs the calling LLM to @b{prefer the most
+recently confirmed match} when multiple results look contradictory:
+compare @code{last_confirmed_at} first, then @code{updated_at}, then
+@code{created_at}.
+
+@subsection Errors
+
+@code{INVALID_INPUT}, @code{EMBEDDING_ERROR}, @code{DATABASE_ERROR}.
+
+@subsection Example
+
+@example
+@{
+  "name": "recall",
+  "arguments": @{
+    "query": "where does my son live",
+    "limit": 5,
+    "tags": ["family"]
+  @}
+@}
+@end example
+
+@node The build_context_prompt tool
+@section The @code{build_context_prompt} tool
+@cindex build_context_prompt
+@cindex prompt envelope
+
+Returns a fully assembled prompt with relevant facts in a fixed
+envelope, suitable for piping into a non-MCP LLM.
+
+@subsection Inputs
+
+@table @code
+@item user_prompt
+@b{Required string.}  The user's actual question.
+
+@item limit
+Integer.  Optional.  Number of facts to include.  Default 8.
+
+@item max_chars
+Integer.  Optional.  Hard cap on the total prompt size in characters.
+The tool greedy-packs the highest-scoring facts that fit, stopping
+when adding the next would exceed @code{max_chars}.  At least one
+fact is always included if any matched.
+
+@item min_score
+Number, 0--1.  Optional.  Lower bound on similarity for included
+facts.
+
+@item tags
+Array of strings.  Optional.  Tag filter, same semantics as
+@code{recall}.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "prompt": "The following are previously known facts:\\n\\n[fact 1]\\n\\n[fact 2]\\n\\n-----------------\\n\\nThe following is the user's prompt:\\n\\n[user prompt]"
+@}
+@end example
+
+If no relevant facts were found, the body says @code{"No relevant
+previously known facts were found."} instead of listing facts.
+
+@subsection Errors
+
+@code{INVALID_INPUT}, @code{EMBEDDING_ERROR}, @code{DATABASE_ERROR}.
+
+@node The list_memories tool
+@section The @code{list_memories} tool
+@cindex list_memories
+
+Paginated chronological listing for review, audit, and admin
+workflows.
+
+@subsection Inputs
+
+@table @code
+@item limit
+Integer.  Optional, default 20, capped at @code{MAX_RECALL_LIMIT}.
+
+@item offset
+Integer.  Optional, default 0.
+
+@item include_deleted
+Boolean.  Optional, default false.  When true, soft-deleted memories
+(tombstones) and expired memories are also returned.
+@end table
+
+@subsection Output
+
+Same shape as @code{recall}'s @code{matches}, but with no @code{score}
+field, and ordered by @code{created_at DESC}.
+
+@subsection Errors
+
+@code{INVALID_INPUT}, @code{DATABASE_ERROR}.
+
+@node The update_memory tool
+@section The @code{update_memory} tool
+@cindex update_memory
+
+Replaces an existing memory's text and optionally its tags /
+importance / freshness fields.  The embedding is recomputed.
+
+@subsection Inputs
+
+@table @code
+@item id
+@b{Required integer.}  The memory's id.
+
+@item text
+@b{Required string.}  The replacement text.  Same length / secret-shape
+constraints as @code{remember}.
+
+@item tags
+Array of strings.  Optional.  Replaces the tag list entirely if
+provided.
+
+@item importance
+Number, 0--1.  Optional.
+
+@item expires_at
+ISO 8601 timestamp.  Optional.
+
+@item last_confirmed_at
+ISO 8601 timestamp.  Optional.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "memory_id": 123,
+  "message": "Ok"
+@}
+@end example
+
+Updating a soft-deleted memory fails with @code{NOT_FOUND} --- forget
+and re-add instead.
+
+@subsection Errors
+
+@code{INVALID_INPUT}, @code{NOT_FOUND}, @code{SECRET_REJECTED},
+@code{EMBEDDING_ERROR}, @code{DATABASE_ERROR}.
+
+@node The confirm tool
+@section The @code{confirm} tool
+@cindex confirm
+
+Refreshes a memory's @code{last_confirmed_at} to @code{now()} without
+rebuilding the embedding.  Cheap operation.
+
+@subsection Inputs
+
+@table @code
+@item id
+@b{Required integer.}  The memory's id.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "memory_id": 123,
+  "last_confirmed_at": "2026-05-17T14:00:00Z"
+@}
+@end example
+
+@subsection Errors
+
+@code{INVALID_INPUT}, @code{NOT_FOUND}.
+
+@node The forget tool
+@section The @code{forget} tool
+@cindex forget
+@cindex soft delete
+@cindex tombstone
+
+Deletes a memory.  Soft-delete by default (the row stays but is
+hidden from @code{recall}/@code{list_memories}/@code{text_search} and
+becomes a tombstone that the dedup-on-write check consults).  Pass
+@code{hard_delete=true} to drop the row entirely.
+
+@subsection Inputs
+
+@table @code
+@item id
+@b{Required integer.}  The memory's id.
+
+@item hard_delete
+Boolean.  Optional, default false.  When true, the row is removed from
+the database completely.
+
+@item reason
+String.  Optional.  Free-text reason recorded as @code{forget_reason}.
+Rejected with @code{INVALID_INPUT} if @code{hard_delete=true} (a hard
+delete has no row to attach the reason to).
+
+@item replaced_by_id
+Integer.  Optional.  Id of the memory that supersedes this one.  Same
+restriction as @code{reason}: not allowed with @code{hard_delete}.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "memory_id": 123,
+  "message": "Forgotten"
+@}
+@end example
+
+@subsection Errors
+
+@code{INVALID_INPUT}, @code{NOT_FOUND}, @code{DATABASE_ERROR}.
+
+@node The text_search tool
+@section The @code{text_search} tool
+@cindex text_search
+
+Plain substring search (case-insensitive).  Useful for direct lookup
+when you already know roughly what to find.  Indexed via
+@code{pg_trgm} so partial matches are fast.
+
+@subsection Inputs
+
+@table @code
+@item text
+@b{Required string.}  The substring to find.
+
+@item limit
+Integer.  Optional, default 20.
+@end table
+
+@subsection Output
+
+Same shape as @code{list_memories}.
+
+@subsection Errors
+
+@code{INVALID_INPUT}, @code{DATABASE_ERROR}.
+
+@node Error codes
+@section Error codes
+@cindex error codes
+
+Every error payload has the shape:
+
+@example
+@{
+  "ok": false,
+  "error": @{
+    "code": "INVALID_INPUT",
+    "message": "The text field is required."
+  @}
+@}
+@end example
+
+The full vocabulary:
+
+@table @code
+@item INVALID_INPUT
+Missing required field, wrong type, out-of-range value, malformed
+timestamp, etc.
+
+@item AUTH_REQUIRED
+No @code{Authorization} header was sent (HTTP 401).
+
+@item AUTH_FAILED
+@code{Authorization} header was present but the token didn't match
+(HTTP 401).  The server does not distinguish ``missing'' from
+``wrong'' in error text; both surface as 401 at the protocol level.
+
+@item NOT_FOUND
+The requested id doesn't exist.
+
+@item SECRET_REJECTED
+The submitted text matched the secret-shape detector (API key,
+private key, JWT, etc.).
+
+@item LIMIT_EXCEEDED
+A pagination or batch parameter exceeded its hard cap.
+
+@item EMBEDDING_ERROR
+The embedding provider returned an error or didn't respond.  Includes
+the provider's status code and message in @code{error.detail} when
+available.
+
+@item DATABASE_ERROR
+PostgreSQL returned an error or the connection failed.
+
+@item INTERNAL_ERROR
+Catch-all for unexpected conditions.  The server logs the full
+exception; the response carries only the generic message to avoid
+leaking implementation detail.
+@end table

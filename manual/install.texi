@@ -1,0 +1,765 @@
+@node Installation
+@chapter Installation
+@cindex installation
+@cindex setup
+@cindex Ubuntu
+
+This chapter walks through a complete install of the OwnSona MCP server
+on a fresh Ubuntu 24.04 LTS system.  It is the canonical
+``build-from-scratch'' procedure; if you have a recent backup,
+@ref{Restore from backup} at the end of the chapter is faster.
+
+Everything assumes you can @code{sudo}.  Commands shown without
+@code{sudo} should run as the @code{ownsona} user (created in
+@ref{Create the ownsona user}).
+
+@menu
+* Architecture summary::
+* Install prerequisites::
+* Install OS packages::
+* Create the ownsona user::
+* PostgreSQL with pgvector::
+* Apache Tomcat 11::
+* TLS certificates::
+* Clone and build::
+* Apply the database migration::
+* Configure application.ini::
+* Install the systemd service::
+* Smoke test the install::
+* Daily backups::
+* Restore from backup::
+* Upgrading an existing install::
+* Operational reference::
+@end menu
+
+@node Architecture summary
+@section Architecture summary
+
+OwnSona is exposed at @code{https://<your-host>/mcp}.  Three processes
+do the work:
+
+@itemize @bullet
+@item
+@b{Apache Tomcat 11} terminates HTTPS and runs the Kiss-framework
+webapp.  The MCP servlet lives at
+@file{src/main/precompiled/ai/ownsona/MCPServer.java} and mounts at
+@code{/mcp}.
+
+@item
+@b{PostgreSQL 16} with the @code{pgvector} and @code{pg_trgm}
+extensions stores durable memories.
+
+@item
+@b{OpenAI's @code{text-embedding-3-small}} (or your chosen embedding
+provider) turns memory text into the 1536-dim vectors that drive
+recall.
+@end itemize
+
+A @code{systemd} unit (@code{ownsona.service}) supervises Tomcat.  A
+timer-driven @code{ownsona-backup.service} writes daily backups to S3
+via @code{s3fs}.
+
+@node Install prerequisites
+@section Prerequisites
+
+@itemize @bullet
+@item @b{Hardware:} 2 GB RAM minimum (1 GB is OOM-tight; the reference
+deployment runs with 2 GB total + a 2 GB swap file).  10+ GB disk.
+
+@item @b{OS:} Ubuntu 24.04 LTS, fresh install.  Other Debian-family
+releases may work but are not tested.
+
+@item @b{Network:} TCP 80 and 443 open inbound.  SSH open for
+administration.
+
+@item @b{DNS:} an A record pointing @code{<your-host>} (e.g.@:
+@code{ownsona.example.com}) at the VM's public IP.
+
+@item @b{Accounts:} an OpenAI account with billing enabled (the
+embeddings endpoint is pay-per-use); an AWS S3 bucket if you want the
+daily backups (optional).
+@end itemize
+
+@node Install OS packages
+@section Install OS packages
+
+@example
+sudo apt update
+sudo apt install -y \
+    openjdk-21-jdk-headless \
+    postgresql-16 postgresql-16-pgvector \
+    git curl ca-certificates \
+    s3fs \
+    openssl
+@end example
+
+Verify:
+
+@example
+java -version          # 21.x
+psql --version         # 16.x
+@end example
+
+The @code{postgresql-16-pgvector} apt package provides the
+@code{vector} extension.  @code{pg_trgm} ships with PostgreSQL itself.
+
+@node Create the ownsona user
+@section Create the ownsona user
+
+This user owns Tomcat, the source tree, and the running JVM.
+
+@example
+sudo adduser --disabled-password --gecos '' ownsona
+sudo -iu ownsona
+@end example
+
+Most of the rest of this chapter assumes you are @code{ownsona} unless
+a command starts with @code{sudo}.
+
+@node PostgreSQL with pgvector
+@section PostgreSQL with pgvector
+@cindex PostgreSQL
+@cindex pgvector
+
+The Ubuntu package starts and enables PostgreSQL automatically:
+
+@example
+sudo systemctl status postgresql
+@end example
+
+Create the application databases:
+
+@example
+sudo -u postgres createdb ownsona
+sudo -u postgres createdb ownsona_test     # used by sql/run_tests.sh
+@end example
+
+Create the application role and run the schema migration.  The
+repository ships a one-shot setup script; pass it the password you
+want the application to use:
+
+@example
+PGPW="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
+echo "Save this somewhere safe: $PGPW"
+
+cd /home/ownsona/ownsona     # see step 'Clone and build' if not yet cloned
+sql/setup_db.sh "$PGPW"
+@end example
+
+The script:
+
+@itemize @bullet
+@item creates the @code{ownsona} PostgreSQL role with the supplied
+password;
+@item runs @file{sql/001_init.sql} against the @code{ownsona} database
+(creates the @code{vector} and @code{pg_trgm} extensions, the
+@code{memories} table, all indexes including the HNSW vector index,
+the duplicate-prevention partial unique index, and the
+@code{updated_at} trigger);
+@item grants the @code{ownsona} role the table and sequence privileges
+it needs plus @code{CREATE ON SCHEMA public} and ownership of
+@code{memories} (and its sequence).  The auto-migrator
+(@pxref{Upgrading an existing install}) needs these to create its
+@code{db_version} bookkeeping table and apply future migrations
+without requiring the postgres superuser at runtime.
+@end itemize
+
+Run the migration against the test database too:
+
+@example
+sudo -u postgres psql -d ownsona_test -f sql/001_init.sql
+@end example
+
+You will use @code{$PGPW} again in @ref{Configure application.ini}.
+
+@node Apache Tomcat 11
+@section Apache Tomcat 11
+@cindex Tomcat
+
+@subsection Download and extract
+
+Pick the latest Tomcat 11.0.x from @uref{https://tomcat.apache.org/}.
+As @code{ownsona}:
+
+@example
+cd /home/ownsona
+curl -L -O https://dlcdn.apache.org/tomcat/tomcat-11/v11.0.X/bin/apache-tomcat-11.0.X.tar.gz
+tar xf apache-tomcat-11.0.X.tar.gz
+mv apache-tomcat-11.0.X tomcat
+rm apache-tomcat-11.0.X.tar.gz
+@end example
+
+@subsection Heap settings (@file{tomcat/bin/setenv.sh})
+
+The heap defaults shipped with Tomcat are too aggressive for a 2 GB
+VM.  Create or edit @file{/home/ownsona/tomcat/bin/setenv.sh}:
+
+@example
+#!/bin/sh
+# Heap sized for a 2 GB VM. Larger boxes can raise -Xmx.
+export CATALINA_OPTS="-Xms256M -Xmx768M -Djava.awt.headless=true \
+    -XX:+UseG1GC -XX:+DisableExplicitGC \
+    -Djava.library.path=/usr/local/apr/lib"
+@end example
+
+Application secrets and URLs go in @file{application.ini} ---
+@pxref{Configure application.ini}.  Don't put them in
+@file{setenv.sh}.
+
+@example
+chmod +x /home/ownsona/tomcat/bin/setenv.sh
+@end example
+
+@subsection Configure HTTPS and autoDeploy in @file{server.xml}
+
+Edit @file{/home/ownsona/tomcat/conf/server.xml} and make four changes:
+
+@enumerate
+@item @b{HTTP connector on port 80} (Tomcat defaults to 8080):
+
+@example
+<Connector port="80" protocol="HTTP/1.1"
+           connectionTimeout="20000"
+           redirectPort="443" />
+@end example
+
+@item @b{HTTPS connector on port 443}, with one or more
+@code{SSLHostConfig} blocks:
+
+@example
+<Connector port="443" protocol="org.apache.coyote.http11.Http11NioProtocol"
+           maxThreads="150" SSLEnabled="true">
+    <UpgradeProtocol className="org.apache.coyote.http2.Http2Protocol" />
+    <SSLHostConfig hostName="ownsona.example.com">
+        <Certificate certificateKeystoreFile="conf/tomcat.p12"
+                     certificateKeystoreType="PKCS12"
+                     certificateKeystorePassword="<keystore-pw>"
+                     type="RSA" />
+    </SSLHostConfig>
+</Connector>
+@end example
+
+@item @b{@code{<Host>} element with autoDeploy and unpackWARs}:
+
+@example
+<Host name="localhost" appBase="webapps"
+      unpackWARs="true" autoDeploy="true">
+@end example
+
+Both must be @code{true}.  With @code{unpackWARs="false"} the Kiss
+webapp NPEs at startup because @code{ServletContext.getRealPath("/")}
+returns null.
+
+@item @b{@code{AccessLogValve} with retention}:
+
+@example
+<Valve className="org.apache.catalina.valves.AccessLogValve" directory="logs"
+       prefix="localhost_access_log" suffix=".txt"
+       pattern="%h %l %u %t &quot;%r&quot; %s %b"
+       maxDays="90" />
+@end example
+
+Without @code{maxDays}, daily access log files accumulate forever.
+@end enumerate
+
+@subsection Permissions
+
+@example
+sudo chown -R ownsona:ownsona /home/ownsona/tomcat
+@end example
+
+@node TLS certificates
+@section TLS certificates
+@cindex TLS
+@cindex HTTPS
+@cindex Let's Encrypt
+
+Tomcat reads PKCS12 keystores.  The simplest production path is Let's
+Encrypt via @code{certbot}, then a one-time conversion:
+
+@example
+sudo apt install -y certbot
+sudo certbot certonly --standalone -d <your-host>
+# certbot writes /etc/letsencrypt/live/<your-host>/@{fullchain,privkey@}.pem
+
+sudo openssl pkcs12 -export \
+    -in    /etc/letsencrypt/live/<your-host>/fullchain.pem \
+    -inkey /etc/letsencrypt/live/<your-host>/privkey.pem \
+    -out   /home/ownsona/tomcat/conf/tomcat.p12 \
+    -name  tomcat \
+    -password pass:<keystore-pw>
+
+sudo chown ownsona:ownsona /home/ownsona/tomcat/conf/tomcat.p12
+sudo chmod 600 /home/ownsona/tomcat/conf/tomcat.p12
+@end example
+
+Use the same @code{<keystore-pw>} you put in the
+@code{SSLHostConfig} block above.
+
+Set up a renewal hook so each renewal regenerates the keystore and
+restarts Tomcat.  Example at
+@file{/etc/letsencrypt/renewal-hooks/deploy/ownsona-tomcat}:
+
+@example
+#!/bin/sh
+set -e
+openssl pkcs12 -export \
+    -in    "$RENEWED_LINEAGE/fullchain.pem" \
+    -inkey "$RENEWED_LINEAGE/privkey.pem" \
+    -out   /home/ownsona/tomcat/conf/tomcat.p12 \
+    -name  tomcat \
+    -password pass:<keystore-pw>
+chown ownsona:ownsona /home/ownsona/tomcat/conf/tomcat.p12
+chmod 600             /home/ownsona/tomcat/conf/tomcat.p12
+systemctl restart ownsona.service
+@end example
+
+@example
+sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/ownsona-tomcat
+@end example
+
+@node Clone and build
+@section Clone and build
+
+As @code{ownsona}:
+
+@example
+cd /home/ownsona
+git clone <git-url-of-ownsona-repo> ownsona
+cd ownsona
+./bld -v build       # compiles core + precompiled into work/exploded/
+./bld war            # produces work/Kiss.war
+@end example
+
+The build also writes a copy of the WAR to @file{tomcat/webapps/ROOT.war}
+inside the @emph{repo's} local Tomcat directory
+(@file{ownsona/tomcat/}), which is a dev convenience and not used in
+production.  Production deploys come from @file{work/Kiss.war}.
+
+@node Apply the database migration
+@section Apply the database migration
+
+If you ran @file{sql/setup_db.sh} during @ref{PostgreSQL with pgvector}
+you are already done.  Otherwise:
+
+@example
+cd /home/ownsona/ownsona
+sql/setup_db.sh "$PGPW"
+sudo -u postgres psql -d ownsona_test -f sql/001_init.sql
+@end example
+
+Confirm:
+
+@example
+sudo -u postgres psql -d ownsona -c "\\dt"
+sudo -u postgres psql -d ownsona -c "SELECT extname FROM pg_extension ORDER BY extname;"
+@end example
+
+You should see the @code{memories} table and the @code{pg_trgm},
+@code{plpgsql}, and @code{vector} extensions.
+
+@node Configure application.ini
+@section Configure @file{application.ini}
+@cindex application.ini
+
+All application settings --- secrets, URLs, DB credentials, tunables ---
+live in @file{src/main/backend/application.ini}.  The @code{bld} build
+copies this file into the WAR (@file{work/exploded/WEB-INF/backend/}) on
+every build; the servlet reads it once at load via
+@code{MainServlet.getEnvironment()}.  Edit the source-tree copy, then
+rebuild and redeploy.
+
+The repo ships @file{application.ini.example} (a redacted template)
+and gitignores @file{application.ini} itself, so your live secrets
+never end up in commits.  First-time setup is a copy + edit:
+
+@example
+cp src/main/backend/application.ini.example src/main/backend/application.ini
+$EDITOR src/main/backend/application.ini
+@end example
+
+Required:
+
+@example
+[main]
+
+DatabaseType     = PostgreSQL
+DatabaseHost     = localhost
+DatabasePort     = 5432
+DatabaseName     = ownsona
+DatabaseUser     = ownsona
+DatabasePassword = <PGPW>
+
+EMBEDDING_API_KEY    = sk-...your-OpenAI-key...
+OWNSONA_API_TOKEN    = <openssl rand -hex 32>
+EMBEDDING_ENDPOINT   = https://api.openai.com/v1/embeddings
+EMBEDDING_MODEL      = text-embedding-3-small
+EMBEDDING_DIMENSIONS = 1536
+@end example
+
+Generate the bearer token with @code{openssl rand -hex 32} and save it
+somewhere safe --- it's what every MCP client must present in
+@code{Authorization: Bearer ...}.
+
+@code{EMBEDDING_DIMENSIONS} must match the @code{vector(N)} column
+type in @file{sql/001_init.sql}.  The shipped schema uses
+@code{vector(1536)}, which matches @code{text-embedding-3-small}.
+
+Optional keys with defaults are documented in @ref{Configuration}.
+
+@node Install the systemd service
+@section Install the systemd service
+@cindex systemd
+@cindex ownsona.service
+
+Deploy the production WAR and install the unit.  As @code{ownsona}:
+
+@example
+cp /home/ownsona/ownsona/work/Kiss.war /home/ownsona/tomcat/webapps/ROOT.war
+@end example
+
+Then as root:
+
+@example
+sudo /home/ownsona/ownsona/sql/install_systemd.sh
+@end example
+
+The script:
+
+@itemize @bullet
+@item stops any manually-launched Tomcat;
+@item removes the stale @file{/etc/systemd/system/tomcat.service} if
+present;
+@item installs @file{/etc/systemd/system/ownsona.service} from
+@file{sql/ownsona.service};
+@item runs @code{daemon-reload}, then @code{enable --now}s the unit.
+@end itemize
+
+The unit runs @code{catalina.sh run} as the @code{ownsona} user with
+@code{AmbientCapabilities=CAP_NET_BIND_SERVICE}.  That capability is
+granted by @code{systemd} at exec time, which means @b{apt-upgrading
+openjdk does not break port-binding} --- unlike the older @code{setcap}
+path, where every JDK upgrade silently strips
+@code{cap_net_bind_service} from the binary.
+
+@node Smoke test the install
+@section Smoke test
+
+A single MCP @code{initialize} call:
+
+@example
+curl -sS -X POST https://<your-host>/mcp \
+    -H "Authorization: Bearer $OWNSONA_API_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '@{"jsonrpc":"2.0","id":1,"method":"initialize","params":@{@}@}'
+@end example
+
+Expected:
+
+@example
+@{"result":@{"capabilities":@{"tools":@{"listChanged":false@}@},
+ "serverInfo":@{"name":"ownsona-mcp","version":"1.0.0"@},
+ "protocolVersion":"2025-06-18"@},"id":1,"jsonrpc":"2.0"@}
+@end example
+
+A 401 means the bearer token is wrong.  A connection refused/reset
+generally means Tomcat failed to bind 443 --- check
+@code{journalctl -u ownsona.service}.
+
+End-to-end exercise of every tool:
+
+@example
+OWNSONA_API_TOKEN="..." /home/ownsona/ownsona/sql/smoke_test.sh
+@end example
+
+Run the test suite:
+
+@example
+sql/run_tests.sh                                          # unit only
+OWNSONA_TEST_DATABASE_URL="postgresql://ownsona:$PGPW@@localhost:5432/ownsona_test" \
+    sql/run_tests.sh                                      # also integration
+@end example
+
+@node Daily backups
+@section Daily backups
+@cindex backups
+@cindex s3fs
+
+Backups go to an S3 bucket mounted at @file{/mnt/backups} via
+@code{s3fs}, triggered by a @code{systemd} timer at 03:00 daily.  Two
+files per day:
+
+@itemize @bullet
+@item @code{files-YYYY-MM-DD.tar.gz} --- @file{/home}, @file{/root},
+@file{/etc}, @file{/usr/local}, @file{/opt}, @file{/var/spool/cron},
+plus a @file{/var/lib/ownsona-backup/} metadata bundle (package list,
+crontabs, enabled units, OS info).
+@item @code{database-YYYY-MM-DD.gz} --- @code{pg_dumpall} output (every
+database @b{and} global state: roles, passwords, GRANTs, tablespaces).
+@end itemize
+
+Retention: every backup @leq{} 30 days old, plus the last day of every
+month forever.
+
+@subsection Configure @code{s3fs}
+
+Create an IAM user with
+@code{s3:GetObject}/@code{s3:PutObject}/@code{s3:ListBucket} on the
+bucket.  Store its credentials in @file{/etc/passwd-s3fs}:
+
+@example
+echo "<bucket>:<KEY>:<SECRET>" | sudo tee /etc/passwd-s3fs
+sudo chmod 600 /etc/passwd-s3fs
+
+sudo mkdir -p /mnt/backups
+@end example
+
+@file{/etc/mount-s3fs} (root-owned, mode 0700) is a wrapper that mounts
+the bucket if it isn't already mounted:
+
+@example
+#!/bin/sh
+mountpoint -q /mnt/backups || \
+    /usr/bin/s3fs <bucket> /mnt/backups \
+        -o passwd_file=/etc/passwd-s3fs \
+        -o allow_other \
+        -o use_path_request_style
+@end example
+
+@example
+sudo chmod 700 /etc/mount-s3fs
+sudo /etc/mount-s3fs
+mountpoint /mnt/backups        # should print "is a mountpoint"
+@end example
+
+@subsection Install the backup timer
+
+@example
+sudo /home/ownsona/ownsona/sql/install_backup.sh
+@end example
+
+The installer copies @file{sql/ownsona-backup.sh} to
+@file{/usr/local/sbin/}, installs
+@file{ownsona-backup.@{service,timer@}} under
+@file{/etc/systemd/system/}, and @code{enable --now}s the timer.
+
+Run one immediately:
+
+@example
+sudo systemctl start ownsona-backup.service
+sudo tail -f /var/log/ownsona-backup.log
+sudo ls -lh /mnt/backups/
+@end example
+
+@node Restore from backup
+@section Restore from backup
+@cindex restore
+@cindex disaster recovery
+
+If you have a recent backup, this path is @b{faster} than installing
+from scratch.
+
+@enumerate
+@item Provision a fresh Ubuntu 24.04 host.
+
+@item Install just enough packages to extract and restore:
+
+@example
+sudo apt update
+sudo apt install -y openjdk-21-jdk-headless \
+    postgresql-16 postgresql-16-pgvector \
+    s3fs gzip tar
+@end example
+
+@item Mount the backup bucket.  You will need the AWS credentials by
+other means (password manager, etc.) since @file{/etc/passwd-s3fs} is
+itself inside the backup:
+
+@example
+sudo mkdir -p /mnt/backups
+echo "<bucket>:<KEY>:<SECRET>" | sudo tee /etc/passwd-s3fs
+sudo chmod 600 /etc/passwd-s3fs
+sudo s3fs <bucket> /mnt/backups -o passwd_file=/etc/passwd-s3fs \
+    -o allow_other -o use_path_request_style
+@end example
+
+@item @i{(optional)} Reinstall previously-managed apt packages:
+
+@example
+sudo tar -xzf /mnt/backups/files-YYYY-MM-DD.tar.gz -C /tmp \
+    var/lib/ownsona-backup/apt-mark-manual.txt
+xargs -a /tmp/var/lib/ownsona-backup/apt-mark-manual.txt sudo apt install -y
+@end example
+
+@item Extract the file backup over the root filesystem:
+
+@example
+sudo tar -xzpf /mnt/backups/files-YYYY-MM-DD.tar.gz -C /
+@end example
+
+This restores @file{/home}, @file{/root}, @file{/etc},
+@file{/usr/local}, @file{/opt}, the per-user crontabs in
+@file{/var/spool/cron}, the live systemd units, and the metadata
+bundle.
+
+@item Restore PostgreSQL (drops and recreates everything):
+
+@example
+zcat /mnt/backups/database-YYYY-MM-DD.gz | sudo -u postgres psql -X postgres
+@end example
+
+@item Reload systemd and bring services up:
+
+@example
+sudo systemctl daemon-reload
+sudo systemctl enable --now ownsona.service
+sudo systemctl enable --now ownsona-backup.timer
+@end example
+
+@item Smoke test (@pxref{Smoke test the install}).
+@end enumerate
+
+The OS-level @code{ownsona} Linux user is restored along with
+@file{/home/ownsona}, so no manual @code{adduser} is needed.
+PostgreSQL roles (including the @code{ownsona} role and its password
+hash) are restored by @code{pg_dumpall}.
+
+@node Upgrading an existing install
+@section Upgrading an existing install
+@cindex upgrade
+@cindex auto-migration
+@cindex migrator_prep.sql
+
+If your OwnSona database was created BEFORE the auto-migration
+framework landed (rollout Phase 2), you need a one-time privilege
+fixup before deploying any release that includes the auto-migrator.
+Fresh installs done via @file{sql/setup_db.sh} already include this ---
+skip the prep if you ran @file{setup_db.sh} against a clean database
+after Phase 2 shipped.
+
+@subsection One-time prep before the first auto-migrator deploy
+
+The auto-migrator starts up by creating a @code{db_version}
+bookkeeping table and, in later phases, by @code{ALTER TABLE}-ing
+@code{memories}.  Neither works with only the original grants from
+@file{sql/001_init.sql}.  Apply the additional privileges once:
+
+@example
+# /root cannot be read by the postgres user, so pipe via stdin
+cat sql/migrator_prep.sql | sudo -u postgres psql -d ownsona
+@end example
+
+The script:
+
+@itemize @bullet
+@item @code{GRANT CREATE ON SCHEMA public TO ownsona;}
+@item @code{ALTER TABLE memories OWNER TO ownsona;} (and its sequence)
+@item prints a verification block showing @code{can_create_in_public = t}
+and @code{memories_owner = ownsona}.  If you don't see those, the
+grants didn't apply.
+@end itemize
+
+The script is idempotent --- safe to re-run.
+
+@subsection Deploying the new WAR
+
+After the prep runs (or if it was already in place), upgrade deploys
+follow the normal ``build @result{} swap WAR @result{} restart Tomcat''
+pattern documented in @file{OwnSona-rollout-plan.md}.  The
+auto-migrator runs at servlet load and brings the database up to
+whatever @code{CURRENT_DB_VERSION} the new WAR is built against; you
+can verify in @code{journalctl -u ownsona.service}:
+
+@example
+... migrator: db_version baseline established (version=1)
+... migrator: applied v=2 name="add record_version column" ms=...
+... record_migrator: done upgraded=0 failed=0
+@end example
+
+If the migrator fails (typically: permission errors or a registry
+mismatch), the servlet refuses to load and the failure shows in the
+journal.  Fix the underlying issue and redeploy --- the database is in
+its pre-migration state because each migration runs in its own
+transaction.
+
+@subsection Rollback
+
+Roll back the WAR by restoring the previous @file{Kiss.war}.
+Migrations in the rollout plan are strictly additive, so the older
+code simply ignores the newer columns.  If you also want to remove
+newly-created columns or the @code{db_version} row that recorded a
+specific migration, run the rollback SQL listed in the corresponding
+phase's ship checklist in @file{OwnSona-rollout-plan.md}.
+
+@node Operational reference
+@section Operational reference
+
+@subsection Service control
+
+@example
+sudo systemctl status   ownsona.service
+sudo systemctl restart  ownsona.service     # required after any application.ini change
+sudo systemctl stop     ownsona.service
+sudo systemctl start    ownsona.service
+journalctl -u ownsona.service -f             # live application + Tomcat logs
+@end example
+
+@subsection Code change @result{} deploy
+
+@example
+cd /home/ownsona/ownsona
+./bld -v build && ./bld war
+cp work/Kiss.war /home/ownsona/tomcat/webapps/ROOT.war
+# autoDeploy redeploys in ~10 s; no service restart needed for code changes.
+@end example
+
+@file{application.ini} is read once at servlet load, so editing it
+requires a fresh build (so the new ini lands in the WAR) followed by
+redeploy or service restart.
+
+@subsection Backup control
+
+@example
+sudo systemctl list-timers ownsona-backup.timer       # next run
+sudo systemctl start ownsona-backup.service           # one-shot now
+sudo tail -f /var/log/ownsona-backup.log              # last run + history
+@end example
+
+@subsection Log retention summary
+
+@multitable @columnfractions .42 .25 .33
+@headitem Log path @tab Rotated by @tab Retention
+@item Application stdout (log4j2 console) @tab journald @tab journald defaults (~4 GiB)
+@item @file{tomcat/logs/catalina.YYYY-MM-DD.log} @tab Tomcat juli @tab @code{maxDays=90}
+@item @file{tomcat/logs/localhost_access_log.YYYY-MM-DD.txt} @tab @code{AccessLogValve} @tab @code{maxDays=90}
+@item @file{tomcat/logs/catalina.out} @tab n/a @tab unused under systemd
+@end multitable
+
+@subsection Rotating the bearer token
+
+Generate a new token, update @code{OWNSONA_API_TOKEN} in
+@file{src/main/backend/application.ini}, run @code{./bld -v build
+&& ./bld war} to rebuild the WAR, redeploy, and distribute the new
+token to MCP clients.  There is no dual-token grace window; clients
+see a 401 until they update.
+
+@subsection Top common failure modes
+
+@itemize @bullet
+@item @code{journalctl -u ownsona.service} shows
+@code{BindException: Permission denied}: the service couldn't bind
+80/443.  @code{systemd}'s @code{AmbientCapabilities} is missing from
+@file{ownsona.service}, or the service's @code{User=} was changed and
+the override no longer applies.
+
+@item MCP returns @code{EMBEDDING_ERROR} with @code{insufficient_quota}:
+the OpenAI account is out of credit.  Top up; auth, DB, listing, and
+text search keep working.
+
+@item MCP returns @code{AUTH_FAILED} on every request:
+@code{OWNSONA_API_TOKEN} doesn't match what the client is sending, or
+the WAR wasn't rebuilt/redeployed after editing the ini.
+
+@item First request after deploy is slow / 404: Tomcat is still
+redeploying the WAR; ~10 s window with @code{autoDeploy="true"}.
+@end itemize

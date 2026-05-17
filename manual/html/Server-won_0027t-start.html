@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>Server won't start (OwnSona Manual)</title>
+
+<meta name="description" content="Server won't start (OwnSona Manual)">
+<meta name="keywords" content="Server won't start (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Troubleshooting.html" rel="up" title="Troubleshooting">
+<link href="MCP-returns-401.html" rel="next" title="MCP returns 401">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+div.example {margin-left: 3.2em}
+span:hover a.copiable-link {visibility: visible}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="Server-won_0027t-start">
+<div class="nav-panel">
+<p>
+Next: <a href="MCP-returns-401.html" accesskey="n" rel="next">MCP returns 401</a>, Up: <a href="Troubleshooting.html" accesskey="u" rel="up">Troubleshooting</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="Server-won_0027t-start-1"><span>13.1 Server won&rsquo;t start<a class="copiable-link" href="#Server-won_0027t-start-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-won_0027t-start"></a>
+
+<ul class="mini-toc">
+<li><a href="#Symptom" accesskey="1">Symptom</a></li>
+<li><a href="#Look-in" accesskey="2">Look in</a></li>
+<li><a href="#Common-causes" accesskey="3">Common causes</a></li>
+</ul>
+<div class="subsection-level-extent" id="Symptom">
+<h4 class="subsection"><span>13.1.1 Symptom<a class="copiable-link" href="#Symptom"> &para;</a></span></h4>
+
+<p><code class="code">systemctl status ownsona.service</code> shows the service failed, or
+the servlet refuses to load.
+</p>
+</div>
+<div class="subsection-level-extent" id="Look-in">
+<h4 class="subsection"><span>13.1.2 Look in<a class="copiable-link" href="#Look-in"> &para;</a></span></h4>
+
+<div class="example">
+<pre class="example-preformatted">journalctl -u ownsona.service -e
+journalctl -u ownsona.service | grep -i exception
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="Common-causes">
+<h4 class="subsection"><span>13.1.3 Common causes<a class="copiable-link" href="#Common-causes"> &para;</a></span></h4>
+
+<dl class="table">
+<dt>Missing required <samp class="file">application.ini</samp> key</dt>
+<dd><p>The static initializer fails fast on
+<code class="code">Required application.ini key X is not set</code>.  Fix the ini in the
+source tree, rebuild, redeploy.
+</p>
+</dd>
+<dt>Database unreachable</dt>
+<dd><p><code class="code">Connection refused</code> or <code class="code">authentication failed</code> during pool
+init.  Verify with <code class="code">psql -U ownsona -d ownsona</code> from the same
+host.
+</p>
+</dd>
+<dt>Auto-migrator can&rsquo;t <code class="code">CREATE TABLE</code></dt>
+<dd><p><code class="code">migrator bootstrap failed: permission denied for schema public</code>.
+The <code class="code">ownsona</code> role lacks <code class="code">CREATE ON SCHEMA public</code>.  Run
+<code class="code">sql/migrator_prep.sql</code> as the <code class="code">postgres</code> superuser
+(see <a class="pxref" href="Upgrading-an-existing-install.html">Upgrading an existing install</a>).
+</p>
+</dd>
+<dt>Auto-migrator refuses to start</dt>
+<dd><p><code class="code">Database is at version N but code expects M --- refusing</code>.
+The DB is newer than the code (rollback scenario, or someone deployed
+an older WAR).  Either upgrade the code or restore the DB from a
+snapshot at version <code class="code">M</code>.
+</p></dd>
+</dl>
+
+</div>
+</div>
+
+
+
+</body>
+</html>

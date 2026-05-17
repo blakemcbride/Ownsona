@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>Configuration keys table (OwnSona Manual)</title>
+
+<meta name="description" content="Configuration keys table (OwnSona Manual)">
+<meta name="keywords" content="Configuration keys table (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Reference.html" rel="up" title="Reference">
+<link href="Database-schema-reference.html" rel="next" title="Database schema reference">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+span:hover a.copiable-link {visibility: visible}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="Configuration-keys-table">
+<div class="nav-panel">
+<p>
+Next: <a href="Database-schema-reference.html" accesskey="n" rel="next">Database schema reference</a>, Up: <a href="Reference.html" accesskey="u" rel="up">Reference</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="Configuration-keys-table-1"><span>14.1 Configuration keys table<a class="copiable-link" href="#Configuration-keys-table-1"> &para;</a></span></h3>
+
+<p>Every key recognized in <samp class="file">src/main/backend/application.ini</samp>.
+</p>
+<ul class="mini-toc">
+<li><a href="#Required" accesskey="1">Required</a></li>
+<li><a href="#Optional-with-defaults" accesskey="2">Optional with defaults</a></li>
+<li><a href="#Connection-pool-tunables-_0028Kiss_002dprovided_0029" accesskey="3">Connection pool tunables (Kiss-provided)</a></li>
+</ul>
+<div class="subsection-level-extent" id="Required">
+<h4 class="subsection"><span>14.1.1 Required<a class="copiable-link" href="#Required"> &para;</a></span></h4>
+
+<table class="multitable">
+<thead><tr><th width="30%">Key</th><th width="70%">Purpose</th></tr></thead>
+<tbody><tr><td width="30%"><code class="code">DatabaseHost</code></td><td width="70%">Postgres host.</td></tr>
+<tr><td width="30%"><code class="code">DatabasePort</code></td><td width="70%">Postgres port.</td></tr>
+<tr><td width="30%"><code class="code">DatabaseName</code></td><td width="70%">Database name (typically <code class="code">ownsona</code>).</td></tr>
+<tr><td width="30%"><code class="code">DatabaseUser</code></td><td width="70%">Application role.</td></tr>
+<tr><td width="30%"><code class="code">DatabasePassword</code></td><td width="70%">Password for the application role.</td></tr>
+<tr><td width="30%"><code class="code">OWNSONA_API_TOKEN</code></td><td width="70%">Bearer token MCP clients must present.</td></tr>
+<tr><td width="30%"><code class="code">EMBEDDING_API_KEY</code></td><td width="70%">API key for the embeddings endpoint.</td></tr>
+<tr><td width="30%"><code class="code">EMBEDDING_ENDPOINT</code></td><td width="70%">Full URL of the <code class="code">/embeddings</code> endpoint.</td></tr>
+<tr><td width="30%"><code class="code">EMBEDDING_MODEL</code></td><td width="70%">Embedding model identifier.</td></tr>
+<tr><td width="30%"><code class="code">EMBEDDING_DIMENSIONS</code></td><td width="70%">Vector length. Must match <code class="code">vector(N)</code> column.</td></tr>
+</tbody>
+</table>
+
+</div>
+<div class="subsection-level-extent" id="Optional-with-defaults">
+<h4 class="subsection"><span>14.1.2 Optional with defaults<a class="copiable-link" href="#Optional-with-defaults"> &para;</a></span></h4>
+
+<table class="multitable">
+<thead><tr><th width="30%">Key</th><th width="15%">Default</th><th width="55%">Purpose</th></tr></thead>
+<tbody><tr><td width="30%"><code class="code">DatabaseType</code></td><td width="15%"><code class="code">PostgreSQL</code></td><td width="55%">Kiss DB driver type (only PostgreSQL supported).</td></tr>
+<tr><td width="30%"><code class="code">DatabaseConnectionParameters</code></td><td width="15%">(none)</td><td width="55%">Appended to JDBC URL.</td></tr>
+<tr><td width="30%"><code class="code">OWNSONA_USER_ID</code></td><td width="15%"><code class="code">default</code></td><td width="55%">User-id stamped on every memory.</td></tr>
+<tr><td width="30%"><code class="code">EMBEDDING_PROVIDER</code></td><td width="15%"><code class="code">openai</code></td><td width="55%">Provider name recorded per row.</td></tr>
+<tr><td width="30%"><code class="code">DEFAULT_RECALL_LIMIT</code></td><td width="15%"><code class="code">8</code></td><td width="55%">Default <code class="code">limit</code> for <code class="code">recall</code>.</td></tr>
+<tr><td width="30%"><code class="code">MAX_RECALL_LIMIT</code></td><td width="15%"><code class="code">50</code></td><td width="55%">Hard cap on <code class="code">limit</code>.</td></tr>
+<tr><td width="30%"><code class="code">MAX_TEXT_CHARS</code></td><td width="15%"><code class="code">16000</code></td><td width="55%">Hard cap on memory text length.</td></tr>
+<tr><td width="30%"><code class="code">MAX_BATCH_SIZE</code></td><td width="15%"><code class="code">200</code></td><td width="55%">Max items per <code class="code">remember_batch</code>.</td></tr>
+<tr><td width="30%"><code class="code">REEMBED_ON_STARTUP</code></td><td width="15%"><code class="code">false</code></td><td width="55%">Triggers the re-embed walker. Auto-flipped after success.</td></tr>
+<tr><td width="30%"><code class="code">MaxWorkerThreads</code></td><td width="15%"><code class="code">30</code></td><td width="55%">Kiss tunable: concurrent request cap.</td></tr>
+<tr><td width="30%"><code class="code">UserInactiveSeconds</code></td><td width="15%"><code class="code">900</code></td><td width="55%">Kiss tunable: session inactivity timeout.</td></tr>
+</tbody>
+</table>
+
+</div>
+<div class="subsection-level-extent" id="Connection-pool-tunables-_0028Kiss_002dprovided_0029">
+<h4 class="subsection"><span>14.1.3 Connection pool tunables (Kiss-provided)<a class="copiable-link" href="#Connection-pool-tunables-_0028Kiss_002dprovided_0029"> &para;</a></span></h4>
+
+<p>Rarely changed.  Defaults come from c3p0; override when your workload
+calls for it.
+</p>
+<table class="multitable">
+<thead><tr><th width="40%">Key</th><th width="60%">Purpose</th></tr></thead>
+<tbody><tr><td width="40%"><code class="code">DatabaseMinPoolSize</code></td><td width="60%">Minimum connections kept hot.</td></tr>
+<tr><td width="40%"><code class="code">DatabaseInitialPoolSize</code></td><td width="60%">Pool size at startup.</td></tr>
+<tr><td width="40%"><code class="code">DatabaseMaxPoolSize</code></td><td width="60%">Hard cap on pool size.</td></tr>
+<tr><td width="40%"><code class="code">DatabaseAcquireIncrement</code></td><td width="60%">Connections added per growth step.</td></tr>
+<tr><td width="40%"><code class="code">DatabaseCheckoutTimeout</code></td><td width="60%">Millis to wait before timing out.</td></tr>
+<tr><td width="40%"><code class="code">DatabaseMaxStatements</code></td><td width="60%">Prepared-statement cache size.</td></tr>
+<tr><td width="40%"><code class="code">DatabaseIdleTestPeriod</code></td><td width="60%">Seconds between idle-connection tests.</td></tr>
+<tr><td width="40%"><code class="code">DatabaseMaxIdleTime</code></td><td width="60%">Seconds before removing idle connections.</td></tr>
+</tbody>
+</table>
+
+</div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Database-schema-reference.html">Database schema reference</a>, Up: <a href="Reference.html">Reference</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

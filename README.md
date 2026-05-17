@@ -113,8 +113,17 @@ shape, every subcommand's flags, and the `teach`-from-prose workflow.
 
 ## Documentation
 
+The **canonical long-form documentation is the manual** at
+[`manual/html/index.html`](manual/html/index.html) — chapter-paged HTML
+generated from GNU TexInfo sources under [`manual/`](manual/). Open
+the file in a browser; rebuild with `cd manual && make`.
+
+Short-form reference docs at the repo root (kept current alongside the
+manual):
+
 | Doc | What's inside |
 |---|---|
+| [`manual/html/index.html`](manual/html/index.html) | **Full manual** — install, configure, MCP tools, server internals, client integration, CLI, `teach`, embedding migration, tutorials, troubleshooting, reference |
 | [`MCPServer.md`](MCPServer.md) | Architecture, configuration keys, tool surface, security, deploy & ops |
 | [`INSTALL.md`](INSTALL.md) | Linux VPS install: PostgreSQL, Tomcat, systemd, HTTPS, `application.ini` |
 | [`OpenAI.md`](OpenAI.md) | Wiring Ownsona into ChatGPT and the OpenAI Responses API |
