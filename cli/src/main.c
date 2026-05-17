@@ -8,7 +8,10 @@
  * come after.  This keeps each subcommand's flag namespace independent.
  *
  * Global opts:
- *     --config PATH       use this config file (default ~/.ownsona/config.ini)
+ *     --config PATH       use this config file (OS-specific default;
+ *                           Linux/BSD: ~/.config/ownsona/config.ini,
+ *                           macOS:     ~/Library/Application Support/ownsona/config.ini,
+ *                           Windows:   %LOCALAPPDATA%\ownsona\config.ini)
  *     --server URL        override server_url from config
  *     --token  STR        override bearer token from config
  *     --json              emit raw JSON instead of human-readable output
@@ -229,7 +232,10 @@ static const char USAGE_TOP[] =
 "  teach      extract facts from prose via an LLM and load them in bulk\n"
 "\n"
 "Global options:\n"
-"  --config PATH    use this config file (default ~/.ownsona/config.ini)\n"
+"  --config PATH    use this config file (default is OS-specific:\n"
+"                     Linux/BSD: ~/.config/ownsona/config.ini\n"
+"                     macOS:     ~/Library/Application Support/ownsona/config.ini\n"
+"                     Windows:   %LOCALAPPDATA%\\ownsona\\config.ini)\n"
 "  --server URL     override server URL from config\n"
 "  --token  TOKEN   override bearer token from config\n"
 "  --json           emit raw JSON output instead of human-readable\n"

@@ -3,7 +3,6 @@
  *
  * Format (one key = value per line, sections ignored for now):
  *
- *     # ~/.ownsona/config.ini
  *     server_url = https://your.host/mcp
  *     token      = <bearer-token>
  *
@@ -12,8 +11,14 @@
  *   2. Environment variables OWNSONA_SERVER, OWNSONA_TOKEN.
  *   3. Config file values.
  *
- * The config file path is taken from $OWNSONA_CONFIG if set, else
- * ~/.ownsona/config.ini.  An explicit path passed in always wins.
+ * The config file path is taken from $OWNSONA_CONFIG if set, else the
+ * OS-specific default returned by default_config_path():
+ *
+ *     Linux / BSD     ~/.config/ownsona/config.ini
+ *     macOS           ~/Library/Application Support/ownsona/config.ini
+ *     Windows         %LOCALAPPDATA%\ownsona\config.ini
+ *
+ * An explicit path passed in always wins.
  */
 #include "ownsona.h"
 
@@ -47,19 +52,43 @@ static char *trim(char *s) {
     return s;
 }
 
-/* Build "$HOME/.ownsona/config.ini" into a malloc'd string. */
-static char *default_config_path(void) {
-    const char *home = getenv("HOME");
-    if (home == NULL || *home == '\0') {
-        /* MSYS2 sets HOME for the user; this path is rarely hit. */
-        return xstrdup(".ownsona/config.ini");
-    }
-    const size_t need = strlen(home) + strlen("/.ownsona/config.ini") + 1;
+/* Join `base` + `tail` into a malloc'd string. */
+static char *join_path(const char *base, const char *tail) {
+    const size_t need = strlen(base) + strlen(tail) + 1;
     char *out = malloc(need);
     if (out == NULL)
         ownsona_die(2, "out of memory");
-    snprintf(out, need, "%s/.ownsona/config.ini", home);
+    snprintf(out, need, "%s%s", base, tail);
     return out;
+}
+
+/* Compute the OS-specific default config-file path as a malloc'd string. */
+static char *default_config_path(void) {
+#if defined(_WIN32)
+    /* Windows: %LOCALAPPDATA%\ownsona\config.ini */
+    const char *base = getenv("LOCALAPPDATA");
+    if (base == NULL || *base == '\0')
+        base = getenv("APPDATA");           /* roaming AppData fallback */
+    if (base == NULL || *base == '\0')
+        base = getenv("USERPROFILE");
+    if (base == NULL || *base == '\0')
+        base = getenv("HOME");              /* MSYS2 sets HOME */
+    if (base == NULL || *base == '\0')
+        return xstrdup("ownsona\\config.ini");
+    return join_path(base, "\\ownsona\\config.ini");
+#elif defined(__APPLE__)
+    /* macOS: ~/Library/Application Support/ownsona/config.ini */
+    const char *home = getenv("HOME");
+    if (home == NULL || *home == '\0')
+        return xstrdup("Library/Application Support/ownsona/config.ini");
+    return join_path(home, "/Library/Application Support/ownsona/config.ini");
+#else
+    /* Linux / BSD: ~/.config/ownsona/config.ini */
+    const char *home = getenv("HOME");
+    if (home == NULL || *home == '\0')
+        return xstrdup(".config/ownsona/config.ini");
+    return join_path(home, "/.config/ownsona/config.ini");
+#endif
 }
 
 /* ----- file parser ---------------------------------------------------- */

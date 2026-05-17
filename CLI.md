@@ -14,6 +14,9 @@ The sources live under [`cli/`](cli/).
 1. [What it does](#what-it-does)
 2. [Building](#building)
 3. [Configuration](#configuration)
+   - [Default config file location](#default-config-file-location)
+   - [Resolution order](#resolution-order)
+   - [Config file format](#config-file-format)
 4. [Subcommands](#subcommands)
 5. [Examples](#examples)
 6. [Teaching from a long-form text](#teaching-from-a-long-form-text)
@@ -107,6 +110,36 @@ The CLI reads two kinds of settings:
 1. **MCP server credentials** — always needed.
 2. **LLM credentials** — only needed by the `teach` subcommand.
 
+### Default config file location
+
+If you do not pass `--config PATH` and do not set `$OWNSONA_CONFIG`,
+the CLI looks for its config file at an OS-specific default path:
+
+| OS | Default config path |
+|---|---|
+| Linux / BSD | `~/.config/ownsona/config.ini` |
+| macOS       | `~/Library/Application Support/ownsona/config.ini` |
+| Windows     | `%LOCALAPPDATA%\ownsona\config.ini` |
+
+Create the parent directory if it doesn't already exist:
+
+```bash
+# Linux / BSD
+mkdir -p ~/.config/ownsona
+
+# macOS
+mkdir -p ~/"Library/Application Support/ownsona"
+```
+
+```cmd
+:: Windows (cmd.exe)
+mkdir "%LOCALAPPDATA%\ownsona"
+```
+
+If the default file is missing, the CLI continues silently — it will
+only complain when something it needs (server URL, token) is still
+unset after the environment and CLI overrides are applied.
+
 ### Resolution order
 
 For every setting, highest priority wins:
@@ -115,8 +148,8 @@ For every setting, highest priority wins:
 2. Environment variable (`OWNSONA_SERVER`, `OWNSONA_TOKEN`,
    `OWNSONA_LLM_API_KEY`, `OWNSONA_LLM_MODEL`, `OWNSONA_LLM_BASE_URL`,
    `OWNSONA_SUBJECT`, `OWNSONA_CONFIG`).
-3. Config file (`~/.ownsona/config.ini` by default; override with
-   `--config PATH` or `$OWNSONA_CONFIG`).
+3. Config file (at `$OWNSONA_CONFIG` if set, otherwise the OS-specific
+   default above).
 4. Built-in defaults (only for the LLM-side keys: `model = gpt-4o`,
    `base_url = https://api.openai.com/v1`, `subject_name = the user`).
 
@@ -127,11 +160,11 @@ ignored (forward-compatibility placeholder).  Quotes around a value
 are stripped.
 
 A template is shipped at [`cli/config.ini.example`](cli/config.ini.example);
-copy it to `~/.ownsona/config.ini` and fill in your values.
+copy it to the OS-specific default path (see the
+[Default config file location](#default-config-file-location) table)
+and fill in your values.
 
 ```ini
-# ~/.ownsona/config.ini
-
 # --- MCP server (required for every subcommand) ---
 server_url = https://your.host/mcp
 token      = <bearer-token>
@@ -289,7 +322,8 @@ memories.
 ### Requirements
 
 `teach` needs the LLM config keys filled in.  Set `llm_api_key` either
-in `~/.ownsona/config.ini` or via `$OWNSONA_LLM_API_KEY`.
+in your config file (see [Configuration](#configuration) for the
+OS-specific default path) or via `$OWNSONA_LLM_API_KEY`.
 
 ### Flags
 

@@ -1,9 +1,15 @@
 # OwnSona CLI configuration template.
 #
-# Copy to ~/.ownsona/config.ini (or wherever $OWNSONA_CONFIG points)
-# and fill in your server URL + bearer token.  Both can also be set
-# via environment (OWNSONA_SERVER, OWNSONA_TOKEN) or per-invocation
-# flags (--server, --token).
+# Copy this file to the OS-specific default location and fill in your
+# server URL + bearer token:
+#
+#   Linux / BSD     ~/.config/ownsona/config.ini
+#   macOS           ~/Library/Application Support/ownsona/config.ini
+#   Windows         %LOCALAPPDATA%\ownsona\config.ini
+#
+# Or point $OWNSONA_CONFIG at it.  Both server URL and token can also
+# be set via environment (OWNSONA_SERVER, OWNSONA_TOKEN) or
+# per-invocation flags (--server, --token).
 
 server_url = https://your.host/mcp
 

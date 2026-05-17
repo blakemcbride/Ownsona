@@ -51,7 +51,10 @@ typedef struct {
  * Resolve the effective config.  Order of precedence:
  *   1. CLI flags (--server, --token) passed in via *cli_overrides
  *   2. Environment variables: OWNSONA_SERVER, OWNSONA_TOKEN
- *   3. The config file (path = $OWNSONA_CONFIG or ~/.ownsona/config.ini)
+ *   3. The config file (path = $OWNSONA_CONFIG or the OS-specific default:
+ *        Linux/BSD  ~/.config/ownsona/config.ini
+ *        macOS      ~/Library/Application Support/ownsona/config.ini
+ *        Windows    %LOCALAPPDATA%\ownsona\config.ini)
  *
  * Returns 0 on success.  On failure prints to stderr and returns non-zero.
  * Caller owns *cfg and must call ownsona_config_free() to release it.

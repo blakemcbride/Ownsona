@@ -16,9 +16,15 @@ make            # builds ./ownsona  (or ownsona.exe on Windows)
 make test       # sanity-check the binary
 ```
 
-Configure: copy [`config.ini.example`](config.ini.example) to
-`~/.ownsona/config.ini` and fill in `server_url` and `token` (plus
-`llm_api_key` if you'll use the `teach` subcommand).
+Configure: copy [`config.ini.example`](config.ini.example) to the
+OS-specific default location and fill in `server_url` and `token`
+(plus `llm_api_key` if you'll use the `teach` subcommand):
+
+| OS | Default config path |
+|---|---|
+| Linux / BSD | `~/.config/ownsona/config.ini` |
+| macOS       | `~/Library/Application Support/ownsona/config.ini` |
+| Windows     | `%LOCALAPPDATA%\ownsona\config.ini` |
 
 Then:
 
