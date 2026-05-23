@@ -27,6 +27,7 @@ URL-secret.txt
 .claude
 claude-resume
 src/main/backend/application.ini
+.mcp.json
 
 
 # Gradle
