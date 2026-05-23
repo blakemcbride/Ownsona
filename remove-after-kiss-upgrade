@@ -1,0 +1,15 @@
+#
+rm	make-frontend
+rm	make-frontend.cmd
+rm -rf	manual/
+rm	new-app
+rm	new-app.cmd
+rm	remove-backend
+rm	remove-backend.cmd
+rm	remove-frontend
+rm	remove-frontend.cmd
+rm -rf	src/main/frontend/kiss/
+rm -rf	src/main/frontend/lib/
+
+
+
