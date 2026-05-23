@@ -406,9 +406,9 @@ public class Tasks {
     public static void clean() {
         rmTree(BUILDDIR);
         rmTree("build.work");  // used in the past
-        rm("manual/Kiss.log");
-        rm("manual/Kiss.aux");
-        rm("manual/Kiss.toc");
+        rm("user-manual/Kiss.log");
+        rm("user-manual/Kiss.aux");
+        rm("user-manual/Kiss.toc");
     }
 
     /**
@@ -424,7 +424,7 @@ public class Tasks {
         delete(foreignLibs);
         rmTree("tomcat");
         rmRegex(".", "apache-tomcat-.*");
-        rm("manual/Kiss.pdf");
+        rm("user-manual/Kiss.pdf");
 
         // remove old stuff
         rm("libs/json.jar");

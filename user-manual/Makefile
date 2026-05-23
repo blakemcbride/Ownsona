@@ -61,22 +61,22 @@ html: html/index.html
 html/index.html: $(SOURCES) $(CSS)
 	@rm -rf html
 	$(MAKEINFO) --html --css-include=$(CSS) -o html $(MAIN)
-	@echo "==> manual built at manual/html/index.html"
+	@echo "==> manual built at user-manual/html/index.html"
 
 # Single-page HTML (handy for ctrl-F across the whole manual).  Not
 # the default because it's a 200kB+ blob and committing both forms is
 # wasteful.  Use 'make html-one' on demand.
 html-one: $(SOURCES) $(CSS)
 	$(MAKEINFO) --html --no-split --css-include=$(CSS) -o ownsona.html $(MAIN)
-	@echo "==> single-page manual built at manual/ownsona.html"
+	@echo "==> single-page manual built at user-manual/ownsona.html"
 
 pdf: $(SOURCES)
 	$(TEXI2PDF) $(MAIN)
-	@echo "==> manual built at manual/ownsona.pdf"
+	@echo "==> manual built at user-manual/ownsona.pdf"
 
 info: $(SOURCES)
 	$(MAKEINFO) --output=ownsona.info $(MAIN)
-	@echo "==> manual built at manual/ownsona.info"
+	@echo "==> manual built at user-manual/ownsona.info"
 
 clean:
 	rm -rf html

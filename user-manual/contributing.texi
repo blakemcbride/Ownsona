@@ -124,16 +124,16 @@ that fails without your fix.
 @node Documentation
 @section Documentation
 
-This manual lives at @file{manual/} as GNU TexInfo source.  Build:
+This manual lives at @file{user-manual/} as GNU TexInfo source.  Build:
 
 @example
-cd manual
-make            # HTML, output to manual/html/
+cd user-manual
+make            # HTML, output to user-manual/html/
 make pdf        # PDF (requires texi2pdf + a TeX install)
 make info       # GNU info reader format
 @end example
 
-The multi-page HTML output under @file{manual/html/} is committed
+The multi-page HTML output under @file{user-manual/html/} is committed
 alongside the source, so anyone browsing the repo on disk can read it
 without installing texinfo.  When you edit a chapter, rebuild and
 commit both the @file{.texi} change and the regenerated HTML.

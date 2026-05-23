@@ -157,8 +157,8 @@ ownsona/                                   # repo root
         config.ini.example
         include/ownsona.h
         src/*.c
-    manual/                                 # this manual (TexInfo + HTML output)
-    REEMBED.md                              # short reference; full chapter is in manual/
+    user-manual/                            # this manual (TexInfo + HTML output)
+    REEMBED.md                              # short reference; full chapter is in user-manual/
     OWNSONA_SPEC.md                         # functional spec
     INSTALL.md                              # install walkthrough (long-form)
     MCPServer.md                            # server design notes

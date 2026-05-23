@@ -161,16 +161,16 @@ Next: <a href="License.html" accesskey="n" rel="next">License</a>, Previous: <a 
 <hr>
 <h3 class="section" id="Documentation-1"><span>15.5 Documentation<a class="copiable-link" href="#Documentation-1"> &para;</a></span></h3>
 
-<p>This manual lives at <samp class="file">manual/</samp> as GNU TexInfo source.  Build:
+<p>This manual lives at <samp class="file">user-manual/</samp> as GNU TexInfo source.  Build:
 </p>
 <div class="example">
-<pre class="example-preformatted">cd manual
-make            # HTML, output to manual/html/
+<pre class="example-preformatted">cd user-manual
+make            # HTML, output to user-manual/html/
 make pdf        # PDF (requires texi2pdf + a TeX install)
 make info       # GNU info reader format
 </pre></div>
 
-<p>The multi-page HTML output under <samp class="file">manual/html/</samp> is committed
+<p>The multi-page HTML output under <samp class="file">user-manual/html/</samp> is committed
 alongside the source, so anyone browsing the repo on disk can read it
 without installing texinfo.  When you edit a chapter, rebuild and
 commit both the <samp class="file">.texi</samp> change and the regenerated HTML.
