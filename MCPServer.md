@@ -12,13 +12,15 @@ lives at [kissweb.org](https://kissweb.org).
 
 ## Status
 
-**Version 1 implemented.** All seven tools from the spec are wired up.
-Bearer-token authentication, secret rejection, soft-delete, duplicate
-detection, OpenAI embeddings, and pgvector cosine search are all in place.
+**Version 1 implemented.** All spec tools plus later extensions are
+wired up. Bearer-token authentication, secret rejection, soft-delete,
+duplicate detection, OpenAI embeddings, and pgvector cosine search are
+all in place.
 
 | Spec section | State |
 |---|---|
-| `remember`, `recall`, `build_context_prompt`, `list_memories`, `update_memory`, `forget`, `text_search` | done |
+| Core spec tools: `remember`, `recall`, `build_context_prompt`, `list_memories`, `update_memory`, `forget`, `text_search` | done |
+| Post-spec extensions: `remember_batch`, `confirm`, `get_memory`, `count_memories`, `memory_stats`, `list_tags`, `export_memories` | done |
 | Bearer-token auth on every request | done |
 | Secret rejection (OpenAI/AWS/GitHub/Slack/JWT/PEM) | done |
 | Duplicate detection by normalized text + unique partial index | done |
@@ -34,7 +36,7 @@ detection, OpenAI embeddings, and pgvector cosine search are all in place.
 
 ```
 src/main/precompiled/ai/ownsona/
-    MCPServer.java                       # @WebServlet("/mcp"); 7 tools + bearer auth
+    MCPServer.java                       # @WebServlet("/mcp"); MCP tool catalog + bearer auth
     Config.java                          # application.ini loader (via MainServlet.getEnvironment)
     SecretScanner.java                   # regex-based credential filter
     TextNormalizer.java                  # trim / lowercase for dup-detection key
@@ -45,7 +47,7 @@ src/main/precompiled/ai/ownsona/
         MockEmbeddingProvider.java
     memory/
         MemoryRepository.java            # SQL via Kiss Connection.execute/fetchAll
-        MemoryService.java               # remember/recall/list/update/forget/textSearch
+        MemoryService.java               # MCP tools' business logic
         MemoryRow.java                   # row POJO
         MemoryInsert.java                # insert parameter object
         RememberResult.java

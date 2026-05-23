@@ -46,7 +46,7 @@ installs and existing-install upgrades.
 
 ```
 src/main/precompiled/ai/ownsona/
-    MCPServer.java                       # @WebServlet(/mcp), 7 tools, bearer auth
+    MCPServer.java                       # @WebServlet(/mcp), MCP tool catalog, bearer auth
     Config.java                          # application.ini loader
     SecretScanner.java
     TextNormalizer.java
@@ -57,7 +57,7 @@ src/main/precompiled/ai/ownsona/
         OpenAIEmbeddingProvider.java
         MockEmbeddingProvider.java
     memory/
-        MemoryService.java               # the seven tools' business logic
+        MemoryService.java               # the MCP tools' business logic
         MemoryRepository.java            # SQL layer
         MemoryRow.java / MemoryInsert.java
         BatchRememberItem.java / BatchRememberResult.java

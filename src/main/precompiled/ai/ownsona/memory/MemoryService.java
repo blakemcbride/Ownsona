@@ -373,10 +373,11 @@ public final class MemoryService {
     // build_context_prompt
     // ====================================================================================
 
-    public String buildContextPrompt(String userPrompt, Integer limit, Integer maxChars) {
+    public String buildContextPrompt(String userPrompt, Integer limit, Integer maxChars,
+                                     Double minScore, String[] tags) {
         final String prompt = requireText(userPrompt);
         final Integer budget = validateMaxChars(maxChars);
-        final List<MemoryRow> matches = recall(prompt, limit, null, null);
+        final List<MemoryRow> matches = recall(prompt, limit, minScore, tags);
         final List<String> facts = selectFactsByCharBudget(matches, budget);
         return PromptFormatter.build(prompt, facts);
     }
@@ -516,6 +517,149 @@ public final class MemoryService {
             throw e;
         } catch (Exception e) {
             throw wrap(e, "forget failed");
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+    }
+
+    // ====================================================================================
+    // get_memory
+    // ====================================================================================
+
+    /**
+     * Fetch a single memory by id, including soft-deleted rows --- callers
+     * sometimes want to inspect a tombstone (e.g. to see its forget_reason
+     * before un-forgetting).  Throws NOT_FOUND if the id does not exist.
+     */
+    public MemoryRow get(long id) {
+        final Connection db = MainServlet.openNewConnection();
+        boolean success = false;
+        try {
+            final MemoryRow row = repo.findById(db, id);
+            if (row == null)
+                throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
+            success = true;
+            return row;
+        } catch (ServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap(e, "get failed");
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+    }
+
+    // ====================================================================================
+    // count_memories
+    // ====================================================================================
+
+    public long count(boolean includeDeleted, String[] rawTags, String sourceProvider) {
+        // cleanTags trims/normalizes/dedupes; null → empty array.  An empty
+        // tag filter means "no tag restriction"; the repo treats it that way.
+        final String[] tags = cleanTags(rawTags);
+        final String provider = (sourceProvider == null || sourceProvider.trim().isEmpty())
+                ? null : sourceProvider.trim();
+        final Connection db = MainServlet.openNewConnection();
+        boolean success = false;
+        try {
+            final long n = repo.count(db, userId, includeDeleted, tags, provider);
+            success = true;
+            return n;
+        } catch (Exception e) {
+            throw wrap(e, "count failed");
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+    }
+
+    // ====================================================================================
+    // memory_stats
+    // ====================================================================================
+
+    /** Aggregate stats result: counts, time bounds, and top-N tags / providers. */
+    public static final class StatsResult {
+        public MemoryRepository.Stats              counts;
+        public List<MemoryRepository.TagCount>     topTags;
+        public List<MemoryRepository.ProviderCount> byProvider;
+    }
+
+    private static final int STATS_TOP_TAGS = 20;
+
+    public StatsResult stats() {
+        final Connection db = MainServlet.openNewConnection();
+        boolean success = false;
+        try {
+            final StatsResult r = new StatsResult();
+            r.counts     = repo.stats(db, userId);
+            r.topTags    = repo.listTags(db, userId, false, STATS_TOP_TAGS);
+            r.byProvider = repo.countsByProvider(db, userId);
+            success = true;
+            return r;
+        } catch (Exception e) {
+            throw wrap(e, "stats failed");
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+    }
+
+    // ====================================================================================
+    // list_tags
+    // ====================================================================================
+
+    /** Maximum tags returnable by list_tags in a single call. */
+    private static final int MAX_TAGS_LIST = 500;
+
+    public List<MemoryRepository.TagCount> listTags(boolean includeDeleted, Integer limit) {
+        final int n;
+        if (limit == null) {
+            n = MAX_TAGS_LIST;
+        } else if (limit < 1) {
+            throw new ServiceException(ServiceException.INVALID_INPUT, "limit must be >= 1.");
+        } else if (limit > MAX_TAGS_LIST) {
+            throw new ServiceException(ServiceException.LIMIT_EXCEEDED,
+                    "limit exceeds maximum of " + MAX_TAGS_LIST + ".");
+        } else {
+            n = limit;
+        }
+        final Connection db = MainServlet.openNewConnection();
+        boolean success = false;
+        try {
+            final List<MemoryRepository.TagCount> rows = repo.listTags(db, userId, includeDeleted, n);
+            success = true;
+            return rows;
+        } catch (Exception e) {
+            throw wrap(e, "list_tags failed");
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+    }
+
+    // ====================================================================================
+    // export_memories
+    // ====================================================================================
+
+    /**
+     * Hard cap on rows returned by a single export call.  This is single-user
+     * software, but a runaway client should not be able to materialize a
+     * giant payload in memory.  Far above any expected real-world store size.
+     */
+    private static final int MAX_EXPORT_ROWS = 100_000;
+
+    public List<MemoryRow> exportAll(boolean includeDeleted) {
+        final Connection db = MainServlet.openNewConnection();
+        boolean success = false;
+        try {
+            final List<MemoryRow> rows = repo.listAll(db, userId, includeDeleted);
+            if (rows.size() > MAX_EXPORT_ROWS)
+                throw new ServiceException(ServiceException.LIMIT_EXCEEDED,
+                        "export exceeds maximum of " + MAX_EXPORT_ROWS + " rows " +
+                        "(got " + rows.size() + "). Contact the operator.");
+            success = true;
+            return rows;
+        } catch (ServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap(e, "export failed");
         } finally {
             MainServlet.closeConnection(db, success);
         }

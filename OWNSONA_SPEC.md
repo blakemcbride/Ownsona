@@ -411,6 +411,19 @@ Use this tool only when the client needs a fully constructed prompt instead of s
     "limit": {
       "type": "integer",
       "default": 8
+    },
+    "max_chars": {
+      "type": "integer",
+      "description": "Optional character budget for the included facts. Facts are ranked by similarity; the most-relevant ones are added until adding the next one would exceed this budget, then the rest are dropped. Char count is a tokenizer-free proxy (~4 chars per English token)."
+    },
+    "min_score": {
+      "type": "number",
+      "description": "Optional minimum similarity score (0..1). Facts below this threshold are dropped even if the limit hasn't been reached."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional tags to restrict the underlying recall to. A memory matches if it carries at least one of these tags."
     }
   },
   "required": ["user_prompt"]
@@ -533,6 +546,227 @@ Performs plain text search over memory text.
   "required": ["text"]
 }
 ```
+
+---
+
+### 8.8 `get_memory`
+
+Fetches a single memory by id, including soft-deleted rows.
+
+#### Description for MCP Client
+
+Use this tool to inspect one specific memory by id --- for example, an id surfaced by `recall`, `list_memories`, or as a near-duplicate candidate from `remember`. Returns the full row including tags, importance, freshness fields, and tombstone metadata if soft-deleted.
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "integer",
+      "description": "Identifier of the memory to fetch."
+    }
+  },
+  "required": ["id"]
+}
+```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "memory": {
+    "id": 123,
+    "text": "The user's son Colby lives in Los Angeles.",
+    "score": 0.0,
+    "created_at": "2026-05-05T12:00:00Z",
+    "updated_at": "2026-05-05T12:00:00Z",
+    "tags": ["family"]
+  }
+}
+```
+
+Returns `NOT_FOUND` if the id does not exist. `score` is always `0.0` (no similarity context). When the row is soft-deleted, `deleted_at`, `forget_reason`, and `replaced_by_id` are included.
+
+---
+
+### 8.9 `count_memories`
+
+Returns the number of stored memories, optionally filtered.
+
+#### Description for MCP Client
+
+Use this tool to answer "how many memories do I have?" or as a cheap sanity check before bulk operations. Supports tag and source-provider filters.
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "include_deleted": {
+      "type": "boolean",
+      "default": false,
+      "description": "Include soft-deleted and expired rows in the count."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional tags to filter by. A memory is counted if it has at least one of these tags."
+    },
+    "source_provider": {
+      "type": "string",
+      "description": "Optional exact-match filter on source_provider."
+    }
+  }
+}
+```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "count": 42
+}
+```
+
+---
+
+### 8.10 `memory_stats`
+
+Returns aggregate statistics about the memory store.
+
+#### Description for MCP Client
+
+Use this tool to answer "what's in here?" questions and for health checks. Returns counts (total / active / soft-deleted / expired), average importance, the oldest and newest creation times, the top tags by count, and a per-`source_provider` breakdown.
+
+Expired rows are mutually exclusive from active in the counts: an expired-but-not-deleted row is counted as `expired`, not `active`. `avg_importance` is computed over non-deleted rows (active + expired).
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "total": 100,
+  "active": 92,
+  "soft_deleted": 5,
+  "expired": 3,
+  "avg_importance": 0.55,
+  "oldest_created_at": "2025-11-01T00:00:00Z",
+  "newest_created_at": "2026-05-22T12:00:00Z",
+  "top_tags": [
+    { "tag": "family",      "count": 28 },
+    { "tag": "preferences", "count": 17 }
+  ],
+  "by_provider": [
+    { "provider": "claude", "count": 41 },
+    { "provider": "(none)", "count": 31 },
+    { "provider": "openai", "count": 20 }
+  ]
+}
+```
+
+`avg_importance`, `oldest_created_at`, and `newest_created_at` are omitted when there are no qualifying rows. `(none)` is the literal bucket label for rows whose `source_provider` is NULL.
+
+---
+
+### 8.11 `list_tags`
+
+Lists the distinct tags currently in use, with counts.
+
+#### Description for MCP Client
+
+Use this tool to discover what tags exist in the store or to verify that a tag name you intend to use is consistent with existing usage. Ordered by count descending, then tag ascending for stable ordering.
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "include_deleted": {
+      "type": "boolean",
+      "default": false,
+      "description": "Include tags carried only by soft-deleted or expired rows."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum number of tags to return. Server-side default and maximum apply."
+    }
+  }
+}
+```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "tags": [
+    { "tag": "family",      "count": 28 },
+    { "tag": "preferences", "count": 17 },
+    { "tag": "work",        "count": 12 }
+  ]
+}
+```
+
+---
+
+### 8.12 `export_memories`
+
+Dumps every memory for the user as structured JSON, oldest-first.
+
+#### Description for MCP Client
+
+Use this tool to produce a human-readable backup or to migrate memory text to another store. Embedding vectors are NOT included; exports are not meant to be re-imported under a different embedding model. Capped at a large but finite number of rows per call.
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "include_deleted": {
+      "type": "boolean",
+      "default": true,
+      "description": "Include soft-deleted and expired rows. Default true so the export captures the full historical record."
+    }
+  }
+}
+```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "count": 100,
+  "memories": [
+    {
+      "id": 1,
+      "text": "...",
+      "score": 0.0,
+      "created_at": "2025-11-01T00:00:00Z",
+      "updated_at": "2025-11-01T00:00:00Z",
+      "tags": ["..."]
+    }
+  ]
+}
+```
+
+Each entry uses the same shape as `recall` / `get_memory` results (minus the embedding vector). Returns `LIMIT_EXCEEDED` if the store contains more than the server-side export cap; in that case, contact the operator for an out-of-band dump.
 
 ---
 
@@ -851,7 +1085,7 @@ ownsona/                                   # repo root (was Kiss/ in early dev)
                 org/kissweb/restServer/MainServlet.java
             precompiled/
                 ai/ownsona/
-                    MCPServer.java          # @WebServlet("/mcp"); 7 tools + bearer auth
+                    MCPServer.java          # @WebServlet("/mcp"); MCP tool catalog + bearer auth
                     Config.java             # application.ini loader
                     SecretScanner.java
                     TextNormalizer.java

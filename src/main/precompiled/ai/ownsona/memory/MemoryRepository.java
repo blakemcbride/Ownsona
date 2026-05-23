@@ -432,6 +432,171 @@ public final class MemoryRepository {
         return true;
     }
 
+    /**
+     * Count rows for a user with optional filters.  When
+     * {@code includeDeleted} is false (the normal case) soft-deleted AND
+     * expired rows are excluded.  When true, every row for the user is
+     * counted regardless of state.
+     *
+     * <p>{@code tagFilter} (if non-empty) restricts to rows whose tags
+     * overlap any of the listed tags.  {@code sourceProvider} (if
+     * non-null) restricts to rows whose recorded source matches exactly.
+     */
+    public long count(Connection db, String userId, boolean includeDeleted,
+                      String[] tagFilter, String sourceProvider) throws Exception {
+        final boolean hasTags     = tagFilter != null && tagFilter.length > 0;
+        final boolean hasProvider = sourceProvider != null && !sourceProvider.isEmpty();
+
+        final StringBuilder sb = new StringBuilder("SELECT COUNT(*) AS n FROM memories WHERE user_id = ?");
+        final List<Object> args = new ArrayList<>();
+        args.add(userId);
+        if (!includeDeleted)
+            sb.append(" AND ").append(ACTIVE_AND_FRESH);
+        if (hasTags) {
+            sb.append(" AND tags && ?::text[]");
+            args.add(VectorFormat.toPgArrayLiteral(tagFilter));
+        }
+        if (hasProvider) {
+            sb.append(" AND source_provider = ?");
+            args.add(sourceProvider);
+        }
+        final Record r = db.fetchOne(sb.toString(), args.toArray());
+        if (r == null)
+            return 0L;
+        final Long n = r.getLong("n");
+        return n == null ? 0L : n;
+    }
+
+    /**
+     * Aggregate statistics for a user.  Counts active vs soft-deleted vs
+     * expired separately; expired rows are mutually exclusive from active
+     * (an expired-but-not-deleted row is counted as expired, not active).
+     */
+    public Stats stats(Connection db, String userId) throws Exception {
+        final Stats s = new Stats();
+        final Record r = db.fetchOne(
+                "SELECT " +
+                "  COUNT(*) AS total, " +
+                "  COUNT(*) FILTER (WHERE deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())) AS active, " +
+                "  COUNT(*) FILTER (WHERE deleted_at IS NOT NULL) AS soft_deleted, " +
+                "  COUNT(*) FILTER (WHERE deleted_at IS NULL AND expires_at IS NOT NULL AND expires_at <= now()) AS expired, " +
+                "  AVG(importance) FILTER (WHERE deleted_at IS NULL) AS avg_importance, " +
+                "  MIN(created_at) FILTER (WHERE deleted_at IS NULL) AS oldest_created_at, " +
+                "  MAX(created_at) FILTER (WHERE deleted_at IS NULL) AS newest_created_at " +
+                "FROM memories WHERE user_id = ?",
+                userId);
+        if (r == null)
+            return s;
+        final Long total       = r.getLong("total");
+        final Long active      = r.getLong("active");
+        final Long deleted     = r.getLong("soft_deleted");
+        final Long expired     = r.getLong("expired");
+        s.total       = total == null ? 0L : total;
+        s.active      = active == null ? 0L : active;
+        s.softDeleted = deleted == null ? 0L : deleted;
+        s.expired     = expired == null ? 0L : expired;
+        s.avgImportance = r.getDouble("avg_importance");
+        s.oldestCreatedAt = r.getDateTime("oldest_created_at");
+        s.newestCreatedAt = r.getDateTime("newest_created_at");
+        return s;
+    }
+
+    /**
+     * Tag counts for a user, descending by count then by tag name for
+     * stable ordering.  When {@code includeDeleted} is false (the normal
+     * case) soft-deleted AND expired rows are excluded.
+     */
+    public List<TagCount> listTags(Connection db, String userId, boolean includeDeleted, int limit) throws Exception {
+        final String where = includeDeleted
+                ? "WHERE user_id = ?"
+                : "WHERE user_id = ? AND " + ACTIVE_AND_FRESH;
+        final List<Record> rows = db.fetchAll(
+                "SELECT tag, COUNT(*) AS n " +
+                "FROM memories, unnest(tags) AS tag " +
+                where + " " +
+                "GROUP BY tag " +
+                "ORDER BY n DESC, tag ASC " +
+                "LIMIT ?",
+                userId, limit);
+        final List<TagCount> out = new ArrayList<>(rows.size());
+        for (Record r : rows) {
+            final TagCount tc = new TagCount();
+            tc.tag = r.getString("tag");
+            final Long n = r.getLong("n");
+            tc.count = n == null ? 0L : n;
+            out.add(tc);
+        }
+        return out;
+    }
+
+    /**
+     * Counts per source_provider for a user, descending by count.  NULL
+     * source_provider values are bucketed as {@code "(none)"} so the
+     * caller doesn't have to special-case missing data.  Soft-deleted
+     * rows are excluded; expired rows are included because they were
+     * still recorded under the same provider.
+     */
+    public List<ProviderCount> countsByProvider(Connection db, String userId) throws Exception {
+        final List<Record> rows = db.fetchAll(
+                "SELECT COALESCE(source_provider, '(none)') AS provider, COUNT(*) AS n " +
+                "FROM memories " +
+                "WHERE user_id = ? AND deleted_at IS NULL " +
+                "GROUP BY provider " +
+                "ORDER BY n DESC, provider ASC",
+                userId);
+        final List<ProviderCount> out = new ArrayList<>(rows.size());
+        for (Record r : rows) {
+            final ProviderCount pc = new ProviderCount();
+            pc.provider = r.getString("provider");
+            final Long n = r.getLong("n");
+            pc.count = n == null ? 0L : n;
+            out.add(pc);
+        }
+        return out;
+    }
+
+    /**
+     * Dump every row for a user.  Unlike {@link #listRecent}, no LIMIT
+     * is applied --- this is intended for {@code export_memories}, where
+     * the caller wants the whole store.  When {@code includeDeleted} is
+     * false, soft-deleted AND expired rows are excluded; when true, all
+     * rows are returned regardless of state.
+     */
+    public List<MemoryRow> listAll(Connection db, String userId, boolean includeDeleted) throws Exception {
+        final String sql = includeDeleted
+                ? "SELECT " + SELECT_COLUMNS + " FROM memories WHERE user_id = ? ORDER BY created_at ASC, id ASC"
+                : "SELECT " + SELECT_COLUMNS + " FROM memories WHERE user_id = ? AND " + ACTIVE_AND_FRESH +
+                  " ORDER BY created_at ASC, id ASC";
+        final List<Record> rows = db.fetchAll(sql, userId);
+        final List<MemoryRow> out = new ArrayList<>(rows.size());
+        for (Record r : rows)
+            out.add(toRow(r, 0.0));
+        return out;
+    }
+
+    /** Aggregate stats holder.  Public fields, no invariants. */
+    public static final class Stats {
+        public long   total;
+        public long   active;
+        public long   softDeleted;
+        public long   expired;
+        public Double avgImportance;   // null when no active rows
+        public java.util.Date oldestCreatedAt;
+        public java.util.Date newestCreatedAt;
+    }
+
+    /** Tag + count pair. */
+    public static final class TagCount {
+        public String tag;
+        public long   count;
+    }
+
+    /** Provider + count pair. */
+    public static final class ProviderCount {
+        public String provider;
+        public long   count;
+    }
+
     private MemoryRow toRow(Record r, double score) throws SQLException {
         final MemoryRow m = new MemoryRow();
         m.id                   = r.getLong("id");

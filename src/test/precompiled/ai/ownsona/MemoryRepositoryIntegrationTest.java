@@ -574,6 +574,201 @@ class MemoryRepositoryIntegrationTest {
         assertEquals("new", after.embeddingProvider);
     }
 
+    // -------------------------------------------------------------------------------
+    // Count / stats / tags / export support methods.
+
+    @Test
+    void count_excludesSoftDeletedAndExpiredByDefault() throws Exception {
+        insert("active one", new String[]{"a"});
+        insert("active two", new String[]{"a", "b"});
+        final long del = insert("will be deleted", new String[]{"a"});
+        repo.softDelete(db, del, null, null);
+
+        // Insert an already-expired row.
+        final MemoryInsert exp = new MemoryInsert();
+        exp.userId            = USER_ID;
+        exp.text              = "stale one";
+        exp.normalizedText    = TextNormalizer.normalize(exp.text);
+        exp.embedding         = embedder.embed(exp.text);
+        exp.tags              = new String[]{"a"};
+        exp.importance        = 0.5;
+        exp.embeddingProvider = "mock";
+        exp.embeddingModel    = embedder.modelName();
+        exp.expiresAt         = new java.util.Date(System.currentTimeMillis() - 60_000L);
+        repo.insert(db, exp);
+
+        // Default: active only (2).  include_deleted=true: everything (4).
+        assertEquals(2L, repo.count(db, USER_ID, false, null, null));
+        assertEquals(4L, repo.count(db, USER_ID, true,  null, null));
+    }
+
+    @Test
+    void count_filtersByTagOverlapAndSourceProvider() throws Exception {
+        insert("family fact",  new String[]{"family"});
+        insert("work fact",    new String[]{"work"});
+        insert("both fact",    new String[]{"family", "work"});
+
+        // tag-overlap filter
+        assertEquals(2L, repo.count(db, USER_ID, false, new String[]{"family"}, null));
+        assertEquals(2L, repo.count(db, USER_ID, false, new String[]{"work"},   null));
+        assertEquals(3L, repo.count(db, USER_ID, false, new String[]{"family", "work"}, null));
+        assertEquals(0L, repo.count(db, USER_ID, false, new String[]{"nope"},   null));
+
+        // source_provider filter
+        final long withProv = insertWithSource("sourced fact", "claude");
+        assertEquals(1L, repo.count(db, USER_ID, false, null, "claude"));
+        assertEquals(0L, repo.count(db, USER_ID, false, null, "no-such-provider"));
+        assertTrue(withProv > 0);
+    }
+
+    @Test
+    void stats_breaksDownActiveSoftDeletedExpired() throws Exception {
+        // 2 active, 1 soft-deleted, 1 expired (not deleted).
+        insert("a1", new String[]{"x"});
+        insert("a2", new String[]{"x", "y"});
+        final long delId = insert("to-delete", new String[]{"x"});
+        repo.softDelete(db, delId, null, null);
+
+        final MemoryInsert exp = new MemoryInsert();
+        exp.userId            = USER_ID;
+        exp.text              = "expired-now";
+        exp.normalizedText    = TextNormalizer.normalize(exp.text);
+        exp.embedding         = embedder.embed(exp.text);
+        exp.tags              = new String[]{"x"};
+        exp.importance        = 0.7;
+        exp.embeddingProvider = "mock";
+        exp.embeddingModel    = embedder.modelName();
+        exp.expiresAt         = new java.util.Date(System.currentTimeMillis() - 60_000L);
+        repo.insert(db, exp);
+
+        final MemoryRepository.Stats s = repo.stats(db, USER_ID);
+        assertEquals(4L, s.total);
+        assertEquals(2L, s.active);
+        assertEquals(1L, s.softDeleted);
+        assertEquals(1L, s.expired);
+        // avg_importance restricted to non-deleted rows (active + expired).
+        // 3 rows at 0.5 + 1 row at 0.7 -> avg = 0.55.
+        assertNotNull(s.avgImportance);
+        assertEquals(0.55, s.avgImportance, 1e-9);
+        assertNotNull(s.oldestCreatedAt);
+        assertNotNull(s.newestCreatedAt);
+        assertTrue(s.newestCreatedAt.getTime() >= s.oldestCreatedAt.getTime());
+    }
+
+    @Test
+    void stats_emptyStoreReportsZeros() throws Exception {
+        final MemoryRepository.Stats s = repo.stats(db, USER_ID);
+        assertEquals(0L, s.total);
+        assertEquals(0L, s.active);
+        assertEquals(0L, s.softDeleted);
+        assertEquals(0L, s.expired);
+        assertNull(s.avgImportance);
+        assertNull(s.oldestCreatedAt);
+        assertNull(s.newestCreatedAt);
+    }
+
+    @Test
+    void listTags_returnsCountsDescendingActiveOnly() throws Exception {
+        insert("one",   new String[]{"family"});
+        insert("two",   new String[]{"family", "work"});
+        insert("three", new String[]{"work"});
+        final long del = insert("four", new String[]{"deleted-only"});
+        repo.softDelete(db, del, null, null);
+
+        // Default: exclude deleted.  family=2, work=2, deleted-only absent.
+        final List<MemoryRepository.TagCount> active = repo.listTags(db, USER_ID, false, 50);
+        assertEquals(2, active.size());
+        // Counts are equal so order is alphabetical: family, work.
+        assertEquals("family", active.get(0).tag);
+        assertEquals(2L,       active.get(0).count);
+        assertEquals("work",   active.get(1).tag);
+        assertEquals(2L,       active.get(1).count);
+
+        // include_deleted=true also surfaces the tombstoned tag.
+        final List<MemoryRepository.TagCount> all = repo.listTags(db, USER_ID, true, 50);
+        assertEquals(3, all.size());
+        boolean sawDeletedOnly = false;
+        for (MemoryRepository.TagCount tc : all)
+            if ("deleted-only".equals(tc.tag))
+                sawDeletedOnly = true;
+        assertTrue(sawDeletedOnly);
+    }
+
+    @Test
+    void listTags_respectsLimit() throws Exception {
+        insert("a", new String[]{"alpha"});
+        insert("b", new String[]{"beta"});
+        insert("c", new String[]{"gamma"});
+        final List<MemoryRepository.TagCount> top2 = repo.listTags(db, USER_ID, false, 2);
+        assertEquals(2, top2.size());
+    }
+
+    @Test
+    void countsByProvider_groupsAndBucketsNulls() throws Exception {
+        insertWithSource("c1", "claude");
+        insertWithSource("c2", "claude");
+        insertWithSource("g1", "gemini");
+        insert("anon", new String[]{});   // no source_provider
+
+        final List<MemoryRepository.ProviderCount> by = repo.countsByProvider(db, USER_ID);
+        assertEquals(3, by.size());
+        // claude=2 first, then gemini=1 / (none)=1 alphabetically among the ties.
+        assertEquals("claude", by.get(0).provider);
+        assertEquals(2L,       by.get(0).count);
+        assertEquals("(none)", by.get(1).provider);
+        assertEquals(1L,       by.get(1).count);
+        assertEquals("gemini", by.get(2).provider);
+        assertEquals(1L,       by.get(2).count);
+    }
+
+    @Test
+    void countsByProvider_excludesSoftDeleted() throws Exception {
+        final long id = insertWithSource("temp", "claude");
+        repo.softDelete(db, id, null, null);
+        final List<MemoryRepository.ProviderCount> by = repo.countsByProvider(db, USER_ID);
+        assertTrue(by.isEmpty(), "soft-deleted rows should be excluded; got " + by.size());
+    }
+
+    @Test
+    void listAll_returnsEverythingInOrder() throws Exception {
+        final long a = insert("first",  new String[]{});
+        Thread.sleep(15);
+        final long b = insert("second", new String[]{});
+        Thread.sleep(15);
+        final long c = insert("third",  new String[]{"t"});
+        repo.softDelete(db, b, "nope", null);
+
+        // include_deleted=false: a, c only, oldest first.
+        final List<MemoryRow> active = repo.listAll(db, USER_ID, false);
+        assertEquals(2, active.size());
+        assertEquals(a, active.get(0).id);
+        assertEquals(c, active.get(1).id);
+
+        // include_deleted=true: a, b (soft-deleted), c.
+        final List<MemoryRow> all = repo.listAll(db, USER_ID, true);
+        assertEquals(3, all.size());
+        assertEquals(a, all.get(0).id);
+        assertEquals(b, all.get(1).id);
+        assertNotNull(all.get(1).deletedAt);
+        assertEquals(c, all.get(2).id);
+    }
+
+    private long insertWithSource(String text, String provider) throws Exception {
+        final MemoryInsert m = new MemoryInsert();
+        m.userId            = USER_ID;
+        m.text              = text;
+        m.normalizedText    = TextNormalizer.normalize(text);
+        m.embedding         = embedder.embed(text);
+        m.tags              = new String[]{};
+        m.importance        = 0.5;
+        m.sourceProvider    = provider;
+        m.embeddingProvider = "mock";
+        m.embeddingModel    = embedder.modelName();
+        return repo.insert(db, m);
+    }
+
+    // -------------------------------------------------------------------------------
+
     private long insertWithProvider(String text, String provider, String model) throws Exception {
         final MemoryInsert m = new MemoryInsert();
         m.userId            = USER_ID;

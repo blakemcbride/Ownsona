@@ -36,15 +36,22 @@ import java.util.List;
  * Protocol so any MCP-capable LLM client can remember and recall durable
  * facts about the user.
  *
- * <p>The server exposes seven tools defined in OWNSONA_SPEC.md:
+ * <p>The server exposes the tools defined in OWNSONA_SPEC.md (section 8):
  * <ul>
  *   <li>{@code remember} -- store a fact</li>
+ *   <li>{@code remember_batch} -- store many facts in a single call</li>
  *   <li>{@code recall} -- vector-similarity search</li>
  *   <li>{@code build_context_prompt} -- pre-formatted facts + prompt envelope</li>
  *   <li>{@code list_memories} -- chronological listing</li>
  *   <li>{@code update_memory} -- correct an existing fact</li>
+ *   <li>{@code confirm} -- refresh last_confirmed_at without rebuilding embedding</li>
  *   <li>{@code forget} -- soft (default) or hard delete</li>
  *   <li>{@code text_search} -- substring search</li>
+ *   <li>{@code get_memory} -- fetch a single memory by id</li>
+ *   <li>{@code count_memories} -- COUNT(*) with optional tag / provider filters</li>
+ *   <li>{@code memory_stats} -- aggregate counts, top tags, per-provider breakdown</li>
+ *   <li>{@code list_tags} -- distinct tags with counts</li>
+ *   <li>{@code export_memories} -- full JSON dump for backup / migration</li>
  * </ul>
  *
  * <p>Memories are stored in PostgreSQL with pgvector (see
@@ -189,6 +196,11 @@ public class MCPServer extends MCPServerBase {
         tools.put(confirmDescriptor());
         tools.put(forgetDescriptor());
         tools.put(textSearchDescriptor());
+        tools.put(getMemoryDescriptor());
+        tools.put(countMemoriesDescriptor());
+        tools.put(memoryStatsDescriptor());
+        tools.put(listTagsDescriptor());
+        tools.put(exportMemoriesDescriptor());
         return tools;
     }
 
@@ -334,11 +346,76 @@ public class MCPServer extends MCPServerBase {
                 "would exceed this budget, then the rest are dropped). Character count is " +
                 "used as a tokenizer-free proxy; ~4 chars per English token is a reasonable " +
                 "rule of thumb. Omit for no budget."));
+        props.put("min_score", scalarProp("number",
+                "Optional minimum similarity score (0..1) for an included fact.  Facts below " +
+                "this threshold are dropped even if the limit hasn't been reached."));
+        props.put("tags", arrayProp("string",
+                "Optional tags to restrict the underlying recall to.  A memory matches if it " +
+                "carries at least one of these tags."));
         return tool("build_context_prompt",
                 "Use this tool only when the client needs a fully constructed prompt instead of " +
                 "structured memory results. Returns a single composed prompt with relevant facts " +
                 "above the user's original prompt.",
                 props, new String[]{"user_prompt"});
+    }
+
+    private static JSONObject getMemoryDescriptor() {
+        final JSONObject props = new JSONObject();
+        props.put("id", scalarProp("integer", "Identifier of the memory to fetch."));
+        return tool("get_memory",
+                "Fetch a single memory by id.  Returns the full row including tags, importance, " +
+                "freshness, and tombstone metadata if soft-deleted.  Useful for inspecting a " +
+                "specific id surfaced by recall, list_memories, or as a near-duplicate candidate.",
+                props, new String[]{"id"});
+    }
+
+    private static JSONObject countMemoriesDescriptor() {
+        final JSONObject props = new JSONObject();
+        props.put("include_deleted", scalarProp("boolean",
+                "Whether to include soft-deleted (and expired) rows in the count. Default false."));
+        props.put("tags", arrayProp("string",
+                "Optional tags to filter by.  A memory is counted if it has at least one of these tags."));
+        props.put("source_provider", scalarProp("string",
+                "Optional exact-match filter on source_provider."));
+        return tool("count_memories",
+                "Return the number of stored memories, optionally filtered by tag, source " +
+                "provider, or whether to include deleted rows.  Cheap; use freely as a sanity " +
+                "check before bulk operations.",
+                props, new String[]{});
+    }
+
+    private static JSONObject memoryStatsDescriptor() {
+        final JSONObject props = new JSONObject();
+        return tool("memory_stats",
+                "Return aggregate statistics about the memory store: total / active / " +
+                "soft-deleted / expired counts, average importance, oldest and newest " +
+                "created_at, top tags by count, and counts per source_provider.  Useful for " +
+                "answering 'what's in here' questions and for health checks.",
+                props, new String[]{});
+    }
+
+    private static JSONObject listTagsDescriptor() {
+        final JSONObject props = new JSONObject();
+        props.put("include_deleted", scalarProp("boolean",
+                "Whether to include tags from soft-deleted (and expired) rows. Default false."));
+        props.put("limit", scalarProp("integer",
+                "Maximum number of tags to return.  Default and maximum are server-side caps."));
+        return tool("list_tags",
+                "List the distinct tags currently in use, each with the number of memories " +
+                "carrying that tag.  Ordered by count descending then tag ascending.",
+                props, new String[]{});
+    }
+
+    private static JSONObject exportMemoriesDescriptor() {
+        final JSONObject props = new JSONObject();
+        props.put("include_deleted", scalarProp("boolean",
+                "Whether to include soft-deleted (and expired) rows.  Default true so the " +
+                "export captures the full historical record."));
+        return tool("export_memories",
+                "Dump every memory for the user as structured JSON, ordered oldest-first.  " +
+                "Embedding vectors are NOT included --- exports are for human-readable backup " +
+                "and migration, not for re-importing into a different embedding model.",
+                props, new String[]{});
     }
 
     private static JSONObject listMemoriesDescriptor() {
@@ -434,6 +511,11 @@ public class MCPServer extends MCPServerBase {
                 case "confirm":              return doConfirm(arguments);
                 case "forget":               return doForget(arguments);
                 case "text_search":          return doTextSearch(arguments);
+                case "get_memory":           return doGetMemory(arguments);
+                case "count_memories":       return doCountMemories(arguments);
+                case "memory_stats":         return doMemoryStats(arguments);
+                case "list_tags":            return doListTags(arguments);
+                case "export_memories":      return doExportMemories(arguments);
                 default:
                     return errorResult(ServiceException.INVALID_INPUT, "Unknown tool: " + name);
             }
@@ -592,8 +674,10 @@ public class MCPServer extends MCPServerBase {
         final String   userPrompt = args.getString("user_prompt", null);
         final Integer  limit      = args.has("limit")     ? args.getInt("limit")     : null;
         final Integer  maxChars   = args.has("max_chars") ? args.getInt("max_chars") : null;
+        final Double   minScore   = args.has("min_score") ? args.getDouble("min_score") : null;
+        final String[] tags       = optStringArray(args, "tags");
 
-        final String prompt = SERVICE.buildContextPrompt(userPrompt, limit, maxChars);
+        final String prompt = SERVICE.buildContextPrompt(userPrompt, limit, maxChars, minScore, tags);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);
@@ -666,6 +750,105 @@ public class MCPServer extends MCPServerBase {
         out.put("ok", true);
         out.put("memory_id", id);
         out.put("message", hard ? "Hard deleted" : "Forgotten");
+        return successResult(out);
+    }
+
+    private static JSONObject doGetMemory(JSONObject args) {
+        if (!args.has("id"))
+            throw new ServiceException(ServiceException.INVALID_INPUT, "id is required.");
+        final long id = args.getLong("id");
+
+        final MemoryRow row = SERVICE.get(id);
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("memory", memoryToMatchJson(row));
+        return successResult(out);
+    }
+
+    private static JSONObject doCountMemories(JSONObject args) {
+        final boolean includeDeleted = args.has("include_deleted") && Boolean.TRUE.equals(args.opt("include_deleted"));
+        final String[] tags          = optStringArray(args, "tags");
+        final String   provider      = args.getString("source_provider", null);
+
+        final long n = SERVICE.count(includeDeleted, tags, provider);
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("count", n);
+        return successResult(out);
+    }
+
+    private static JSONObject doMemoryStats(JSONObject args) {
+        final MemoryService.StatsResult s = SERVICE.stats();
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("total",        s.counts.total);
+        out.put("active",       s.counts.active);
+        out.put("soft_deleted", s.counts.softDeleted);
+        out.put("expired",      s.counts.expired);
+        if (s.counts.avgImportance != null)
+            out.put("avg_importance", s.counts.avgImportance);
+        if (s.counts.oldestCreatedAt != null)
+            out.put("oldest_created_at", iso(s.counts.oldestCreatedAt));
+        if (s.counts.newestCreatedAt != null)
+            out.put("newest_created_at", iso(s.counts.newestCreatedAt));
+
+        final JSONArray tagsArr = new JSONArray();
+        for (MemoryRepository.TagCount tc : s.topTags) {
+            final JSONObject o = new JSONObject();
+            o.put("tag",   tc.tag);
+            o.put("count", tc.count);
+            tagsArr.put(o);
+        }
+        out.put("top_tags", tagsArr);
+
+        final JSONArray provArr = new JSONArray();
+        for (MemoryRepository.ProviderCount pc : s.byProvider) {
+            final JSONObject o = new JSONObject();
+            o.put("provider", pc.provider);
+            o.put("count",    pc.count);
+            provArr.put(o);
+        }
+        out.put("by_provider", provArr);
+        return successResult(out);
+    }
+
+    private static JSONObject doListTags(JSONObject args) {
+        final boolean includeDeleted = args.has("include_deleted") && Boolean.TRUE.equals(args.opt("include_deleted"));
+        final Integer limit          = args.has("limit") ? args.getInt("limit") : null;
+
+        final List<MemoryRepository.TagCount> tags = SERVICE.listTags(includeDeleted, limit);
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        final JSONArray arr = new JSONArray();
+        for (MemoryRepository.TagCount tc : tags) {
+            final JSONObject o = new JSONObject();
+            o.put("tag",   tc.tag);
+            o.put("count", tc.count);
+            arr.put(o);
+        }
+        out.put("tags", arr);
+        return successResult(out);
+    }
+
+    private static JSONObject doExportMemories(JSONObject args) {
+        // Default true: exports should capture history unless the caller
+        // explicitly opts into "active rows only."
+        final boolean includeDeleted = !args.has("include_deleted")
+                || Boolean.TRUE.equals(args.opt("include_deleted"));
+
+        final List<MemoryRow> rows = SERVICE.exportAll(includeDeleted);
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("count", rows.size());
+        final JSONArray arr = new JSONArray();
+        for (MemoryRow m : rows)
+            arr.put(memoryToMatchJson(m));
+        out.put("memories", arr);
         return successResult(out);
     }
 
