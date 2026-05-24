@@ -194,33 +194,64 @@ public final class JwksCache {
             return resolvedJwksUri;
         }
 
+        // Both metadata documents were reachable but neither published a
+        // usable jwks_uri (each returned 404/410, or 2xx without the
+        // field).  Hard failures (network, auth, 5xx) would have been
+        // propagated from tryMetadataDoc with a specific diagnostic.
         throw new IOException("Could not resolve JWKS URI for issuer " + issuer
-                + ".  Tried explicit OAuthJwksUri (unset), " + rfc8414
-                + ", and " + oidc + ".  Set OAuthJwksUri in application.ini "
+                + ".  Neither " + rfc8414 + " nor " + oidc
+                + " published a jwks_uri.  Set OAuthJwksUri in application.ini "
                 + "if your authorization server publishes neither metadata document.");
     }
 
     /**
-     * GET the given metadata URL and return the {@code jwks_uri} field
-     * if the document is well-formed, or {@code null} if the endpoint
-     * returns nothing usable.  An empty/missing body, a missing
-     * {@code jwks_uri} field, or any I/O failure is treated as
-     * "metadata not available at this URL" --- the caller falls
-     * through to the next discovery option.
+     * GET the given metadata URL and return its {@code jwks_uri} field,
+     * or {@code null} if the endpoint legitimately does not publish a
+     * metadata document at this URL.
+     * <br><br>
+     * "Legitimately not published" covers three soft-failure cases ---
+     * HTTP 404/410, a 2xx response that is not valid JSON, and a 2xx
+     * JSON document that simply lacks a {@code jwks_uri} field --- in
+     * each of which the caller can sensibly fall through to the next
+     * discovery option.
+     * <br><br>
+     * Hard failures --- network errors, timeouts, auth-required
+     * responses, 5xx server errors --- are propagated as
+     * {@link IOException} so the caller can surface a meaningful
+     * diagnostic rather than the misleading "tried everything, nothing
+     * worked" message that would result from silently falling through
+     * (OIDC discovery would fail the same way against the same host).
      */
-    private static String tryMetadataDoc(String url) {
+    private static String tryMetadataDoc(String url) throws IOException {
+        logger.info("Looking for jwks_uri in " + url);
+        final RestClient client = new RestClient();
+        final JSONObject meta;
         try {
-            logger.info("Looking for jwks_uri in " + url);
-            final RestClient client = new RestClient();
-            final JSONObject meta = client.jsonCall("GET", url);
-            if (meta == null)
-                return null;
-            final String uri = meta.getString("jwks_uri", null);
-            return (uri == null || uri.isEmpty()) ? null : uri;
-        } catch (Exception e) {
-            logger.debug("Metadata fetch from " + url + " failed: " + e.getMessage());
+            meta = client.jsonCall("GET", url);
+        } catch (IOException e) {
+            throw new IOException("Could not fetch OAuth metadata from " + url
+                    + ": " + e.getMessage(), e);
+        }
+        final int status = client.getResponseCode();
+        final boolean ok = status >= 200 && status < 300;
+        final boolean notPublished = status == 404 || status == 410;
+        if (!ok && !notPublished)
+            throw new IOException("OAuth metadata fetch from " + url
+                    + " returned HTTP " + status);
+        if (notPublished) {
+            logger.debug("Metadata not published at " + url + " (HTTP " + status + ")");
             return null;
         }
+        if (meta == null) {
+            logger.debug("Metadata at " + url + " is not valid JSON --- treating as not published");
+            return null;
+        }
+        final String uri = meta.getString("jwks_uri", null);
+        if (uri == null || uri.isEmpty()) {
+            logger.debug("Metadata at " + url + " has no jwks_uri field --- treating as not published");
+            return null;
+        }
+        return uri;
     }
 
     /**
