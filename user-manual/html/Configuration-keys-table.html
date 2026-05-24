@@ -176,7 +176,10 @@ Next: <a href="Database-schema-reference.html" accesskey="n" rel="next">Database
 <tr><td width="30%"><code class="code">DatabaseName</code></td><td width="70%">Database name (typically <code class="code">ownsona</code>).</td></tr>
 <tr><td width="30%"><code class="code">DatabaseUser</code></td><td width="70%">Application role.</td></tr>
 <tr><td width="30%"><code class="code">DatabasePassword</code></td><td width="70%">Password for the application role.</td></tr>
-<tr><td width="30%"><code class="code">OWNSONA_API_TOKEN</code></td><td width="70%">Bearer token MCP clients must present.</td></tr>
+<tr><td width="30%"><code class="code">OWNSONA_LOGIN_USERNAME</code></td><td width="70%">Username the OAuth AS consent page accepts.</td></tr>
+<tr><td width="30%"><code class="code">OWNSONA_LOGIN_PASSWORD</code></td><td width="70%">Password the OAuth AS consent page accepts.</td></tr>
+<tr><td width="30%"><code class="code">OAuthAuthorizationServer</code></td><td width="70%">Canonical public URL of the OwnSona server (also the AS issuer and resource identifier).</td></tr>
+<tr><td width="30%"><code class="code">OAuthAsEnabled</code></td><td width="70%"><code class="code">true</code> to enable the embedded authorization server.</td></tr>
 <tr><td width="30%"><code class="code">EMBEDDING_API_KEY</code></td><td width="70%">API key for the embeddings endpoint.</td></tr>
 <tr><td width="30%"><code class="code">EMBEDDING_ENDPOINT</code></td><td width="70%">Full URL of the <code class="code">/embeddings</code> endpoint.</td></tr>
 <tr><td width="30%"><code class="code">EMBEDDING_MODEL</code></td><td width="70%">Embedding model identifier.</td></tr>
@@ -189,18 +192,26 @@ Next: <a href="Database-schema-reference.html" accesskey="n" rel="next">Database
 <h4 class="subsection"><span>14.1.2 Optional with defaults<a class="copiable-link" href="#Optional-with-defaults"> &para;</a></span></h4>
 
 <table class="multitable">
-<thead><tr><th width="30%">Key</th><th width="15%">Default</th><th width="55%">Purpose</th></tr></thead>
-<tbody><tr><td width="30%"><code class="code">DatabaseType</code></td><td width="15%"><code class="code">PostgreSQL</code></td><td width="55%">Kiss DB driver type (only PostgreSQL supported).</td></tr>
-<tr><td width="30%"><code class="code">DatabaseConnectionParameters</code></td><td width="15%">(none)</td><td width="55%">Appended to JDBC URL.</td></tr>
-<tr><td width="30%"><code class="code">OWNSONA_USER_ID</code></td><td width="15%"><code class="code">default</code></td><td width="55%">User-id stamped on every memory.</td></tr>
-<tr><td width="30%"><code class="code">EMBEDDING_PROVIDER</code></td><td width="15%"><code class="code">openai</code></td><td width="55%">Provider name recorded per row.</td></tr>
-<tr><td width="30%"><code class="code">DEFAULT_RECALL_LIMIT</code></td><td width="15%"><code class="code">8</code></td><td width="55%">Default <code class="code">limit</code> for <code class="code">recall</code>.</td></tr>
-<tr><td width="30%"><code class="code">MAX_RECALL_LIMIT</code></td><td width="15%"><code class="code">50</code></td><td width="55%">Hard cap on <code class="code">limit</code>.</td></tr>
-<tr><td width="30%"><code class="code">MAX_TEXT_CHARS</code></td><td width="15%"><code class="code">16000</code></td><td width="55%">Hard cap on memory text length.</td></tr>
-<tr><td width="30%"><code class="code">MAX_BATCH_SIZE</code></td><td width="15%"><code class="code">200</code></td><td width="55%">Max items per <code class="code">remember_batch</code>.</td></tr>
-<tr><td width="30%"><code class="code">REEMBED_ON_STARTUP</code></td><td width="15%"><code class="code">false</code></td><td width="55%">Triggers the re-embed walker. Auto-flipped after success.</td></tr>
-<tr><td width="30%"><code class="code">MaxWorkerThreads</code></td><td width="15%"><code class="code">30</code></td><td width="55%">Kiss tunable: concurrent request cap.</td></tr>
-<tr><td width="30%"><code class="code">UserInactiveSeconds</code></td><td width="15%"><code class="code">900</code></td><td width="55%">Kiss tunable: session inactivity timeout.</td></tr>
+<thead><tr><th width="35%">Key</th><th width="15%">Default</th><th width="50%">Purpose</th></tr></thead>
+<tbody><tr><td width="35%"><code class="code">DatabaseType</code></td><td width="15%"><code class="code">PostgreSQL</code></td><td width="50%">Kiss DB driver type (only PostgreSQL supported).</td></tr>
+<tr><td width="35%"><code class="code">DatabaseConnectionParameters</code></td><td width="15%">(none)</td><td width="50%">Appended to JDBC URL.</td></tr>
+<tr><td width="35%"><code class="code">OWNSONA_USER_ID</code></td><td width="15%"><code class="code">default</code></td><td width="50%">User-id stamped on every memory.</td></tr>
+<tr><td width="35%"><code class="code">EMBEDDING_PROVIDER</code></td><td width="15%"><code class="code">openai</code></td><td width="50%">Provider name recorded per row.</td></tr>
+<tr><td width="35%"><code class="code">DEFAULT_RECALL_LIMIT</code></td><td width="15%"><code class="code">8</code></td><td width="50%">Default <code class="code">limit</code> for <code class="code">recall</code>.</td></tr>
+<tr><td width="35%"><code class="code">MAX_RECALL_LIMIT</code></td><td width="15%"><code class="code">50</code></td><td width="50%">Hard cap on <code class="code">limit</code>.</td></tr>
+<tr><td width="35%"><code class="code">MAX_TEXT_CHARS</code></td><td width="15%"><code class="code">16000</code></td><td width="50%">Hard cap on memory text length.</td></tr>
+<tr><td width="35%"><code class="code">MAX_BATCH_SIZE</code></td><td width="15%"><code class="code">200</code></td><td width="50%">Max items per <code class="code">remember_batch</code>.</td></tr>
+<tr><td width="35%"><code class="code">REEMBED_ON_STARTUP</code></td><td width="15%"><code class="code">false</code></td><td width="50%">Triggers the re-embed walker. Auto-flipped after success.</td></tr>
+<tr><td width="35%"><code class="code">OAuthAsIniFile</code></td><td width="15%"><code class="code">oauth.ini</code></td><td width="50%">Path to the AS persistence file.  Strongly recommended: absolute path outside the deployed webapp.</td></tr>
+<tr><td width="35%"><code class="code">OAuthRequiredScopes</code></td><td width="15%">(none)</td><td width="50%">Comma- or space-separated list of scopes every access token must carry.</td></tr>
+<tr><td width="35%"><code class="code">OAuthResourceIdentifier</code></td><td width="15%">= <code class="code">OAuthAuthorizationServer</code></td><td width="50%">Override for the <code class="code">aud</code> value tokens must carry.</td></tr>
+<tr><td width="35%"><code class="code">OAuthAsIssuer</code></td><td width="15%">= <code class="code">OAuthAuthorizationServer</code></td><td width="50%">Override for the AS issuer URL.</td></tr>
+<tr><td width="35%"><code class="code">OAuthJwksUri</code></td><td width="15%">auto-discovered</td><td width="50%">Override for the JWKS URL.  Default is discovered via RFC 8414.</td></tr>
+<tr><td width="35%"><code class="code">OAuthAccessTokenTtlSeconds</code></td><td width="15%"><code class="code">3600</code></td><td width="50%">Access token TTL.</td></tr>
+<tr><td width="35%"><code class="code">OAuthRefreshTokenTtlSeconds</code></td><td width="15%"><code class="code">2592000</code></td><td width="50%">Refresh token TTL (30 days).</td></tr>
+<tr><td width="35%"><code class="code">OAuthAllowDynamicRegistration</code></td><td width="15%"><code class="code">true</code></td><td width="50%">Enables <code class="code">/oauth/register</code>.  Disabling breaks every modern MCP client.</td></tr>
+<tr><td width="35%"><code class="code">MaxWorkerThreads</code></td><td width="15%"><code class="code">30</code></td><td width="50%">Kiss tunable: concurrent request cap.</td></tr>
+<tr><td width="35%"><code class="code">UserInactiveSeconds</code></td><td width="15%"><code class="code">900</code></td><td width="50%">Kiss tunable: session inactivity timeout (unused by OAuth path).</td></tr>
 </tbody>
 </table>
 

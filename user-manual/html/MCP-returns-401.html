@@ -161,10 +161,16 @@ Next: <a href="MCP-returns-500-or-EMBEDDING_005fERROR.html" accesskey="n" rel="n
 </div>
 <hr>
 <h3 class="section" id="MCP-returns-401-1"><span>13.2 MCP returns 401<a class="copiable-link" href="#MCP-returns-401-1"> &para;</a></span></h3>
-<a class="index-entry-id" id="index-AUTH_005fFAILED"></a>
-<a class="index-entry-id" id="index-bearer-token-1"></a>
+<a class="index-entry-id" id="index-401-Unauthorized"></a>
+<a class="index-entry-id" id="index-OAuth-troubleshooting"></a>
 
 <p>Every request comes back <code class="code">401 Unauthorized</code>.
+</p>
+<p>The 401 response carries a <code class="code">WWW-Authenticate: Bearer ...,
+resource_metadata=&quot;...&quot;</code> header.  That header is informative: it
+names the resource-metadata URL the client should re-fetch to
+re-discover the AS, and (if the validation reached that point)
+carries an <code class="code">error_description</code> naming the specific failure.
 </p>
 <ul class="mini-toc">
 <li><a href="#Possible-causes" accesskey="1">Possible causes</a></li>
@@ -174,33 +180,72 @@ Next: <a href="MCP-returns-500-or-EMBEDDING_005fERROR.html" accesskey="n" rel="n
 <h4 class="subsection"><span>13.2.1 Possible causes<a class="copiable-link" href="#Possible-causes"> &para;</a></span></h4>
 
 <ul class="itemize mark-bullet">
-<li>The bearer token in the client doesn&rsquo;t match
-<code class="code">OWNSONA_API_TOKEN</code> in the deployed <samp class="file">application.ini</samp>.
+<li><b class="b">Client is sending no token.</b>  The MCP client was added with
+auth mode &ldquo;No auth&rdquo; or hasn&rsquo;t completed the OAuth login.  Open
+the client&rsquo;s connector settings and re-run the OAuth flow.
 
-</li><li>You edited the source <samp class="file">application.ini</samp> but didn&rsquo;t rebuild
-the WAR.  The deployed WAR still has the old token baked in.  Fix:
-<code class="code">./bld -v build &amp;&amp; ./bld war &amp;&amp; cp work/Kiss.war
-/home/ownsona/tomcat/webapps/ROOT.war</code>.
+</li><li><b class="b">Token expired.</b>  Access tokens default to 1-hour TTL.
+Compliant MCP clients refresh silently using their stored refresh
+token; if they didn&rsquo;t, restart the client or trigger a reconnect.
 
-</li><li>The client is sending the token to a stale URL (e.g. pointing
-at a test deployment after you rotated the token).
+</li><li><b class="b">Refresh token revoked / AS signing key rotated.</b>  Every
+issued JWT becomes unverifiable when the AS signing key is
+replaced.  This happens if the AS state file at
+<code class="code">OAuthAsIniFile</code> was deleted or overwritten &mdash; common after a
+redeploy when <code class="code">OAuthAsIniFile</code> was left at its
+WAR-tree-internal default.  Recovery: the client redoes the full
+OAuth login flow.  Prevention: set <code class="code">OAuthAsIniFile</code> to an
+absolute path outside the webapp (see <a class="ref" href="Installation.html">Installation</a>).
+
+</li><li><b class="b">OAuth resource server not enabled.</b>  If
+<code class="code">OAuthAuthorizationServer</code> is unset in
+<samp class="file">application.ini</samp>, the entire OAuth path returns 500 (not
+401) with &ldquo;OAuth resource-server is not configured.&rdquo;  Check
+<code class="code">journalctl -u ownsona.service</code>.
+
+</li><li><b class="b">Token issued by a different AS.</b>  Token <code class="code">iss</code> doesn&rsquo;t
+match <code class="code">OAuthAuthorizationServer</code>.  Happens when you have
+multiple environments (staging, prod) and a client is talking to
+one with a token issued by the other.
 </li></ul>
 
 </div>
 <div class="subsection-level-extent" id="Verify-1">
 <h4 class="subsection"><span>13.2.2 Verify<a class="copiable-link" href="#Verify-1"> &para;</a></span></h4>
 
+<p>Without a token, you should get a 401 with a proper challenge
+header:
+</p>
 <div class="example">
-<pre class="example-preformatted">curl -sS -X POST https://&lt;host&gt;/mcp \
-    -H &quot;Authorization: Bearer $OWNSONA_API_TOKEN&quot; \
+<pre class="example-preformatted">curl -sS -i -X POST https://&lt;host&gt;/mcp \
     -H &quot;Content-Type: application/json&quot; \
     -d '{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;initialize&quot;,&quot;params&quot;:{}}'
 </pre></div>
 
-<p><code class="code">200</code> with a server-info payload means the server is healthy and
-the <code class="code">$OWNSONA_API_TOKEN</code> env var matches.
+<p>Look for the <code class="code">WWW-Authenticate: Bearer ...</code> header.  If the
+response is 500 instead of 401, the OAuth resource server isn&rsquo;t
+configured.  If it&rsquo;s 200 (unauthenticated success), the AS isn&rsquo;t
+enabled but the server didn&rsquo;t refuse the request &mdash; check
+<code class="code">OAuthAuthorizationServer</code> in <samp class="file">application.ini</samp>.
+</p>
+<p>With a valid token (obtained via any OAuth-capable MCP client):
+</p>
+<div class="example">
+<pre class="example-preformatted">curl -sS -X POST https://&lt;host&gt;/mcp \
+    -H &quot;Authorization: Bearer $OWNSONA_ACCESS_TOKEN&quot; \
+    -H &quot;Content-Type: application/json&quot; \
+    -d '{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;initialize&quot;,&quot;params&quot;:{}}'
+</pre></div>
+
+<p><code class="code">200</code> with a server-info payload means the OAuth path is
+working end-to-end.
 </p>
 </div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="MCP-returns-500-or-EMBEDDING_005fERROR.html">MCP returns 500 or <code class="code">EMBEDDING_ERROR</code></a>, Previous: <a href="Server-won_0027t-start.html">Server won&rsquo;t start</a>, Up: <a href="Troubleshooting.html">Troubleshooting</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

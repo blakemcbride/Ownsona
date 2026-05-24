@@ -166,8 +166,9 @@ Previous: <a href="Upgrading-an-existing-install.html" accesskey="p" rel="prev">
 <li><a href="#Code-change-_003d_003e-deploy" accesskey="2">Code change &rArr; deploy</a></li>
 <li><a href="#Backup-control" accesskey="3">Backup control</a></li>
 <li><a href="#Log-retention-summary" accesskey="4">Log retention summary</a></li>
-<li><a href="#Rotating-the-bearer-token-1" accesskey="5">Rotating the bearer token</a></li>
-<li><a href="#Top-common-failure-modes" accesskey="6">Top common failure modes</a></li>
+<li><a href="#Rotating-login-credentials" accesskey="5">Rotating login credentials</a></li>
+<li><a href="#Rotating-the-AS-signing-key-only" accesskey="6">Rotating the AS signing key only</a></li>
+<li><a href="#Top-common-failure-modes" accesskey="7">Top common failure modes</a></li>
 </ul>
 <div class="subsection-level-extent" id="Service-control">
 <h4 class="subsection"><span>3.16.1 Service control<a class="copiable-link" href="#Service-control"> &para;</a></span></h4>
@@ -219,18 +220,38 @@ sudo tail -f /var/log/ownsona-backup.log              # last run + history
 </table>
 
 </div>
-<div class="subsection-level-extent" id="Rotating-the-bearer-token-1">
-<h4 class="subsection"><span>3.16.5 Rotating the bearer token<a class="copiable-link" href="#Rotating-the-bearer-token-1"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Rotating-login-credentials">
+<h4 class="subsection"><span>3.16.5 Rotating login credentials<a class="copiable-link" href="#Rotating-login-credentials"> &para;</a></span></h4>
 
-<p>Generate a new token, update <code class="code">OWNSONA_API_TOKEN</code> in
-<samp class="file">src/main/backend/application.ini</samp>, run <code class="code">./bld -v build
-&amp;&amp; ./bld war</code> to rebuild the WAR, redeploy, and distribute the new
-token to MCP clients.  There is no dual-token grace window; clients
-see a 401 until they update.
+<p>Change <code class="code">OWNSONA_LOGIN_PASSWORD</code> in
+<samp class="file">src/main/backend/application.ini</samp>, rebuild the WAR
+(<code class="code">./bld -v build &amp;&amp; ./bld war</code>), and redeploy.  Issued access
+tokens remain valid until their TTL expires &mdash; the password is only
+consulted on the AS login page.  To invalidate every existing token
+immediately, also delete the AS state file (the path you set in
+<code class="code">OAuthAsIniFile</code>, or <samp class="file">WEB-INF/backend/oauth.ini</samp> if you
+kept the default) before restart: the AS will mint a new signing
+key and every previously-issued JWT will fail signature verification.
+Registered clients will have to re-register and re-authorize, which
+for typical MCP clients means the user redoes the login + Allow flow.
+</p>
+</div>
+<div class="subsection-level-extent" id="Rotating-the-AS-signing-key-only">
+<h4 class="subsection"><span>3.16.6 Rotating the AS signing key only<a class="copiable-link" href="#Rotating-the-AS-signing-key-only"> &para;</a></span></h4>
+
+<p>To rotate the JWT signing key without forcing a re-registration of
+every client: stop the service, edit the AS state file (the path you
+set in <code class="code">OAuthAsIniFile</code>, or <samp class="file">WEB-INF/backend/oauth.ini</samp> if
+you kept the default) and remove the <code class="code">[keys]</code> section (and any
+<code class="code">kid</code> references in <code class="code">[client.*]</code> entries you wish to keep),
+restart.  The AS will generate a fresh key on first OAuth request;
+existing access tokens become invalid.  Clients with refresh tokens
+issued before the rotation also lose them &mdash; refresh tokens are
+signed with the same key.
 </p>
 </div>
 <div class="subsection-level-extent" id="Top-common-failure-modes">
-<h4 class="subsection"><span>3.16.6 Top common failure modes<a class="copiable-link" href="#Top-common-failure-modes"> &para;</a></span></h4>
+<h4 class="subsection"><span>3.16.7 Top common failure modes<a class="copiable-link" href="#Top-common-failure-modes"> &para;</a></span></h4>
 
 <ul class="itemize mark-bullet">
 <li><code class="code">journalctl -u ownsona.service</code> shows
@@ -243,9 +264,26 @@ the override no longer applies.
 the OpenAI account is out of credit.  Top up; auth, DB, listing, and
 text search keep working.
 
-</li><li>MCP returns <code class="code">AUTH_FAILED</code> on every request:
-<code class="code">OWNSONA_API_TOKEN</code> doesn&rsquo;t match what the client is sending, or
-the WAR wasn&rsquo;t rebuilt/redeployed after editing the ini.
+</li><li>Every <code class="code">/mcp</code> request returns 401: the client is sending
+no token, an expired one, or one signed by a different AS key than
+the one in the current AS state file.  The <code class="code">WWW-Authenticate</code>
+header on the 401 names the resource-metadata URL the client should
+use to re-discover the AS.  If every client started failing all at
+once right after a redeploy and you kept the default <samp class="file">oauth.ini</samp>
+location in the WAR tree, this is the redeploy clobbering the state
+file &mdash; set <code class="code">OAuthAsIniFile</code> to an absolute path outside the
+webapp.
+
+</li><li><code class="code">/oauth/authorize</code> returns 500 with &ldquo;UserAuthenticator
+not registered&rdquo;: <samp class="file">KissInit.groovy</samp> did not register
+<code class="code">OwnsonaUserAuthenticator</code>.  Check that the WAR contains both
+<samp class="file">WEB-INF/classes/ai/ownsona/oauth/OwnsonaUserAuthenticator.class</samp>
+and a <samp class="file">KissInit.groovy</samp> that wires it via
+<code class="code">AsExtensions.setUserAuthenticator(...)</code>.
+
+</li><li>AS cannot persist state: the directory containing the AS state
+file is not writable by the JVM user.  Run <code class="code">ls -ld <var class="var">dirname-of-OAuthAsIniFile</var></code>
+and confirm it is owned by the service user.
 
 </li><li>First request after deploy is slow / 404: Tomcat is still
 redeploying the WAR; ~10 s window with <code class="code">autoDeploy=&quot;true&quot;</code>.

@@ -158,7 +158,7 @@ dl dd {
 Next: <a href="Re_002dembedding-flag.html" accesskey="n" rel="next">Re-embedding flag</a>, Previous: <a href="Embedding-keys.html" accesskey="p" rel="prev">Embedding keys</a>, Up: <a href="Configuration.html" accesskey="u" rel="up">Configuration</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="Tunables-1"><span>4.5 Tunables<a class="copiable-link" href="#Tunables-1"> &para;</a></span></h3>
+<h3 class="section" id="Tunables-1"><span>4.6 Tunables<a class="copiable-link" href="#Tunables-1"> &para;</a></span></h3>
 
 <dl class="table">
 <dt><code class="code">MaxWorkerThreads</code></dt>
@@ -169,7 +169,8 @@ than necessary.
 </dd>
 <dt><code class="code">UserInactiveSeconds</code></dt>
 <dd><p>Default <code class="code">900</code>.  Kiss&rsquo;s session-inactivity timeout.  Not used by
-OwnSona&rsquo;s bearer-auth path, but the framework expects it.
+OwnSona&rsquo;s OAuth path (which is stateless and runs on JWT TTLs), but
+the framework expects the key to be present.
 </p></dd>
 </dl>
 

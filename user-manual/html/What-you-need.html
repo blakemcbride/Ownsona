@@ -161,24 +161,35 @@ Next: <a href="Claude-Desktop.html" accesskey="n" rel="next">Claude Desktop</a>,
 <hr>
 <h3 class="section" id="What-you-need-1"><span>7.1 What you need<a class="copiable-link" href="#What-you-need-1"> &para;</a></span></h3>
 
-<p>The same three things you need for any MCP client:
+<p>For every modern OAuth-capable MCP client:
 </p>
 <ul class="itemize mark-bullet">
 <li>Your OwnSona endpoint URL, e.g. <code class="code">https://ownsona.example.com/mcp</code>.
-</li><li>Your bearer token (<code class="code">OWNSONA_API_TOKEN</code> from <samp class="file">application.ini</samp>).
-</li><li>Confirmation the server is healthy.  A one-line smoke test:
+This is the <b class="b">only</b> piece of information you give the client.  OwnSona
+advertises the rest (AS endpoints, JWKS, dynamic registration) via the
+discovery documents at <code class="code">/.well-known/oauth-protected-resource</code> and
+<code class="code">/.well-known/oauth-authorization-server</code>.
+
+</li><li>Your <code class="code">OWNSONA_LOGIN_USERNAME</code> and <code class="code">OWNSONA_LOGIN_PASSWORD</code>
+from <samp class="file">application.ini</samp>.  You type these into a browser tab the
+client opens during the first OAuth login &mdash; <b class="b">never</b> into the
+client&rsquo;s connector configuration UI.
+
+</li><li>Confirmation the server is healthy.  Without an access token,
+the auth wall responds 401 with a discovery challenge:
 </li></ul>
 
 <div class="example">
-<pre class="example-preformatted">curl -sS -X POST https://&lt;your-host&gt;/mcp \
-    -H &quot;Authorization: Bearer $OWNSONA_API_TOKEN&quot; \
+<pre class="example-preformatted">curl -sS -i -X POST https://&lt;your-host&gt;/mcp \
     -H &quot;Content-Type: application/json&quot; \
     -d '{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;initialize&quot;,&quot;params&quot;:{}}'
 </pre></div>
 
-<p>Should return JSON containing <code class="code">&quot;name&quot;:&quot;ownsona-mcp&quot;</code>.  A 401
-means the token is wrong; anything else means the server isn&rsquo;t
-healthy &mdash; fix that first (see <a class="pxref" href="Troubleshooting.html">Troubleshooting</a>).
+<p>Should return HTTP 401 with a <code class="code">WWW-Authenticate: Bearer ...,
+resource_metadata=&quot;...&quot;</code> header.  That header is the client-side
+hook into the OAuth flow; if it&rsquo;s missing or the response is
+anything other than 401, the server isn&rsquo;t healthy &mdash; fix that first
+(see <a class="pxref" href="Troubleshooting.html">Troubleshooting</a>).
 </p>
 </div>
 

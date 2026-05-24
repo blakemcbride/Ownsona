@@ -176,9 +176,12 @@ explicitly: &ldquo;check OwnSona first.&rdquo;  After one or two such nudges in
 a conversation, the model tends to stay on-pattern.
 
 </li><li><b class="b">Auth failure.</b>  If every recall comes back with an MCP
-error, the bearer token is likely wrong or the WAR was rebuilt
-without the right token.  Inspect with
-<code class="code">journalctl -u ownsona.service | grep AUTH_FAILED</code>.
+error, the OAuth access token has expired, the refresh token was
+revoked (e.g. by the AS signing key being rotated), or
+<samp class="file">KissInit.groovy</samp> no longer registers
+<code class="code">OwnsonaUserAuthenticator</code>.  Inspect with
+<code class="code">journalctl -u ownsona.service | grep -i oauth</code> and follow the
+client&rsquo;s reconnect flow.
 </li></ul>
 </div>
 

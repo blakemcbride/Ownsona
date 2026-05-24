@@ -27,7 +27,7 @@ in the source distribution for the full text. -->
 <link href="Index.html" rel="index" title="Index">
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="Connecting-OpenAI.html" rel="up" title="Connecting OpenAI">
-<link href="Rotating-the-bearer-token.html" rel="next" title="Rotating the bearer token">
+<link href="Re_002dauthenticating.html" rel="next" title="Re-authenticating">
 <link href="Custom-Instructions-for-ChatGPT.html" rel="prev" title="Custom Instructions for ChatGPT">
 <style type="text/css">
 <!--
@@ -156,14 +156,16 @@ dl dd {
 <div class="section-level-extent" id="Responses-API">
 <div class="nav-panel">
 <p>
-Next: <a href="Rotating-the-bearer-token.html" accesskey="n" rel="next">Rotating the bearer token</a>, Previous: <a href="Custom-Instructions-for-ChatGPT.html" accesskey="p" rel="prev">Custom Instructions for ChatGPT</a>, Up: <a href="Connecting-OpenAI.html" accesskey="u" rel="up">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="Re_002dauthenticating.html" accesskey="n" rel="next">Re-authenticating</a>, Previous: <a href="Custom-Instructions-for-ChatGPT.html" accesskey="p" rel="prev">Custom Instructions for ChatGPT</a>, Up: <a href="Connecting-OpenAI.html" accesskey="u" rel="up">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="Responses-API-1"><span>8.4 Responses API<a class="copiable-link" href="#Responses-API-1"> &para;</a></span></h3>
+<h3 class="section" id="Responses-API-1"><span>8.3 Responses API<a class="copiable-link" href="#Responses-API-1"> &para;</a></span></h3>
 <a class="index-entry-id" id="index-Responses-API-1"></a>
 
 <p>The Responses API accepts MCP servers as first-class <code class="code">tools</code>.
-Minimal request shape:
+For OAuth-protected MCP servers the request shape attaches a
+short-lived access token as a bearer header (you obtain that token
+once via the OAuth flow and refresh it from your code&rsquo;s side):
 </p>
 <div class="example">
 <pre class="example-preformatted">curl https://api.openai.com/v1/responses \
@@ -177,13 +179,21 @@ Minimal request shape:
         &quot;type&quot;: &quot;mcp&quot;,
         &quot;server_label&quot;: &quot;ownsona&quot;,
         &quot;server_url&quot;: &quot;https://ownsona.example.com/mcp&quot;,
-        &quot;headers&quot;: { &quot;Authorization&quot;: &quot;Bearer &lt;OWNSONA_API_TOKEN&gt;&quot; },
+        &quot;headers&quot;: { &quot;Authorization&quot;: &quot;Bearer $OWNSONA_ACCESS_TOKEN&quot; },
         &quot;require_approval&quot;: &quot;never&quot;
       }
     ]
   }'
 </pre></div>
 
+<p><code class="code">$OWNSONA_ACCESS_TOKEN</code> is an OAuth 2.1 access token issued by
+OwnSona&rsquo;s authorization server.  Obtain one once by adding OwnSona
+to any OAuth-capable MCP client (Claude Desktop is the easiest),
+copying the access token out of that client&rsquo;s local config, and
+exporting it as an environment variable.  Refresh it before expiry
+via <code class="code">POST /oauth/token</code> with
+<code class="code">grant_type=refresh_token</code>.
+</p>
 <p><code class="code">require_approval: &quot;never&quot;</code> tells the API to call tools without
 prompting the user.  Suitable for backend services where there&rsquo;s no
 human in the loop.
@@ -194,7 +204,10 @@ human in the loop.
 <li> Your request comes in.
 </li><li> OpenAI sees the <code class="code">recall</code> tool in the MCP server list and
 decides the question needs it.
-</li><li> OpenAI calls <code class="code">POST /mcp</code> with bearer auth.
+</li><li> OpenAI calls <code class="code">POST /mcp</code> with bearer auth (the access
+token you supplied).
+</li><li> OwnSona&rsquo;s resource server validates the JWT and dispatches the
+tool call.
 </li><li> OwnSona returns matches.
 </li><li> OpenAI uses the matches to compose the answer.
 </li><li> OpenAI returns the final text response to your code.
@@ -203,6 +216,11 @@ decides the question needs it.
 <p>All of this happens server-side in OpenAI&rsquo;s infrastructure &mdash; your
 code makes one HTTP call.
 </p>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Re_002dauthenticating.html">Re-authenticating</a>, Previous: <a href="Custom-Instructions-for-ChatGPT.html">Custom Instructions for ChatGPT</a>, Up: <a href="Connecting-OpenAI.html">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

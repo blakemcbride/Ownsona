@@ -182,9 +182,13 @@ default, exposed through a swappable <code class="code">EmbeddingProvider</code>
 interface.  Self-hosted alternatives (Ollama, sentence-transformers)
 work without changing any application code.
 
-</li><li><b class="b">Auth:</b> A single bearer token compared in constant time.  The
-secret-scanner refuses to store text that looks like an API key,
-JWT, or PEM private key.
+</li><li><b class="b">Auth:</b> OAuth 2.1 (auth code + PKCE).  Every <code class="code">/mcp</code> request
+must present an <code class="code">Authorization: Bearer <var class="var">JWT</var></code> access token
+issued by the embedded authorization server.  MCP clients discover
+the AS via <code class="code">/.well-known/oauth-protected-resource</code> and register
+themselves dynamically (RFC 7591); the user logs in once via a
+browser tab the client opens.  The secret-scanner refuses to store
+text that looks like an API key, JWT, or PEM private key.
 
 </li><li><b class="b">Transport:</b> HTTPS on port 443, terminated by Tomcat directly.
 

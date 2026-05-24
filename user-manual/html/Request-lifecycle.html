@@ -163,16 +163,21 @@ Next: <a href="The-memories-table.html" accesskey="n" rel="next">The <code class
 <p>For a typical <code class="code">remember</code> call:
 </p>
 <ol class="enumerate">
-<li> Client sends <code class="code">POST /mcp</code> with bearer header and JSON-RPC
-envelope.
+<li> Client sends <code class="code">POST /mcp</code> with
+<code class="code">Authorization: Bearer <var class="var">JWT</var></code> and JSON-RPC envelope.
 
 </li><li> Tomcat dispatches to <code class="code">MCPServer.service()</code>, which delegates
 to Kiss&rsquo;s <code class="code">MCPServerBase</code>.
 
-</li><li> <code class="code">authenticate()</code> reads the <code class="code">Authorization</code> header (or
-the <code class="code">?token=</code> query-string fallback) and runs a constant-time
-compare against <code class="code">Config.OWNSONA_API_TOKEN</code>.  Failure: 401 with
-<code class="code">WWW-Authenticate: Bearer</code>.
+</li><li> <code class="code">authenticate()</code> validates the JWT via Kiss&rsquo;s
+<code class="code">BearerTokenValidator</code>: signature against the AS&rsquo;s JWKS,
+<code class="code">iss</code> against <code class="code">OAuthAuthorizationServer</code>,
+<code class="code">aud</code> against the resource identifier, <code class="code">exp</code> against the
+clock, and any configured <code class="code">OAuthRequiredScopes</code>.  Validated
+tokens are cached for 60 seconds keyed by their SHA-256 hash so a
+chatty MCP session doesn&rsquo;t re-verify the same JWT on every call.
+Failure: 401 with an RFC 6750 / RFC 9728 <code class="code">WWW-Authenticate</code>
+challenge pointing at <code class="code">/.well-known/oauth-protected-resource</code>.
 
 </li><li> The base class parses the JSON-RPC envelope and calls the
 appropriate handler &mdash; <code class="code">doRemember</code>, <code class="code">doRecall</code>, etc.

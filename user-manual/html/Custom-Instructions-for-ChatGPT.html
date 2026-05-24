@@ -28,7 +28,7 @@ in the source distribution for the full text. -->
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="Connecting-OpenAI.html" rel="up" title="Connecting OpenAI">
 <link href="Responses-API.html" rel="next" title="Responses API">
-<link href="The-auth-gap-and-how-to-bridge-it.html" rel="prev" title="The auth gap and how to bridge it">
+<link href="ChatGPT-connector.html" rel="prev" title="ChatGPT connector">
 <style type="text/css">
 <!--
 /*
@@ -157,10 +157,10 @@ dl dd {
 <div class="section-level-extent" id="Custom-Instructions-for-ChatGPT">
 <div class="nav-panel">
 <p>
-Next: <a href="Responses-API.html" accesskey="n" rel="next">Responses API</a>, Previous: <a href="The-auth-gap-and-how-to-bridge-it.html" accesskey="p" rel="prev">The auth gap and how to bridge it</a>, Up: <a href="Connecting-OpenAI.html" accesskey="u" rel="up">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="Responses-API.html" accesskey="n" rel="next">Responses API</a>, Previous: <a href="ChatGPT-connector.html" accesskey="p" rel="prev">ChatGPT connector</a>, Up: <a href="Connecting-OpenAI.html" accesskey="u" rel="up">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="Custom-Instructions-for-ChatGPT-1"><span>8.3 Custom Instructions for ChatGPT<a class="copiable-link" href="#Custom-Instructions-for-ChatGPT-1"> &para;</a></span></h3>
+<h3 class="section" id="Custom-Instructions-for-ChatGPT-1"><span>8.2 Custom Instructions for ChatGPT<a class="copiable-link" href="#Custom-Instructions-for-ChatGPT-1"> &para;</a></span></h3>
 
 <p>ChatGPT enforces a ~1500-character limit on the Custom Instructions
 field.  This directive fits in ~720 characters with headroom:
@@ -190,10 +190,10 @@ field.  This directive fits in ~720 characters with headroom:
 <li><a href="#Data_002dapproval-modal" accesskey="3">Data-approval modal</a></li>
 </ul>
 <div class="subsection-level-extent" id="ChatGPT_0027s-native-memory">
-<h4 class="subsection"><span>8.3.1 ChatGPT&rsquo;s native memory<a class="copiable-link" href="#ChatGPT_0027s-native-memory"> &para;</a></span></h4>
+<h4 class="subsection"><span>8.2.1 ChatGPT&rsquo;s native memory<a class="copiable-link" href="#ChatGPT_0027s-native-memory"> &para;</a></span></h4>
 
-<p>ChatGPT has its own memory system, separate from MCP connectors.  To
-keep OwnSona authoritative, either:
+<p>ChatGPT has its own memory system, separate from MCP connectors.
+To keep OwnSona authoritative, either:
 </p>
 <ul class="itemize mark-bullet">
 <li>Disable native memory entirely: <b class="b">Settings &rArr;
@@ -206,7 +206,7 @@ line above.  Model usually complies but isn&rsquo;t deterministic.
 
 </div>
 <div class="subsection-level-extent" id="Connector-enabled-per-conversation">
-<h4 class="subsection"><span>8.3.2 Connector enabled per conversation<a class="copiable-link" href="#Connector-enabled-per-conversation"> &para;</a></span></h4>
+<h4 class="subsection"><span>8.2.2 Connector enabled per conversation<a class="copiable-link" href="#Connector-enabled-per-conversation"> &para;</a></span></h4>
 
 <p>In some ChatGPT versions the connector must be toggled on in each
 conversation&rsquo;s tool menu.  Custom Instructions can&rsquo;t enable a tool
@@ -215,7 +215,7 @@ tool,&rdquo; the toggle is off.
 </p>
 </div>
 <div class="subsection-level-extent" id="Data_002dapproval-modal">
-<h4 class="subsection"><span>8.3.3 Data-approval modal<a class="copiable-link" href="#Data_002dapproval-modal"> &para;</a></span></h4>
+<h4 class="subsection"><span>8.2.3 Data-approval modal<a class="copiable-link" href="#Data_002dapproval-modal"> &para;</a></span></h4>
 
 <p>ChatGPT shows an approval modal before sending data to a connector.
 The per-connector &ldquo;Trust this connector / Always allow&rdquo; toggle
@@ -230,7 +230,7 @@ identifiers, financial, medical) may always prompt.
 <hr>
 <div class="nav-panel">
 <p>
-Next: <a href="Responses-API.html">Responses API</a>, Previous: <a href="The-auth-gap-and-how-to-bridge-it.html">The auth gap and how to bridge it</a>, Up: <a href="Connecting-OpenAI.html">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="Responses-API.html">Responses API</a>, Previous: <a href="ChatGPT-connector.html">ChatGPT connector</a>, Up: <a href="Connecting-OpenAI.html">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

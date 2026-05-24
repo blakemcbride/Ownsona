@@ -99,9 +99,13 @@ interface.  Self-hosted alternatives (Ollama, sentence-transformers)
 work without changing any application code.
 
 @item
-@b{Auth:} A single bearer token compared in constant time.  The
-secret-scanner refuses to store text that looks like an API key,
-JWT, or PEM private key.
+@b{Auth:} OAuth 2.1 (auth code + PKCE).  Every @code{/mcp} request
+must present an @code{Authorization: Bearer @var{JWT}} access token
+issued by the embedded authorization server.  MCP clients discover
+the AS via @code{/.well-known/oauth-protected-resource} and register
+themselves dynamically (RFC 7591); the user logs in once via a
+browser tab the client opens.  The secret-scanner refuses to store
+text that looks like an API key, JWT, or PEM private key.
 
 @item
 @b{Transport:} HTTPS on port 443, terminated by Tomcat directly.
@@ -145,7 +149,7 @@ The MCP tools any LLM can call are deliberately read/write-of-facts
 only.  Migration triggers, re-embedding, log inspection, schema
 fiddling --- all of those are operator actions, performed by editing
 @file{application.ini} and restarting, or by running SQL directly.
-This makes it impossible for an LLM with a leaked bearer token to
+This makes it impossible for an LLM with a leaked access token to
 cause structural damage to the store.
 @end table
 

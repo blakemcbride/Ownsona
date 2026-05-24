@@ -27,7 +27,7 @@ in the source distribution for the full text. -->
 <link href="Index.html" rel="index" title="Index">
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="Connecting-OpenAI.html" rel="up" title="Connecting OpenAI">
-<link href="The-auth-gap-and-how-to-bridge-it.html" rel="next" title="The auth gap and how to bridge it">
+<link href="Custom-Instructions-for-ChatGPT.html" rel="next" title="Custom Instructions for ChatGPT">
 <style type="text/css">
 <!--
 /*
@@ -155,7 +155,7 @@ dl dd {
 <div class="section-level-extent" id="ChatGPT-connector">
 <div class="nav-panel">
 <p>
-Next: <a href="The-auth-gap-and-how-to-bridge-it.html" accesskey="n" rel="next">The auth gap and how to bridge it</a>, Up: <a href="Connecting-OpenAI.html" accesskey="u" rel="up">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="Custom-Instructions-for-ChatGPT.html" accesskey="n" rel="next">Custom Instructions for ChatGPT</a>, Up: <a href="Connecting-OpenAI.html" accesskey="u" rel="up">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
 <h3 class="section" id="ChatGPT-connector-1"><span>8.1 ChatGPT connector<a class="copiable-link" href="#ChatGPT-connector-1"> &para;</a></span></h3>
@@ -163,19 +163,44 @@ Next: <a href="The-auth-gap-and-how-to-bridge-it.html" accesskey="n" rel="next">
 <ol class="enumerate">
 <li> Open ChatGPT in a browser.  Go to <b class="b">Settings &rArr; Connectors</b>.
 
-</li><li> Choose <b class="b">Add connector</b> (wording varies).
+</li><li> Choose <b class="b">Add custom connector</b> (wording varies).
 
 </li><li> Fill in the form:
 
 <ul class="itemize mark-bullet">
 <li><b class="b">Name:</b> <code class="code">Ownsona</code> (cosmetic).
 </li><li><b class="b">Description:</b> <code class="code">Personal durable memory store.</code> (cosmetic).
-</li><li><b class="b">MCP Server URL:</b> <code class="code">https://&lt;your-host&gt;/mcp</code>.
-</li><li><b class="b">Authentication:</b> see <a class="ref" href="The-auth-gap-and-how-to-bridge-it.html">The auth gap and how to bridge it</a> &mdash;
-this is the awkward part.
+</li><li><b class="b">MCP Server URL:</b> <code class="code">https://<var class="var">your-host</var>/mcp</code>.
+</li><li><b class="b">Authentication:</b> pick <b class="b">OAuth</b>.  Leave any &ldquo;bearer
+token&rdquo; or &ldquo;API key&rdquo; text field blank &mdash; that field is the
+legacy non-OAuth path, and OwnSona refuses it.
 </li></ul>
+
+</li><li> Click <b class="b">Save / Connect</b>.  ChatGPT opens a browser tab to
+<code class="code">https://<var class="var">your-host</var>/oauth/authorize</code>.
+
+</li><li> Enter your <code class="code">OWNSONA_LOGIN_USERNAME</code> and
+<code class="code">OWNSONA_LOGIN_PASSWORD</code> from <samp class="file">application.ini</samp>.  Click
+<b class="b">Allow</b> on the consent screen.
+
+</li><li> The browser returns control to ChatGPT, which exchanges the
+OAuth code for an access token + refresh token and stores them.
+The connector is now live.
 </li></ol>
 
+<p>You will not see the browser login again until the refresh token
+expires (30 days by default) or you delete and re-add the connector.
+</p>
+<p><b class="b">What ChatGPT does behind the scenes.</b>  On first use it fetches
+<code class="code">https://<var class="var">your-host</var>/.well-known/oauth-protected-resource</code>
+to discover the AS, then
+<code class="code">https://<var class="var">your-host</var>/.well-known/oauth-authorization-server</code>
+for the endpoint locations, then registers itself dynamically (RFC
+7591) at <code class="code">/oauth/register</code>, then drives the user through
+<code class="code">/oauth/authorize</code> and <code class="code">/oauth/token</code>.  All of that is
+automatic; the only piece of information you give ChatGPT is the
+<code class="code">/mcp</code> URL.
+</p>
 </div>
 
 

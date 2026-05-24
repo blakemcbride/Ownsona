@@ -5,8 +5,9 @@
 
 OwnSona exposes its functionality as nine MCP tools.  Each one is a
 JSON-RPC method on the @code{/mcp} endpoint, callable by any MCP
-client that presents the right bearer token.  This chapter is the
-reference for every tool's inputs, outputs, errors, and example calls.
+client that presents a valid OAuth 2.1 access token.  This chapter
+is the reference for every tool's inputs, outputs, errors, and
+example calls.
 
 @menu
 * General tool conventions::     Inputs, outputs, errors, IDs, timestamps.
@@ -31,7 +32,7 @@ All tool calls are JSON-RPC 2.0 over HTTPS POST to @code{/mcp}:
 
 @example
 POST /mcp HTTP/1.1
-Authorization: Bearer <OWNSONA_API_TOKEN>
+Authorization: Bearer <OAuth-2.1-access-token>
 Content-Type: application/json
 
 @{
@@ -71,10 +72,27 @@ similarity search.
 
 @subsection Authentication
 
-Every request must carry @code{Authorization: Bearer <token>}.  The
-token is compared in constant time against
-@code{OWNSONA_API_TOKEN} from @file{application.ini}.  Missing or
-wrong token returns HTTP 401 with @code{AUTH_FAILED}.
+Every request must carry @code{Authorization: Bearer @var{JWT}},
+where @var{JWT} is an OAuth 2.1 access token issued by OwnSona's
+embedded authorization server.  The resource-server side validates
+the token's signature against the AS's JWKS, plus the @code{iss},
+@code{aud}, @code{exp}, and (if configured) required scopes.
+
+Missing, malformed, expired, or wrong-signature tokens return HTTP
+401 with an RFC 6750 / RFC 9728 @code{WWW-Authenticate} header
+naming the resource-metadata document at
+@code{/.well-known/oauth-protected-resource}.  MCP clients use that
+header to (re-)discover the AS and refresh their token.
+
+MCP clients normally obtain a token by the auth-code + PKCE flow:
+the client discovers the AS via the well-known metadata documents,
+registers itself dynamically at @code{/oauth/register} (RFC 7591),
+sends the user to @code{/oauth/authorize} (where they log in with
+@code{OWNSONA_LOGIN_USERNAME} / @code{OWNSONA_LOGIN_PASSWORD} and
+click @b{Allow}), and exchanges the resulting code at
+@code{/oauth/token} for an access token and refresh token.  Refresh
+tokens are rotated on each use, with stolen-token detection per
+RFC 6749bis.
 
 @node The remember tool
 @section The @code{remember} tool

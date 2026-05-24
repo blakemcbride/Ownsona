@@ -74,8 +74,15 @@ cp src/main/backend/application.ini.example src/main/backend/application.ini
 $EDITOR src/main/backend/application.ini
 @end example
 
-At minimum, set @code{DatabasePassword}, @code{OWNSONA_API_TOKEN} (any
-long random string), and @code{EMBEDDING_API_KEY}.
+At minimum, set @code{DatabasePassword}, the OAuth AS login credentials
+@code{OWNSONA_LOGIN_USERNAME} / @code{OWNSONA_LOGIN_PASSWORD} (anything
+you'll remember --- you'll type them once in a browser tab when you
+first connect an LLM client), @code{OAuthAuthorizationServer = https://@var{your-host}},
+@code{OAuthAsEnabled = true}, and @code{EMBEDDING_API_KEY}.  See
+@ref{Configuration} for the full list of keys, and the
+``Where the AS keeps its signing key'' subsection of
+@ref{Installation} for why production installs should also set
+@code{OAuthAsIniFile} to an absolute path outside the deployed webapp.
 
 @item @b{Build and deploy.}
 
@@ -90,12 +97,36 @@ and the @code{ownsona.service} systemd unit.)
 
 @item @b{Smoke-test the live endpoint.}
 
+The smoke-test script needs an OAuth access token.  The simplest way
+to obtain one is to add the server as an MCP connector in any
+OAuth-capable LLM client (see step 6 below for that flow); once the
+client has logged in, copy the access token out of its local config
+and export it:
+
 @example
-OWNSONA_API_TOKEN=<your-token> sql/smoke_test.sh https://your.host/mcp
+export OWNSONA_ACCESS_TOKEN="eyJhbGciOiJSUzI1NiIs..."
+sql/smoke_test.sh https://@var{your-host}/mcp
 @end example
 
 A successful smoke test exercises every MCP tool against the live
 server and prints @code{OK} for each.
+
+@item @b{Connect an MCP client.}
+
+Modern OAuth-capable clients need only the @code{/mcp} URL --- they
+discover the AS, register themselves dynamically, and walk you
+through a browser login.  In every client's connector form, paste:
+
+@example
+https://@var{your-host}/mcp
+@end example
+
+Pick @b{OAuth} as the auth mode (it's the default in most UIs).
+The first request opens a browser tab; enter your
+@code{OWNSONA_LOGIN_USERNAME} / @code{OWNSONA_LOGIN_PASSWORD} from
+step 3, click @b{Allow} on the consent page, and the client stores
+its tokens.  You will not see the browser flow again until the
+refresh token expires (30 days by default).
 @end enumerate
 
 @node Verify the install
@@ -114,22 +145,15 @@ ownsona query "when did I start using OwnSona"
 
 You should see your newly stored fact come back as the top recall hit.
 
-@b{From Claude Desktop.}  Edit
-@file{~/Library/Application Support/Claude/claude_desktop_config.json}
-(macOS) or the Windows equivalent, and add:
+@b{From Claude Desktop.}  Open Settings @result{} Connectors @result{}
+Add and paste @code{https://@var{your-host}/mcp} as the MCP server
+URL.  The client opens a browser tab to
+@code{https://@var{your-host}/oauth/authorize}; enter your
+@code{OWNSONA_LOGIN_USERNAME} / @code{OWNSONA_LOGIN_PASSWORD},
+click @b{Allow}, and the connector is live.  See
+@ref{Connecting Claude} for the full procedure.
 
-@example
-@{
-  "mcpServers": @{
-    "ownsona": @{
-      "url": "https://your.host/mcp",
-      "headers": @{ "Authorization": "Bearer <your-token>" @}
-    @}
-  @}
-@}
-@end example
-
-Restart Claude Desktop.  Ask it ``what tools do you have?''  You should
+Ask Claude ``what tools do you have?''  You should
 see @code{remember}, @code{recall}, @code{remember_batch},
 @code{build_context_prompt}, @code{list_memories}, @code{update_memory},
 @code{forget}, @code{text_search}, and @code{confirm}.

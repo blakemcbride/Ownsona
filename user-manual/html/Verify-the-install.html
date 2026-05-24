@@ -174,22 +174,15 @@ ownsona query &quot;when did I start using OwnSona&quot;
 
 <p>You should see your newly stored fact come back as the top recall hit.
 </p>
-<p><b class="b">From Claude Desktop.</b>  Edit
-<samp class="file">~/Library/Application Support/Claude/claude_desktop_config.json</samp>
-(macOS) or the Windows equivalent, and add:
+<p><b class="b">From Claude Desktop.</b>  Open Settings &rArr; Connectors &rArr;
+Add and paste <code class="code">https://<var class="var">your-host</var>/mcp</code> as the MCP server
+URL.  The client opens a browser tab to
+<code class="code">https://<var class="var">your-host</var>/oauth/authorize</code>; enter your
+<code class="code">OWNSONA_LOGIN_USERNAME</code> / <code class="code">OWNSONA_LOGIN_PASSWORD</code>,
+click <b class="b">Allow</b>, and the connector is live.  See
+<a class="ref" href="Connecting-Claude.html">Connecting Claude</a> for the full procedure.
 </p>
-<div class="example">
-<pre class="example-preformatted">{
-  &quot;mcpServers&quot;: {
-    &quot;ownsona&quot;: {
-      &quot;url&quot;: &quot;https://your.host/mcp&quot;,
-      &quot;headers&quot;: { &quot;Authorization&quot;: &quot;Bearer &lt;your-token&gt;&quot; }
-    }
-  }
-}
-</pre></div>
-
-<p>Restart Claude Desktop.  Ask it &ldquo;what tools do you have?&rdquo;  You should
+<p>Ask Claude &ldquo;what tools do you have?&rdquo;  You should
 see <code class="code">remember</code>, <code class="code">recall</code>, <code class="code">remember_batch</code>,
 <code class="code">build_context_prompt</code>, <code class="code">list_memories</code>, <code class="code">update_memory</code>,
 <code class="code">forget</code>, <code class="code">text_search</code>, and <code class="code">confirm</code>.

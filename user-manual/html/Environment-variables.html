@@ -166,9 +166,9 @@ Next: <a href="Kiss-framework-references.html" accesskey="n" rel="next">Kiss fra
 <table class="multitable">
 <thead><tr><th width="35%">Variable</th><th width="65%">Purpose</th></tr></thead>
 <tbody><tr><td width="35%"><code class="code">OWNSONA_TEST_DATABASE_URL</code></td><td width="65%">JDBC URL for a separate test database.  Gates the integration tests in <code class="code">sql/run_tests.sh</code>; absent = skip.</td></tr>
-<tr><td width="35%"><code class="code">OWNSONA_API_TOKEN</code></td><td width="65%">Used by <samp class="file">sql/smoke_test.sh</samp> when invoked from the shell.</td></tr>
+<tr><td width="35%"><code class="code">OWNSONA_ACCESS_TOKEN</code></td><td width="65%">Used by <samp class="file">sql/smoke_test.sh</samp> as the OAuth access token in <code class="code">Authorization: Bearer ...</code>.</td></tr>
 <tr><td width="35%"><code class="code">OWNSONA_SERVER</code></td><td width="65%">CLI override for <code class="code">server_url</code>.</td></tr>
-<tr><td width="35%"><code class="code">OWNSONA_TOKEN</code></td><td width="65%">CLI override for <code class="code">token</code>.</td></tr>
+<tr><td width="35%"><code class="code">OWNSONA_TOKEN</code></td><td width="65%">CLI override for the legacy / external-IdP static-bearer <code class="code">token</code> field.  Not used by the OAuth path.</td></tr>
 <tr><td width="35%"><code class="code">OWNSONA_CONFIG</code></td><td width="65%">CLI override for the config-file path.</td></tr>
 <tr><td width="35%"><code class="code">OWNSONA_LLM_API_KEY</code></td><td width="65%">CLI: API key for the <code class="code">teach</code> LLM.</td></tr>
 <tr><td width="35%"><code class="code">OWNSONA_LLM_MODEL</code></td><td width="65%">CLI: model name for the <code class="code">teach</code> LLM.</td></tr>

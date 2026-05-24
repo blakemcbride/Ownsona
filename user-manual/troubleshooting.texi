@@ -63,37 +63,77 @@ snapshot at version @code{M}.
 
 @node MCP returns 401
 @section MCP returns 401
-@cindex AUTH_FAILED
-@cindex bearer token
+@cindex 401 Unauthorized
+@cindex OAuth troubleshooting
 
 Every request comes back @code{401 Unauthorized}.
+
+The 401 response carries a @code{WWW-Authenticate: Bearer ...,
+resource_metadata="..."} header.  That header is informative: it
+names the resource-metadata URL the client should re-fetch to
+re-discover the AS, and (if the validation reached that point)
+carries an @code{error_description} naming the specific failure.
 
 @subsection Possible causes
 
 @itemize @bullet
-@item The bearer token in the client doesn't match
-@code{OWNSONA_API_TOKEN} in the deployed @file{application.ini}.
+@item @b{Client is sending no token.}  The MCP client was added with
+auth mode ``No auth'' or hasn't completed the OAuth login.  Open
+the client's connector settings and re-run the OAuth flow.
 
-@item You edited the source @file{application.ini} but didn't rebuild
-the WAR.  The deployed WAR still has the old token baked in.  Fix:
-@code{./bld -v build && ./bld war && cp work/Kiss.war
-/home/ownsona/tomcat/webapps/ROOT.war}.
+@item @b{Token expired.}  Access tokens default to 1-hour TTL.
+Compliant MCP clients refresh silently using their stored refresh
+token; if they didn't, restart the client or trigger a reconnect.
 
-@item The client is sending the token to a stale URL (e.g.@: pointing
-at a test deployment after you rotated the token).
+@item @b{Refresh token revoked / AS signing key rotated.}  Every
+issued JWT becomes unverifiable when the AS signing key is
+replaced.  This happens if the AS state file at
+@code{OAuthAsIniFile} was deleted or overwritten --- common after a
+redeploy when @code{OAuthAsIniFile} was left at its
+WAR-tree-internal default.  Recovery: the client redoes the full
+OAuth login flow.  Prevention: set @code{OAuthAsIniFile} to an
+absolute path outside the webapp (see @ref{Installation}).
+
+@item @b{OAuth resource server not enabled.}  If
+@code{OAuthAuthorizationServer} is unset in
+@file{application.ini}, the entire OAuth path returns 500 (not
+401) with ``OAuth resource-server is not configured.''  Check
+@code{journalctl -u ownsona.service}.
+
+@item @b{Token issued by a different AS.}  Token @code{iss} doesn't
+match @code{OAuthAuthorizationServer}.  Happens when you have
+multiple environments (staging, prod) and a client is talking to
+one with a token issued by the other.
 @end itemize
 
 @subsection Verify
 
+Without a token, you should get a 401 with a proper challenge
+header:
+
 @example
-curl -sS -X POST https://<host>/mcp \
-    -H "Authorization: Bearer $OWNSONA_API_TOKEN" \
+curl -sS -i -X POST https://<host>/mcp \
     -H "Content-Type: application/json" \
     -d '@{"jsonrpc":"2.0","id":1,"method":"initialize","params":@{@}@}'
 @end example
 
-@code{200} with a server-info payload means the server is healthy and
-the @code{$OWNSONA_API_TOKEN} env var matches.
+Look for the @code{WWW-Authenticate: Bearer ...} header.  If the
+response is 500 instead of 401, the OAuth resource server isn't
+configured.  If it's 200 (unauthenticated success), the AS isn't
+enabled but the server didn't refuse the request --- check
+@code{OAuthAuthorizationServer} in @file{application.ini}.
+
+With a valid token (obtained via any OAuth-capable MCP client):
+
+@example
+curl -sS -X POST https://<host>/mcp \
+    -H "Authorization: Bearer $OWNSONA_ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '@{"jsonrpc":"2.0","id":1,"method":"initialize","params":@{@}@}'
+@end example
+
+@code{200} with a server-info payload means the OAuth path is
+working end-to-end.
 
 @node MCP returns 500 or EMBEDDING_ERROR
 @section MCP returns 500 or @code{EMBEDDING_ERROR}
@@ -314,5 +354,5 @@ down?).
 @item @code{SSL certificate problem}: hostname mismatch, expired cert,
 self-signed cert without a trust anchor.  Verify with @code{curl -I
 https://<host>/mcp}.
-@item @code{401 Unauthorized}: bearer token wrong.
+@item @code{401 Unauthorized}: see @ref{MCP returns 401}.
 @end itemize

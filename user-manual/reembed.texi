@@ -491,8 +491,8 @@ is hard-deleted between the id scan and the per-batch text fetch, it
 silently drops out of the batch.  No re-embed, no error.
 
 @item @b{There's no MCP tool to trigger a re-embed.}  Deliberate ---
-admin operations stay outside the MCP surface so any LLM holding the
-bearer can't initiate them.  The trigger is editing
+admin operations stay outside the MCP surface so any LLM holding an
+OAuth access token can't initiate them.  The trigger is editing
 @file{application.ini} and restarting, which is an operator action.
 
 @item @b{Vendor neutrality is preserved.}  The walker doesn't know or

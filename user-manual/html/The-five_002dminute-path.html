@@ -191,8 +191,15 @@ auto-migrator needs.
 $EDITOR src/main/backend/application.ini
 </pre></div>
 
-<p>At minimum, set <code class="code">DatabasePassword</code>, <code class="code">OWNSONA_API_TOKEN</code> (any
-long random string), and <code class="code">EMBEDDING_API_KEY</code>.
+<p>At minimum, set <code class="code">DatabasePassword</code>, the OAuth AS login credentials
+<code class="code">OWNSONA_LOGIN_USERNAME</code> / <code class="code">OWNSONA_LOGIN_PASSWORD</code> (anything
+you&rsquo;ll remember &mdash; you&rsquo;ll type them once in a browser tab when you
+first connect an LLM client), <code class="code">OAuthAuthorizationServer = https://<var class="var">your-host</var></code>,
+<code class="code">OAuthAsEnabled = true</code>, and <code class="code">EMBEDDING_API_KEY</code>.  See
+<a class="ref" href="Configuration.html">Configuration</a> for the full list of keys, and the
+&ldquo;Where the AS keeps its signing key&rdquo; subsection of
+<a class="ref" href="Installation.html">Installation</a> for why production installs should also set
+<code class="code">OAuthAsIniFile</code> to an absolute path outside the deployed webapp.
 </p>
 </li><li> <b class="b">Build and deploy.</b>
 
@@ -207,14 +214,43 @@ and the <code class="code">ownsona.service</code> systemd unit.)
 </p>
 </li><li> <b class="b">Smoke-test the live endpoint.</b>
 
+<p>The smoke-test script needs an OAuth access token.  The simplest way
+to obtain one is to add the server as an MCP connector in any
+OAuth-capable LLM client (see step 6 below for that flow); once the
+client has logged in, copy the access token out of its local config
+and export it:
+</p>
 <div class="example">
-<pre class="example-preformatted">OWNSONA_API_TOKEN=&lt;your-token&gt; sql/smoke_test.sh https://your.host/mcp
+<pre class="example-preformatted">export OWNSONA_ACCESS_TOKEN=&quot;eyJhbGciOiJSUzI1NiIs...&quot;
+sql/smoke_test.sh https://<var class="var">your-host</var>/mcp
 </pre></div>
 
 <p>A successful smoke test exercises every MCP tool against the live
 server and prints <code class="code">OK</code> for each.
+</p>
+</li><li> <b class="b">Connect an MCP client.</b>
+
+<p>Modern OAuth-capable clients need only the <code class="code">/mcp</code> URL &mdash; they
+discover the AS, register themselves dynamically, and walk you
+through a browser login.  In every client&rsquo;s connector form, paste:
+</p>
+<div class="example">
+<pre class="example-preformatted">https://<var class="var">your-host</var>/mcp
+</pre></div>
+
+<p>Pick <b class="b">OAuth</b> as the auth mode (it&rsquo;s the default in most UIs).
+The first request opens a browser tab; enter your
+<code class="code">OWNSONA_LOGIN_USERNAME</code> / <code class="code">OWNSONA_LOGIN_PASSWORD</code> from
+step 3, click <b class="b">Allow</b> on the consent page, and the client stores
+its tokens.  You will not see the browser flow again until the
+refresh token expires (30 days by default).
 </p></li></ol>
 
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Verify-the-install.html">Verify the install</a>, Previous: <a href="Prerequisites.html">Prerequisites</a>, Up: <a href="Getting-Started.html">Getting Started</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

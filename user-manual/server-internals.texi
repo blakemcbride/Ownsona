@@ -55,16 +55,21 @@ durable lives in PostgreSQL.
 For a typical @code{remember} call:
 
 @enumerate
-@item Client sends @code{POST /mcp} with bearer header and JSON-RPC
-envelope.
+@item Client sends @code{POST /mcp} with
+@code{Authorization: Bearer @var{JWT}} and JSON-RPC envelope.
 
 @item Tomcat dispatches to @code{MCPServer.service()}, which delegates
 to Kiss's @code{MCPServerBase}.
 
-@item @code{authenticate()} reads the @code{Authorization} header (or
-the @code{?token=} query-string fallback) and runs a constant-time
-compare against @code{Config.OWNSONA_API_TOKEN}.  Failure: 401 with
-@code{WWW-Authenticate: Bearer}.
+@item @code{authenticate()} validates the JWT via Kiss's
+@code{BearerTokenValidator}: signature against the AS's JWKS,
+@code{iss} against @code{OAuthAuthorizationServer},
+@code{aud} against the resource identifier, @code{exp} against the
+clock, and any configured @code{OAuthRequiredScopes}.  Validated
+tokens are cached for 60 seconds keyed by their SHA-256 hash so a
+chatty MCP session doesn't re-verify the same JWT on every call.
+Failure: 401 with an RFC 6750 / RFC 9728 @code{WWW-Authenticate}
+challenge pointing at @code{/.well-known/oauth-protected-resource}.
 
 @item The base class parses the JSON-RPC envelope and calls the
 appropriate handler --- @code{doRemember}, @code{doRecall}, etc.
@@ -352,7 +357,7 @@ for old rows after a new column lands --- not to migrate schema (use
 @node Security model
 @section Security model
 @cindex security
-@cindex bearer token
+@cindex OAuth 2.1
 @cindex SecretScanner
 
 @subsection Transport
@@ -363,24 +368,55 @@ proxy is required.  PostgreSQL is bound to @code{localhost:5432} and
 not exposed publicly.
 
 @subsection Authentication
+@cindex OAuth 2.1
+@cindex JWT
+@cindex JWKS
 
-A single bearer token, @code{OWNSONA_API_TOKEN}, set in
-@file{application.ini}.  Two presentation paths, in order:
+OAuth 2.1 (auth code + PKCE).  The OwnSona server runs both halves
+of the OAuth machinery in a single WAR:
 
-@enumerate
-@item @b{Preferred:} @code{Authorization: Bearer <token>} HTTP header.
-Used by curl, the CLI, the smoke test, the OpenAI Responses API, and
-any client that can set custom headers.
+@itemize @bullet
+@item @b{Resource server} (@code{org.kissweb.oauth} in Kiss core):
+validates the @code{Authorization: Bearer @var{JWT}} on every
+@code{/mcp} request.  Checks the JWS signature against the JWKS,
+the @code{iss} and @code{aud} claims, the @code{exp}/@code{nbf}
+times (with configurable clock skew), and any configured required
+scopes.  Failure writes a 401 with RFC 6750 / RFC 9728
+@code{WWW-Authenticate} challenge naming the resource-metadata
+document.
 
-@item @b{Fallback:} @code{?token=<token>} URL query parameter.  Used
-by clients (e.g.@: ChatGPT's connector UI) that can't supply custom
-headers.  The access log's pattern is deliberately set to
-@code{"%m %U %H"} so query strings are not logged --- the token
-doesn't end up in @file{tomcat/logs/} or in nightly backups.
-@end enumerate
+@item @b{Authorization server} (@code{org.kissweb.oauth.as} in Kiss
+core, plus app-specific extensions in @code{ai.ownsona.oauth}):
+issues access and refresh tokens.  Exposes @code{/oauth/authorize},
+@code{/oauth/token}, @code{/oauth/register} (RFC 7591 dynamic
+client registration), @code{/oauth/jwks}, and the RFC 8414 metadata
+endpoint at @code{/.well-known/oauth-authorization-server}.  The
+AS's persistent state (signing key, registered clients, refresh
+tokens) lives in an INI file whose location is set by
+@code{OAuthAsIniFile}; production installs set this to an absolute
+path outside the deployed webapp so WAR redeploys can't touch it.
+@end itemize
 
-Both paths compare in constant time via @code{MessageDigest.isEqual}.
-Any failure returns HTTP 401 with @code{WWW-Authenticate: Bearer}.
+The two app-specific pieces register at startup via
+@code{AsExtensions}:
+
+@itemize @bullet
+@item @code{OwnsonaUserAuthenticator}: checks
+@code{OWNSONA_LOGIN_USERNAME} / @code{OWNSONA_LOGIN_PASSWORD} from
+@file{application.ini} in constant time
+(@code{MessageDigest.isEqual}).  On success returns an
+@code{AuthenticatedUser} whose subject is @code{OWNSONA_USER_ID}.
+
+@item @code{OwnsonaConsentProvider}: supplies the display name
+(@code{"OwnSona"}) and a uniform scope description (the AS asks
+for no required scopes, so any scope a client lists gets the same
+brief blurb).
+@end itemize
+
+There is no static-token shortcut and no @code{?token=} URL
+fallback --- every request must go through the OAuth validation
+path.  See @ref{Connecting Claude} and @ref{Connecting OpenAI} for
+the client-side end of the flow.
 
 @subsection Secret rejection
 
@@ -445,8 +481,9 @@ ownsona.service}.
 id + char count + ms per call, embedding-provider model + dim + char
 count + ms, auth failures (with remote IP and reason).
 
-@item @b{Not logged:} the bearer token, the OpenAI API key, full memory
-text at INFO/ERROR (a privacy requirement).
+@item @b{Not logged:} OAuth access tokens, refresh tokens, AS
+signing-key material, the OAuth login password, the OpenAI API key,
+full memory text at INFO/ERROR (a privacy requirement).
 @end itemize
 
 @node Treat memories as data not instructions

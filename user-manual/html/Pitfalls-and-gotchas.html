@@ -185,8 +185,8 @@ is hard-deleted between the id scan and the per-batch text fetch, it
 silently drops out of the batch.  No re-embed, no error.
 
 </li><li><b class="b">There&rsquo;s no MCP tool to trigger a re-embed.</b>  Deliberate &mdash;
-admin operations stay outside the MCP surface so any LLM holding the
-bearer can&rsquo;t initiate them.  The trigger is editing
+admin operations stay outside the MCP surface so any LLM holding an
+OAuth access token can&rsquo;t initiate them.  The trigger is editing
 <samp class="file">application.ini</samp> and restarting, which is an operator action.
 
 </li><li><b class="b">Vendor neutrality is preserved.</b>  The walker doesn&rsquo;t know or

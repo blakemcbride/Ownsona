@@ -23,29 +23,88 @@ tools.
 @node What you need
 @section What you need
 
-The same three things you need for any MCP client:
+For every modern OAuth-capable MCP client:
 
 @itemize @bullet
 @item Your OwnSona endpoint URL, e.g.@: @code{https://ownsona.example.com/mcp}.
-@item Your bearer token (@code{OWNSONA_API_TOKEN} from @file{application.ini}).
-@item Confirmation the server is healthy.  A one-line smoke test:
+This is the @b{only} piece of information you give the client.  OwnSona
+advertises the rest (AS endpoints, JWKS, dynamic registration) via the
+discovery documents at @code{/.well-known/oauth-protected-resource} and
+@code{/.well-known/oauth-authorization-server}.
+
+@item Your @code{OWNSONA_LOGIN_USERNAME} and @code{OWNSONA_LOGIN_PASSWORD}
+from @file{application.ini}.  You type these into a browser tab the
+client opens during the first OAuth login --- @b{never} into the
+client's connector configuration UI.
+
+@item Confirmation the server is healthy.  Without an access token,
+the auth wall responds 401 with a discovery challenge:
 @end itemize
 
 @example
-curl -sS -X POST https://<your-host>/mcp \
-    -H "Authorization: Bearer $OWNSONA_API_TOKEN" \
+curl -sS -i -X POST https://<your-host>/mcp \
     -H "Content-Type: application/json" \
     -d '@{"jsonrpc":"2.0","id":1,"method":"initialize","params":@{@}@}'
 @end example
 
-Should return JSON containing @code{"name":"ownsona-mcp"}.  A 401
-means the token is wrong; anything else means the server isn't
-healthy --- fix that first (@pxref{Troubleshooting}).
+Should return HTTP 401 with a @code{WWW-Authenticate: Bearer ...,
+resource_metadata="..."} header.  That header is the client-side
+hook into the OAuth flow; if it's missing or the response is
+anything other than 401, the server isn't healthy --- fix that first
+(@pxref{Troubleshooting}).
 
 @node Claude Desktop
 @section Claude Desktop
 
-Claude Desktop reads its MCP server configuration from a JSON file:
+Claude Desktop discovers MCP servers through its connectors UI ---
+there is no need to hand-edit a config file.  Open
+@b{Settings @result{} Connectors @result{} Add} and paste your MCP
+server URL:
+
+@example
+https://@var{your-host}/mcp
+@end example
+
+Leave any ``bearer token'' or ``API key'' field blank --- OAuth is
+the default auth mode.  Click @b{Save / Connect}.
+
+Claude Desktop will:
+
+@enumerate
+@item Discover the OwnSona AS via the well-known metadata documents.
+@item Register itself dynamically (RFC 7591).
+@item Open a browser tab to @code{https://@var{your-host}/oauth/authorize}.
+@end enumerate
+
+In that browser tab, enter your @code{OWNSONA_LOGIN_USERNAME} and
+@code{OWNSONA_LOGIN_PASSWORD} from @file{application.ini}.  Click
+@b{Allow} on the consent screen.  The browser hands the resulting
+OAuth code back to Claude, which exchanges it for an access token +
+refresh token and stores them locally.  Subsequent calls use those
+tokens automatically; you will not see the browser flow again until
+the refresh token expires (30 days by default).
+
+In any conversation, ask ``what tools do you have?''  You should
+see the nine OwnSona tools listed.
+
+@subsection Older Claude Desktop versions that still accept a JSON config file
+
+Some legacy versions of Claude Desktop read MCP servers from a JSON
+config file rather than the connectors UI.  If yours is one of them,
+the config-file path is unchanged but the @code{url} field is the
+only thing you need --- no @code{headers}/bearer entry:
+
+@example
+@{
+  "mcpServers": @{
+    "ownsona": @{
+      "url": "https://@var{your-host}/mcp"
+    @}
+  @}
+@}
+@end example
+
+Config-file paths:
 
 @table @asis
 @item macOS
@@ -58,23 +117,8 @@ Claude Desktop reads its MCP server configuration from a JSON file:
 @file{~/.config/Claude/claude_desktop_config.json} (when supported)
 @end table
 
-Add OwnSona under @code{mcpServers}:
-
-@example
-@{
-  "mcpServers": @{
-    "ownsona": @{
-      "url": "https://your.host/mcp",
-      "headers": @{
-        "Authorization": "Bearer <OWNSONA_API_TOKEN>"
-      @}
-    @}
-  @}
-@}
-@end example
-
-Restart Claude Desktop.  In any conversation, ask ``what tools do you
-have?''  You should see the nine OwnSona tools listed.
+Restart Claude Desktop after editing.  The first request triggers
+the same browser-based OAuth login described above.
 
 @subsection Verify
 
@@ -91,21 +135,23 @@ the tool call succeed with an empty @code{matches} array.
 @section Claude Code
 
 Claude Code (the CLI) uses the same MCP infrastructure.  Add the
-server to its @file{~/.claude.json}:
+server to its @file{~/.claude.json}; only the URL is needed:
 
 @example
 @{
   "mcpServers": @{
     "ownsona": @{
-      "url": "https://your.host/mcp",
-      "headers": @{ "Authorization": "Bearer <token>" @}
+      "url": "https://@var{your-host}/mcp"
     @}
   @}
 @}
 @end example
 
-Restart any running Claude Code sessions.  The tools will appear with
-the @code{mcp__ownsona__*} prefix (Claude Code namespaces MCP tools by
+Restart any running Claude Code sessions.  The first request opens
+the same OAuth login browser tab Claude Desktop does; enter your
+@code{OWNSONA_LOGIN_USERNAME} / @code{OWNSONA_LOGIN_PASSWORD} and
+click @b{Allow}.  The tools will then appear with the
+@code{mcp__ownsona__*} prefix (Claude Code namespaces MCP tools by
 server name).
 
 @node Anthropic API
@@ -179,7 +225,10 @@ explicitly: ``check OwnSona first.''  After one or two such nudges in
 a conversation, the model tends to stay on-pattern.
 
 @item @b{Auth failure.}  If every recall comes back with an MCP
-error, the bearer token is likely wrong or the WAR was rebuilt
-without the right token.  Inspect with
-@code{journalctl -u ownsona.service | grep AUTH_FAILED}.
+error, the OAuth access token has expired, the refresh token was
+revoked (e.g.@: by the AS signing key being rotated), or
+@file{KissInit.groovy} no longer registers
+@code{OwnsonaUserAuthenticator}.  Inspect with
+@code{journalctl -u ownsona.service | grep -i oauth} and follow the
+client's reconnect flow.
 @end itemize

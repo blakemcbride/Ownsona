@@ -108,6 +108,31 @@ For every setting, highest priority wins:
 @item Built-in defaults (only for LLM-side keys).
 @end enumerate
 
+@subsection Authenticating to the server
+
+@cindex ownsona auth login
+@cindex OAuth (CLI)
+
+The CLI talks to OwnSona over OAuth 2.1, just like every other MCP
+client.  The first time you point it at a server, run:
+
+@example
+ownsona auth login
+@end example
+
+That subcommand discovers your server's authorization server,
+registers the CLI dynamically (RFC 7591), opens a browser tab to
+@code{https://@var{your-host}/oauth/authorize}, and waits for the
+redirect.  You enter your @code{OWNSONA_LOGIN_USERNAME} /
+@code{OWNSONA_LOGIN_PASSWORD} (from the server's
+@file{application.ini}), click @b{Allow}, and the CLI stores the
+resulting access + refresh tokens in its config file.  From then on
+every subcommand transparently refreshes the access token as needed.
+
+Inspect status with @code{ownsona auth status}; it prints the auth
+mode, the refresh token's TTL, and how much time is left on the
+current access token.
+
 @subsection Config file format
 
 INI-style.  @code{#} and @code{;} start comments.  @code{[sections]}
@@ -116,18 +141,34 @@ are parsed but ignored.  A template ships at
 
 @example
 # --- MCP server (required for every subcommand) ---
-server_url = https://your.host/mcp
-token      = <bearer-token>
+server_url = https://@var{your-host}/mcp
+
+# --- OAuth credentials (populated by `ownsona auth login`) ---
+# Edit these directly only if you know what you're doing.
+oauth_client_id                  = <generated-by-dynamic-registration>
+oauth_refresh_token              = <stored-by-auth-login>
+oauth_access_token               = <stored-by-auth-login>
+oauth_access_token_expires_at    = <unix-epoch-seconds>
 
 # --- LLM (used only by `teach`) ---
 llm_api_key  = sk-...
 llm_model    = gpt-4o
 llm_base_url = https://api.openai.com/v1
 subject_name = Blake
+
+# --- Legacy / external-IdP path ---
+# If your OwnSona instance is fronted by a different IdP (Cloudflare
+# Access, oauth2-proxy, ...) that hands you a static bearer token,
+# put it here.  Mutually exclusive with the OAuth fields above.
+# token = <static-bearer-from-external-idp>
 @end example
 
-The token is the same bearer token any other MCP client uses against
-your OwnSona server.  Treat it as a secret.
+The default mode is OAuth.  The @code{token =} field exists only as
+a legacy escape hatch for users fronting OwnSona with an external
+identity provider that issues static bearer tokens --- it is not the
+path against a vanilla OwnSona install, and the embedded AS does
+not accept it.  See @ref{Re-authenticating} in @ref{Connecting OpenAI}
+for cases when an existing OAuth session stops working.
 
 @node Subcommand reference
 @section Subcommand reference

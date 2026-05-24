@@ -390,16 +390,109 @@ DatabaseName     = ownsona
 DatabaseUser     = ownsona
 DatabasePassword = <PGPW>
 
-EMBEDDING_API_KEY    = sk-...your-OpenAI-key...
-OWNSONA_API_TOKEN    = <openssl rand -hex 32>
-EMBEDDING_ENDPOINT   = https://api.openai.com/v1/embeddings
-EMBEDDING_MODEL      = text-embedding-3-small
-EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_ENDPOINT     = https://api.openai.com/v1/embeddings
+EMBEDDING_API_KEY      = sk-...your-OpenAI-key...
+EMBEDDING_MODEL        = text-embedding-3-small
+EMBEDDING_DIMENSIONS   = 1536
+
+OWNSONA_LOGIN_USERNAME = <pick-any-username>
+OWNSONA_LOGIN_PASSWORD = <pick-a-strong-password>
+
+# OAuth 2.1 (resource server + embedded authorization server).
+# OAuthAuthorizationServer is the single URL that drives everything:
+# the resource identifier, the AS issuer, and the JWKS URI all derive
+# from it.  Use the full URL with scheme.
+OAuthAuthorizationServer = https://<your-host>
+OAuthAsEnabled           = true
 @end example
 
-Generate the bearer token with @code{openssl rand -hex 32} and save it
-somewhere safe --- it's what every MCP client must present in
-@code{Authorization: Bearer ...}.
+@subsection What @code{OWNSONA_LOGIN_USERNAME} and @code{OWNSONA_LOGIN_PASSWORD} are
+
+These are credentials @b{you invent} when setting up the server ---
+a username and password that guard the OwnSona OAuth consent page.
+They are @b{not} tied to any external service: not your OpenAI /
+Anthropic / Google account, not your Unix login, not anything else.
+They exist nowhere outside @file{application.ini} and the
+@code{OwnsonaUserAuthenticator} class that reads them.
+
+The single flow they're used in: when someone (you) connects an
+MCP client like Claude or ChatGPT to your OwnSona server, the client
+opens a browser tab to @code{https://@var{your-host}/oauth/authorize}.
+That page asks for @code{OWNSONA_LOGIN_USERNAME} and
+@code{OWNSONA_LOGIN_PASSWORD}.  You type them in, click @b{Allow} on
+the consent screen, and the OwnSona authorization server issues an
+OAuth access token + refresh token back to the client.  The client
+uses those for every subsequent MCP call.  After the first time the
+user doesn't see the login page again until the refresh token expires
+(30 days by default).
+
+Because OwnSona is single-user, one username/password pair is
+enough.  Pick anything you'll remember.  Treat the password like any
+other password (strong, not reused).  Both values sit in plaintext
+in @file{application.ini} alongside the database password and the
+embedding API key; keep the file @code{chmod 600}.
+
+@subsection What the @code{OAuth*} keys do
+
+They turn on the resource server (validates incoming
+@code{Authorization: Bearer @var{JWT}} access tokens) and the
+embedded authorization server (issues those JWTs at
+@code{/oauth/authorize} and @code{/oauth/token}, with dynamic client
+registration at @code{/oauth/register}).  MCP clients discover both
+via auto-served metadata documents at
+@code{/.well-known/oauth-protected-resource} and
+@code{/.well-known/oauth-authorization-server}.
+
+The resource server discovers the JWKS URI automatically via the RFC
+8414 metadata document the AS publishes; no separate JWKS key is
+needed.  The resource identifier and the AS issuer URL also default
+to @code{OAuthAuthorizationServer}.
+
+@subsection Where the AS keeps its signing key (@code{OAuthAsIniFile})
+@cindex OAuthAsIniFile
+@cindex AS state file
+
+The authorization server persists its signing key, dynamically-
+registered clients, and refresh tokens to a single INI file.  By
+default it lives at @file{WEB-INF/backend/oauth.ini} under the
+deployed Tomcat --- but this default is @b{strongly inadvisable for
+production}.  The deployed WAR's @file{WEB-INF/backend/} directory
+is replaced on every WAR redeploy: any file written there at runtime
+is overwritten with whatever the build packaged.  In practice that
+means every @code{./bld war} + @code{cp ROOT.war ...} silently
+rotates the AS signing key, invalidating every issued access token
+and forcing every MCP client through the browser OAuth flow again.
+
+@b{The fix is one config line.}  Choose a path @b{outside} the
+Tomcat webapps tree, owned and writable by the service user the JVM
+runs as (typically @code{ownsona}), and set @code{OAuthAsIniFile}
+to that absolute path in @file{application.ini}.  Common choices:
+
+@example
+# In the service user's home directory:
+OAuthAsIniFile = /home/ownsona/oauth.ini
+
+# Or a conventional state directory:
+OAuthAsIniFile = /var/lib/ownsona/oauth.ini
+@end example
+
+Create the parent directory if needed and make sure it's writable
+by the service user:
+
+@example
+# Example for the /var/lib/ownsona option:
+sudo install -d -o ownsona -g ownsona -m 700 /var/lib/ownsona
+@end example
+
+The file itself is created on first AS request; you don't need to
+pre-create it.  Once it exists, include the chosen location in your
+backup policy --- it holds the AS's master signing key.  Treat it
+as sensitive as @file{application.ini} itself.
+
+A relative value or an omitted @code{OAuthAsIniFile} falls back to
+the @file{WEB-INF/backend/oauth.ini} default, which is fine for
+local development (where there is no redeploy) but should not be
+left in that state for production.
 
 @code{EMBEDDING_DIMENSIONS} must match the @code{vector(N)} column
 type in @file{sql/001_init.sql}.  The shipped schema uses
@@ -444,12 +537,39 @@ path, where every JDK upgrade silently strips
 
 @node Smoke test the install
 @section Smoke test
+@cindex smoke test
+@cindex OWNSONA_ACCESS_TOKEN
 
-A single MCP @code{initialize} call:
+The smoke test requires an OAuth 2.1 access token.  The embedded AS
+supports only the auth code (+ PKCE) and refresh grants, so curl
+cannot fetch a token unattended.  Get one once via the browser, then
+export it.
+
+Quick way to obtain an @code{OWNSONA_ACCESS_TOKEN} for testing:
+
+@enumerate
+@item Add OwnSona as an MCP server in any OAuth-capable MCP client
+(Claude Desktop, ChatGPT, Claude.ai).  The client performs dynamic
+registration, opens the browser, you log in with
+@code{OWNSONA_LOGIN_USERNAME} / @code{OWNSONA_LOGIN_PASSWORD}, click
+@b{Allow} on the consent page, and the client stores the access
+token in its local config.  Copy that token out.
+
+@item Or drive the flow manually with curl + browser.  The relevant
+endpoints are @code{/oauth/register}, @code{/oauth/authorize}, and
+@code{/oauth/token}.  With the default config, the AS issues tokens
+with @code{aud = <OAuthAuthorizationServer>} and the RS validates
+against the same value, so the @code{resource=} parameter (RFC 8707)
+can be omitted.
+@end enumerate
+
+Then a single MCP @code{initialize} call:
 
 @example
+export OWNSONA_ACCESS_TOKEN="eyJhbGciOiJSUzI1NiIs..."
+
 curl -sS -X POST https://<your-host>/mcp \
-    -H "Authorization: Bearer $OWNSONA_API_TOKEN" \
+    -H "Authorization: Bearer $OWNSONA_ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
     -d '@{"jsonrpc":"2.0","id":1,"method":"initialize","params":@{@}@}'
 @end example
@@ -462,14 +582,18 @@ Expected:
  "protocolVersion":"2025-06-18"@},"id":1,"jsonrpc":"2.0"@}
 @end example
 
-A 401 means the bearer token is wrong.  A connection refused/reset
-generally means Tomcat failed to bind 443 --- check
+A 401 means the token is missing, malformed, expired, or signed by
+a different AS key than the one in the current @file{oauth.ini}.
+The 401 response carries an RFC 6750 / RFC 9728
+@code{WWW-Authenticate} header that points clients at the
+resource-metadata document.  A connection refused/reset generally
+means Tomcat failed to bind 443 --- check
 @code{journalctl -u ownsona.service}.
 
 End-to-end exercise of every tool:
 
 @example
-OWNSONA_API_TOKEN="..." /home/ownsona/ownsona/sql/smoke_test.sh
+OWNSONA_ACCESS_TOKEN="..." /home/ownsona/ownsona/sql/smoke_test.sh https://<your-host>/mcp
 @end example
 
 Run the test suite:
@@ -735,13 +859,31 @@ sudo tail -f /var/log/ownsona-backup.log              # last run + history
 @item @file{tomcat/logs/catalina.out} @tab n/a @tab unused under systemd
 @end multitable
 
-@subsection Rotating the bearer token
+@subsection Rotating login credentials
 
-Generate a new token, update @code{OWNSONA_API_TOKEN} in
-@file{src/main/backend/application.ini}, run @code{./bld -v build
-&& ./bld war} to rebuild the WAR, redeploy, and distribute the new
-token to MCP clients.  There is no dual-token grace window; clients
-see a 401 until they update.
+Change @code{OWNSONA_LOGIN_PASSWORD} in
+@file{src/main/backend/application.ini}, rebuild the WAR
+(@code{./bld -v build && ./bld war}), and redeploy.  Issued access
+tokens remain valid until their TTL expires --- the password is only
+consulted on the AS login page.  To invalidate every existing token
+immediately, also delete the AS state file (the path you set in
+@code{OAuthAsIniFile}, or @file{WEB-INF/backend/oauth.ini} if you
+kept the default) before restart: the AS will mint a new signing
+key and every previously-issued JWT will fail signature verification.
+Registered clients will have to re-register and re-authorize, which
+for typical MCP clients means the user redoes the login + Allow flow.
+
+@subsection Rotating the AS signing key only
+
+To rotate the JWT signing key without forcing a re-registration of
+every client: stop the service, edit the AS state file (the path you
+set in @code{OAuthAsIniFile}, or @file{WEB-INF/backend/oauth.ini} if
+you kept the default) and remove the @code{[keys]} section (and any
+@code{kid} references in @code{[client.*]} entries you wish to keep),
+restart.  The AS will generate a fresh key on first OAuth request;
+existing access tokens become invalid.  Clients with refresh tokens
+issued before the rotation also lose them --- refresh tokens are
+signed with the same key.
 
 @subsection Top common failure modes
 
@@ -756,9 +898,26 @@ the override no longer applies.
 the OpenAI account is out of credit.  Top up; auth, DB, listing, and
 text search keep working.
 
-@item MCP returns @code{AUTH_FAILED} on every request:
-@code{OWNSONA_API_TOKEN} doesn't match what the client is sending, or
-the WAR wasn't rebuilt/redeployed after editing the ini.
+@item Every @code{/mcp} request returns 401: the client is sending
+no token, an expired one, or one signed by a different AS key than
+the one in the current AS state file.  The @code{WWW-Authenticate}
+header on the 401 names the resource-metadata URL the client should
+use to re-discover the AS.  If every client started failing all at
+once right after a redeploy and you kept the default @file{oauth.ini}
+location in the WAR tree, this is the redeploy clobbering the state
+file --- set @code{OAuthAsIniFile} to an absolute path outside the
+webapp.
+
+@item @code{/oauth/authorize} returns 500 with ``UserAuthenticator
+not registered'': @file{KissInit.groovy} did not register
+@code{OwnsonaUserAuthenticator}.  Check that the WAR contains both
+@file{WEB-INF/classes/ai/ownsona/oauth/OwnsonaUserAuthenticator.class}
+and a @file{KissInit.groovy} that wires it via
+@code{AsExtensions.setUserAuthenticator(...)}.
+
+@item AS cannot persist state: the directory containing the AS state
+file is not writable by the JVM user.  Run @code{ls -ld @var{dirname-of-OAuthAsIniFile}}
+and confirm it is owned by the service user.
 
 @item First request after deploy is slow / 404: Tomcat is still
 redeploying the WAR; ~10 s window with @code{autoDeploy="true"}.

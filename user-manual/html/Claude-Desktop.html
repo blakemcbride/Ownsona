@@ -161,7 +161,60 @@ Next: <a href="Claude-Code.html" accesskey="n" rel="next">Claude Code</a>, Previ
 <hr>
 <h3 class="section" id="Claude-Desktop-1"><span>7.2 Claude Desktop<a class="copiable-link" href="#Claude-Desktop-1"> &para;</a></span></h3>
 
-<p>Claude Desktop reads its MCP server configuration from a JSON file:
+<p>Claude Desktop discovers MCP servers through its connectors UI &mdash;
+there is no need to hand-edit a config file.  Open
+<b class="b">Settings &rArr; Connectors &rArr; Add</b> and paste your MCP
+server URL:
+</p>
+<div class="example">
+<pre class="example-preformatted">https://<var class="var">your-host</var>/mcp
+</pre></div>
+
+<p>Leave any &ldquo;bearer token&rdquo; or &ldquo;API key&rdquo; field blank &mdash; OAuth is
+the default auth mode.  Click <b class="b">Save / Connect</b>.
+</p>
+<p>Claude Desktop will:
+</p>
+<ol class="enumerate">
+<li> Discover the OwnSona AS via the well-known metadata documents.
+</li><li> Register itself dynamically (RFC 7591).
+</li><li> Open a browser tab to <code class="code">https://<var class="var">your-host</var>/oauth/authorize</code>.
+</li></ol>
+
+<p>In that browser tab, enter your <code class="code">OWNSONA_LOGIN_USERNAME</code> and
+<code class="code">OWNSONA_LOGIN_PASSWORD</code> from <samp class="file">application.ini</samp>.  Click
+<b class="b">Allow</b> on the consent screen.  The browser hands the resulting
+OAuth code back to Claude, which exchanges it for an access token +
+refresh token and stores them locally.  Subsequent calls use those
+tokens automatically; you will not see the browser flow again until
+the refresh token expires (30 days by default).
+</p>
+<p>In any conversation, ask &ldquo;what tools do you have?&rdquo;  You should
+see the nine OwnSona tools listed.
+</p>
+<ul class="mini-toc">
+<li><a href="#Older-Claude-Desktop-versions-that-still-accept-a-JSON-config-file" accesskey="1">Older Claude Desktop versions that still accept a JSON config file</a></li>
+<li><a href="#Verify" accesskey="2">Verify</a></li>
+</ul>
+<div class="subsection-level-extent" id="Older-Claude-Desktop-versions-that-still-accept-a-JSON-config-file">
+<h4 class="subsection"><span>7.2.1 Older Claude Desktop versions that still accept a JSON config file<a class="copiable-link" href="#Older-Claude-Desktop-versions-that-still-accept-a-JSON-config-file"> &para;</a></span></h4>
+
+<p>Some legacy versions of Claude Desktop read MCP servers from a JSON
+config file rather than the connectors UI.  If yours is one of them,
+the config-file path is unchanged but the <code class="code">url</code> field is the
+only thing you need &mdash; no <code class="code">headers</code>/bearer entry:
+</p>
+<div class="example">
+<pre class="example-preformatted">{
+  &quot;mcpServers&quot;: {
+    &quot;ownsona&quot;: {
+      &quot;url&quot;: &quot;https://<var class="var">your-host</var>/mcp&quot;
+    }
+  }
+}
+</pre></div>
+
+<p>Config-file paths:
 </p>
 <dl class="table">
 <dt>macOS</dt>
@@ -177,29 +230,12 @@ Next: <a href="Claude-Code.html" accesskey="n" rel="next">Claude Code</a>, Previ
 </p></dd>
 </dl>
 
-<p>Add OwnSona under <code class="code">mcpServers</code>:
+<p>Restart Claude Desktop after editing.  The first request triggers
+the same browser-based OAuth login described above.
 </p>
-<div class="example">
-<pre class="example-preformatted">{
-  &quot;mcpServers&quot;: {
-    &quot;ownsona&quot;: {
-      &quot;url&quot;: &quot;https://your.host/mcp&quot;,
-      &quot;headers&quot;: {
-        &quot;Authorization&quot;: &quot;Bearer &lt;OWNSONA_API_TOKEN&gt;&quot;
-      }
-    }
-  }
-}
-</pre></div>
-
-<p>Restart Claude Desktop.  In any conversation, ask &ldquo;what tools do you
-have?&rdquo;  You should see the nine OwnSona tools listed.
-</p>
-<ul class="mini-toc">
-<li><a href="#Verify" accesskey="1">Verify</a></li>
-</ul>
+</div>
 <div class="subsection-level-extent" id="Verify">
-<h4 class="subsection"><span>7.2.1 Verify<a class="copiable-link" href="#Verify"> &para;</a></span></h4>
+<h4 class="subsection"><span>7.2.2 Verify<a class="copiable-link" href="#Verify"> &para;</a></span></h4>
 
 <p>In a fresh conversation:
 </p>
@@ -211,6 +247,11 @@ have?&rdquo;  You should see the nine OwnSona tools listed.
 the tool call succeed with an empty <code class="code">matches</code> array.
 </p>
 </div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Claude-Code.html">Claude Code</a>, Previous: <a href="What-you-need.html">What you need</a>, Up: <a href="Connecting-Claude.html">Connecting Claude</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

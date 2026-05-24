@@ -161,7 +161,7 @@ Next: <a href="Logging.html" accesskey="n" rel="next">Logging</a>, Previous: <a 
 <hr>
 <h3 class="section" id="Security-model-1"><span>6.9 Security model<a class="copiable-link" href="#Security-model-1"> &para;</a></span></h3>
 <a class="index-entry-id" id="index-security"></a>
-<a class="index-entry-id" id="index-bearer-token"></a>
+<a class="index-entry-id" id="index-OAuth-2_002e1"></a>
 <a class="index-entry-id" id="index-SecretScanner"></a>
 
 <ul class="mini-toc">
@@ -182,24 +182,55 @@ not exposed publicly.
 </div>
 <div class="subsection-level-extent" id="Authentication-1">
 <h4 class="subsection"><span>6.9.2 Authentication<a class="copiable-link" href="#Authentication-1"> &para;</a></span></h4>
+<a class="index-entry-id" id="index-OAuth-2_002e1-1"></a>
+<a class="index-entry-id" id="index-JWT"></a>
+<a class="index-entry-id" id="index-JWKS"></a>
 
-<p>A single bearer token, <code class="code">OWNSONA_API_TOKEN</code>, set in
-<samp class="file">application.ini</samp>.  Two presentation paths, in order:
+<p>OAuth 2.1 (auth code + PKCE).  The OwnSona server runs both halves
+of the OAuth machinery in a single WAR:
 </p>
-<ol class="enumerate">
-<li> <b class="b">Preferred:</b> <code class="code">Authorization: Bearer &lt;token&gt;</code> HTTP header.
-Used by curl, the CLI, the smoke test, the OpenAI Responses API, and
-any client that can set custom headers.
+<ul class="itemize mark-bullet">
+<li><b class="b">Resource server</b> (<code class="code">org.kissweb.oauth</code> in Kiss core):
+validates the <code class="code">Authorization: Bearer <var class="var">JWT</var></code> on every
+<code class="code">/mcp</code> request.  Checks the JWS signature against the JWKS,
+the <code class="code">iss</code> and <code class="code">aud</code> claims, the <code class="code">exp</code>/<code class="code">nbf</code>
+times (with configurable clock skew), and any configured required
+scopes.  Failure writes a 401 with RFC 6750 / RFC 9728
+<code class="code">WWW-Authenticate</code> challenge naming the resource-metadata
+document.
 
-</li><li> <b class="b">Fallback:</b> <code class="code">?token=&lt;token&gt;</code> URL query parameter.  Used
-by clients (e.g. ChatGPT&rsquo;s connector UI) that can&rsquo;t supply custom
-headers.  The access log&rsquo;s pattern is deliberately set to
-<code class="code">&quot;%m %U %H&quot;</code> so query strings are not logged &mdash; the token
-doesn&rsquo;t end up in <samp class="file">tomcat/logs/</samp> or in nightly backups.
-</li></ol>
+</li><li><b class="b">Authorization server</b> (<code class="code">org.kissweb.oauth.as</code> in Kiss
+core, plus app-specific extensions in <code class="code">ai.ownsona.oauth</code>):
+issues access and refresh tokens.  Exposes <code class="code">/oauth/authorize</code>,
+<code class="code">/oauth/token</code>, <code class="code">/oauth/register</code> (RFC 7591 dynamic
+client registration), <code class="code">/oauth/jwks</code>, and the RFC 8414 metadata
+endpoint at <code class="code">/.well-known/oauth-authorization-server</code>.  The
+AS&rsquo;s persistent state (signing key, registered clients, refresh
+tokens) lives in an INI file whose location is set by
+<code class="code">OAuthAsIniFile</code>; production installs set this to an absolute
+path outside the deployed webapp so WAR redeploys can&rsquo;t touch it.
+</li></ul>
 
-<p>Both paths compare in constant time via <code class="code">MessageDigest.isEqual</code>.
-Any failure returns HTTP 401 with <code class="code">WWW-Authenticate: Bearer</code>.
+<p>The two app-specific pieces register at startup via
+<code class="code">AsExtensions</code>:
+</p>
+<ul class="itemize mark-bullet">
+<li><code class="code">OwnsonaUserAuthenticator</code>: checks
+<code class="code">OWNSONA_LOGIN_USERNAME</code> / <code class="code">OWNSONA_LOGIN_PASSWORD</code> from
+<samp class="file">application.ini</samp> in constant time
+(<code class="code">MessageDigest.isEqual</code>).  On success returns an
+<code class="code">AuthenticatedUser</code> whose subject is <code class="code">OWNSONA_USER_ID</code>.
+
+</li><li><code class="code">OwnsonaConsentProvider</code>: supplies the display name
+(<code class="code">&quot;OwnSona&quot;</code>) and a uniform scope description (the AS asks
+for no required scopes, so any scope a client lists gets the same
+brief blurb).
+</li></ul>
+
+<p>There is no static-token shortcut and no <code class="code">?token=</code> URL
+fallback &mdash; every request must go through the OAuth validation
+path.  See <a class="ref" href="Connecting-Claude.html">Connecting Claude</a> and <a class="ref" href="Connecting-OpenAI.html">Connecting OpenAI</a> for
+the client-side end of the flow.
 </p>
 </div>
 <div class="subsection-level-extent" id="Secret-rejection">

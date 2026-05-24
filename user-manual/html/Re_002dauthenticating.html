@@ -14,10 +14,10 @@ Copyright © 2018-2026 Blake McBride.
 
 Distributed under the BSD 2-Clause License.  See LICENSE.txt
 in the source distribution for the full text. -->
-<title>Rotating the bearer token (OwnSona Manual)</title>
+<title>Re-authenticating (OwnSona Manual)</title>
 
-<meta name="description" content="Rotating the bearer token (OwnSona Manual)">
-<meta name="keywords" content="Rotating the bearer token (OwnSona Manual)">
+<meta name="description" content="Re-authenticating (OwnSona Manual)">
+<meta name="keywords" content="Re-authenticating (OwnSona Manual)">
 <meta name="resource-type" content="document">
 <meta name="distribution" content="global">
 <meta name="Generator" content="makeinfo">
@@ -37,6 +37,7 @@ in the source distribution for the full text. -->
 
 a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
 span:hover a.copiable-link {visibility: visible}
+ul.mark-bullet {list-style-type: disc}
 body {
     max-width: 48rem;
     margin: 2rem auto;
@@ -151,31 +152,39 @@ dl dd {
 </head>
 
 <body lang="en">
-<div class="section-level-extent" id="Rotating-the-bearer-token">
+<div class="section-level-extent" id="Re_002dauthenticating">
 <div class="nav-panel">
 <p>
 Previous: <a href="Responses-API.html" accesskey="p" rel="prev">Responses API</a>, Up: <a href="Connecting-OpenAI.html" accesskey="u" rel="up">Connecting OpenAI</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="Rotating-the-bearer-token-2"><span>8.5 Rotating the bearer token<a class="copiable-link" href="#Rotating-the-bearer-token-2"> &para;</a></span></h3>
+<h3 class="section" id="Re_002dauthenticating-1"><span>8.4 Re-authenticating<a class="copiable-link" href="#Re_002dauthenticating-1"> &para;</a></span></h3>
 
-<p>Whenever you suspect the token has leaked &mdash; a screenshot leaked, a
-URL with <code class="code">?token=</code> ended up somewhere public, a connector got
-shared &mdash; rotate it:
+<p>Cases where a previously-working connector starts failing:
 </p>
-<ol class="enumerate">
-<li> Generate a new token: <code class="code">openssl rand -hex 32</code>.
-</li><li> Update <code class="code">OWNSONA_API_TOKEN</code> in
-<samp class="file">src/main/backend/application.ini</samp>.
-</li><li> Rebuild and redeploy: <code class="code">./bld -v build &amp;&amp; ./bld war &amp;&amp;
-sudo cp work/Kiss.war /home/ownsona/tomcat/webapps/ROOT.war</code>.
-</li><li> Update every client (ChatGPT connector URL, Claude config,
-your scripts, CLI config files).
-</li></ol>
+<ul class="itemize mark-bullet">
+<li><b class="b">Refresh token TTL elapsed.</b>  Default 30 days.  ChatGPT&rsquo;s
+connector will surface an auth error or a &ldquo;reconnect&rdquo; link; one
+click reopens the OAuth login tab and you re-enter the credentials.
 
-<p>There is no dual-token grace window.  Clients see 401 until they
-update.  For a single-user store this is fine; do it after-hours.
-</p></div>
+</li><li><b class="b">AS signing key rotated.</b>  If you (or a careless redeploy)
+replaced the AS state file at <code class="code">OAuthAsIniFile</code>, every issued
+JWT becomes unverifiable.  Same client-side recovery: reconnect and
+re-do the login flow.  Avoid this in the first place by setting
+<code class="code">OAuthAsIniFile</code> to an absolute path outside the deployed
+webapp; see <a class="ref" href="Installation.html">Installation</a>.
+
+</li><li><b class="b">Login password changed.</b>  Existing access and refresh
+tokens remain valid until their natural TTLs &mdash; the new password
+only affects new logins.
+
+</li><li><b class="b">Connector deleted and re-added.</b>  The dynamic-registration
+record on the AS still exists, but the client&rsquo;s stored
+<code class="code">client_id</code> is gone, so it re-registers as a new client on
+re-add.  Old client_id entries can be pruned by editing the
+<code class="code">[client.*]</code> sections of the AS state file when convenient.
+</li></ul>
+</div>
 
 
 

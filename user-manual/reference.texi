@@ -26,7 +26,10 @@ Every key recognized in @file{src/main/backend/application.ini}.
 @item @code{DatabaseName} @tab Database name (typically @code{ownsona}).
 @item @code{DatabaseUser} @tab Application role.
 @item @code{DatabasePassword} @tab Password for the application role.
-@item @code{OWNSONA_API_TOKEN} @tab Bearer token MCP clients must present.
+@item @code{OWNSONA_LOGIN_USERNAME} @tab Username the OAuth AS consent page accepts.
+@item @code{OWNSONA_LOGIN_PASSWORD} @tab Password the OAuth AS consent page accepts.
+@item @code{OAuthAuthorizationServer} @tab Canonical public URL of the OwnSona server (also the AS issuer and resource identifier).
+@item @code{OAuthAsEnabled} @tab @code{true} to enable the embedded authorization server.
 @item @code{EMBEDDING_API_KEY} @tab API key for the embeddings endpoint.
 @item @code{EMBEDDING_ENDPOINT} @tab Full URL of the @code{/embeddings} endpoint.
 @item @code{EMBEDDING_MODEL} @tab Embedding model identifier.
@@ -35,7 +38,7 @@ Every key recognized in @file{src/main/backend/application.ini}.
 
 @subsection Optional with defaults
 
-@multitable @columnfractions .30 .15 .55
+@multitable @columnfractions .35 .15 .50
 @headitem Key @tab Default @tab Purpose
 @item @code{DatabaseType} @tab @code{PostgreSQL} @tab Kiss DB driver type (only PostgreSQL supported).
 @item @code{DatabaseConnectionParameters} @tab (none) @tab Appended to JDBC URL.
@@ -46,8 +49,16 @@ Every key recognized in @file{src/main/backend/application.ini}.
 @item @code{MAX_TEXT_CHARS} @tab @code{16000} @tab Hard cap on memory text length.
 @item @code{MAX_BATCH_SIZE} @tab @code{200} @tab Max items per @code{remember_batch}.
 @item @code{REEMBED_ON_STARTUP} @tab @code{false} @tab Triggers the re-embed walker. Auto-flipped after success.
+@item @code{OAuthAsIniFile} @tab @code{oauth.ini} @tab Path to the AS persistence file.  Strongly recommended: absolute path outside the deployed webapp.
+@item @code{OAuthRequiredScopes} @tab (none) @tab Comma- or space-separated list of scopes every access token must carry.
+@item @code{OAuthResourceIdentifier} @tab = @code{OAuthAuthorizationServer} @tab Override for the @code{aud} value tokens must carry.
+@item @code{OAuthAsIssuer} @tab = @code{OAuthAuthorizationServer} @tab Override for the AS issuer URL.
+@item @code{OAuthJwksUri} @tab auto-discovered @tab Override for the JWKS URL.  Default is discovered via RFC 8414.
+@item @code{OAuthAccessTokenTtlSeconds} @tab @code{3600} @tab Access token TTL.
+@item @code{OAuthRefreshTokenTtlSeconds} @tab @code{2592000} @tab Refresh token TTL (30 days).
+@item @code{OAuthAllowDynamicRegistration} @tab @code{true} @tab Enables @code{/oauth/register}.  Disabling breaks every modern MCP client.
 @item @code{MaxWorkerThreads} @tab @code{30} @tab Kiss tunable: concurrent request cap.
-@item @code{UserInactiveSeconds} @tab @code{900} @tab Kiss tunable: session inactivity timeout.
+@item @code{UserInactiveSeconds} @tab @code{900} @tab Kiss tunable: session inactivity timeout (unused by OAuth path).
 @end multitable
 
 @subsection Connection pool tunables (Kiss-provided)
@@ -176,9 +187,9 @@ Most settings live in @file{application.ini} or the CLI's
 @multitable @columnfractions .35 .65
 @headitem Variable @tab Purpose
 @item @code{OWNSONA_TEST_DATABASE_URL} @tab JDBC URL for a separate test database.  Gates the integration tests in @code{sql/run_tests.sh}; absent = skip.
-@item @code{OWNSONA_API_TOKEN} @tab Used by @file{sql/smoke_test.sh} when invoked from the shell.
+@item @code{OWNSONA_ACCESS_TOKEN} @tab Used by @file{sql/smoke_test.sh} as the OAuth access token in @code{Authorization: Bearer ...}.
 @item @code{OWNSONA_SERVER} @tab CLI override for @code{server_url}.
-@item @code{OWNSONA_TOKEN} @tab CLI override for @code{token}.
+@item @code{OWNSONA_TOKEN} @tab CLI override for the legacy / external-IdP static-bearer @code{token} field.  Not used by the OAuth path.
 @item @code{OWNSONA_CONFIG} @tab CLI override for the config-file path.
 @item @code{OWNSONA_LLM_API_KEY} @tab CLI: API key for the @code{teach} LLM.
 @item @code{OWNSONA_LLM_MODEL} @tab CLI: model name for the @code{teach} LLM.

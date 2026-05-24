@@ -27,7 +27,7 @@ in the source distribution for the full text. -->
 <link href="Index.html" rel="index" title="Index">
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="Configuration.html" rel="up" title="Configuration">
-<link href="Optional-keys-with-defaults.html" rel="next" title="Optional keys with defaults">
+<link href="OAuth-keys.html" rel="next" title="OAuth keys">
 <style type="text/css">
 <!--
 /*
@@ -154,19 +154,26 @@ dl dd {
 <div class="section-level-extent" id="Required-keys">
 <div class="nav-panel">
 <p>
-Next: <a href="Optional-keys-with-defaults.html" accesskey="n" rel="next">Optional keys with defaults</a>, Up: <a href="Configuration.html" accesskey="u" rel="up">Configuration</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="OAuth-keys.html" accesskey="n" rel="next">OAuth keys</a>, Up: <a href="Configuration.html" accesskey="u" rel="up">Configuration</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
 <h3 class="section" id="Required-keys-1"><span>4.1 Required keys<a class="copiable-link" href="#Required-keys-1"> &para;</a></span></h3>
 
-<p>These three must be set or the servlet refuses to load.
+<p>These must be set or the servlet refuses to load.
 </p>
 <dl class="table">
-<dt><code class="code">OWNSONA_API_TOKEN</code></dt>
-<dd><p>The bearer token MCP clients must present in
-<code class="code">Authorization: Bearer &lt;token&gt;</code>.  Generate a long random string;
-<code class="code">openssl rand -hex 32</code> produces 64 hex chars and is more than
-enough.
+<dt><code class="code">OWNSONA_LOGIN_USERNAME</code></dt>
+<dd><p>Username the OAuth AS consent page accepts.  You invent this &mdash; it
+is unrelated to any external account.  Typed into a browser tab
+when an MCP client first connects to your server; never sent to or
+from any external service.
+</p>
+</dd>
+<dt><code class="code">OWNSONA_LOGIN_PASSWORD</code></dt>
+<dd><p>Password paired with <code class="code">OWNSONA_LOGIN_USERNAME</code>.  Same notes
+apply: you invent it, it lives only in this file and in
+<code class="code">OwnsonaUserAuthenticator</code>, and it&rsquo;s typed only into the AS
+consent page.
 </p>
 </dd>
 <dt><code class="code">EMBEDDING_API_KEY</code></dt>

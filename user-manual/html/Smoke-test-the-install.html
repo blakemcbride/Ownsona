@@ -160,12 +160,39 @@ Next: <a href="Daily-backups.html" accesskey="n" rel="next">Daily backups</a>, P
 </div>
 <hr>
 <h3 class="section" id="Smoke-test"><span>3.12 Smoke test<a class="copiable-link" href="#Smoke-test"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-smoke-test"></a>
+<a class="index-entry-id" id="index-OWNSONA_005fACCESS_005fTOKEN"></a>
 
-<p>A single MCP <code class="code">initialize</code> call:
+<p>The smoke test requires an OAuth 2.1 access token.  The embedded AS
+supports only the auth code (+ PKCE) and refresh grants, so curl
+cannot fetch a token unattended.  Get one once via the browser, then
+export it.
+</p>
+<p>Quick way to obtain an <code class="code">OWNSONA_ACCESS_TOKEN</code> for testing:
+</p>
+<ol class="enumerate">
+<li> Add OwnSona as an MCP server in any OAuth-capable MCP client
+(Claude Desktop, ChatGPT, Claude.ai).  The client performs dynamic
+registration, opens the browser, you log in with
+<code class="code">OWNSONA_LOGIN_USERNAME</code> / <code class="code">OWNSONA_LOGIN_PASSWORD</code>, click
+<b class="b">Allow</b> on the consent page, and the client stores the access
+token in its local config.  Copy that token out.
+
+</li><li> Or drive the flow manually with curl + browser.  The relevant
+endpoints are <code class="code">/oauth/register</code>, <code class="code">/oauth/authorize</code>, and
+<code class="code">/oauth/token</code>.  With the default config, the AS issues tokens
+with <code class="code">aud = &lt;OAuthAuthorizationServer&gt;</code> and the RS validates
+against the same value, so the <code class="code">resource=</code> parameter (RFC 8707)
+can be omitted.
+</li></ol>
+
+<p>Then a single MCP <code class="code">initialize</code> call:
 </p>
 <div class="example">
-<pre class="example-preformatted">curl -sS -X POST https://&lt;your-host&gt;/mcp \
-    -H &quot;Authorization: Bearer $OWNSONA_API_TOKEN&quot; \
+<pre class="example-preformatted">export OWNSONA_ACCESS_TOKEN=&quot;eyJhbGciOiJSUzI1NiIs...&quot;
+
+curl -sS -X POST https://&lt;your-host&gt;/mcp \
+    -H &quot;Authorization: Bearer $OWNSONA_ACCESS_TOKEN&quot; \
     -H &quot;Content-Type: application/json&quot; \
     -d '{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;initialize&quot;,&quot;params&quot;:{}}'
 </pre></div>
@@ -178,14 +205,18 @@ Next: <a href="Daily-backups.html" accesskey="n" rel="next">Daily backups</a>, P
  &quot;protocolVersion&quot;:&quot;2025-06-18&quot;},&quot;id&quot;:1,&quot;jsonrpc&quot;:&quot;2.0&quot;}
 </pre></div>
 
-<p>A 401 means the bearer token is wrong.  A connection refused/reset
-generally means Tomcat failed to bind 443 &mdash; check
+<p>A 401 means the token is missing, malformed, expired, or signed by
+a different AS key than the one in the current <samp class="file">oauth.ini</samp>.
+The 401 response carries an RFC 6750 / RFC 9728
+<code class="code">WWW-Authenticate</code> header that points clients at the
+resource-metadata document.  A connection refused/reset generally
+means Tomcat failed to bind 443 &mdash; check
 <code class="code">journalctl -u ownsona.service</code>.
 </p>
 <p>End-to-end exercise of every tool:
 </p>
 <div class="example">
-<pre class="example-preformatted">OWNSONA_API_TOKEN=&quot;...&quot; /home/ownsona/ownsona/sql/smoke_test.sh
+<pre class="example-preformatted">OWNSONA_ACCESS_TOKEN=&quot;...&quot; /home/ownsona/ownsona/sql/smoke_test.sh https://&lt;your-host&gt;/mcp
 </pre></div>
 
 <p>Run the test suite:
@@ -196,6 +227,11 @@ OWNSONA_TEST_DATABASE_URL=&quot;postgresql://ownsona:$PGPW@localhost:5432/ownson
     sql/run_tests.sh                                      # also integration
 </pre></div>
 
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Daily-backups.html">Daily backups</a>, Previous: <a href="Install-the-systemd-service.html">Install the systemd service</a>, Up: <a href="Installation.html">Installation</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

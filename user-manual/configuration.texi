@@ -23,6 +23,7 @@ if you want it immediate.
 
 @menu
 * Required keys::
+* OAuth keys::
 * Optional keys with defaults::
 * Database keys::
 * Embedding keys::
@@ -33,14 +34,20 @@ if you want it immediate.
 @node Required keys
 @section Required keys
 
-These three must be set or the servlet refuses to load.
+These must be set or the servlet refuses to load.
 
 @table @code
-@item OWNSONA_API_TOKEN
-The bearer token MCP clients must present in
-@code{Authorization: Bearer <token>}.  Generate a long random string;
-@code{openssl rand -hex 32} produces 64 hex chars and is more than
-enough.
+@item OWNSONA_LOGIN_USERNAME
+Username the OAuth AS consent page accepts.  You invent this --- it
+is unrelated to any external account.  Typed into a browser tab
+when an MCP client first connects to your server; never sent to or
+from any external service.
+
+@item OWNSONA_LOGIN_PASSWORD
+Password paired with @code{OWNSONA_LOGIN_USERNAME}.  Same notes
+apply: you invent it, it lives only in this file and in
+@code{OwnsonaUserAuthenticator}, and it's typed only into the AS
+consent page.
 
 @item EMBEDDING_API_KEY
 The API key for the embeddings endpoint.  Vendor-agnostic in name;
@@ -51,6 +58,80 @@ key for the new provider.
 The vector length the active model produces.  @b{Must match the
 @code{vector(N)} column type} in @file{sql/001_init.sql}.  Mismatch
 fails every insert at the database with a vector-length error.
+@end table
+
+@node OAuth keys
+@section OAuth keys
+@cindex OAuth keys
+@cindex OAuthAuthorizationServer
+@cindex OAuthAsEnabled
+@cindex OAuthAsIniFile
+
+A standard single-host embedded-AS deployment needs two OAuth keys.
+A production install typically adds a third
+(@code{OAuthAsIniFile}) to keep AS state outside the redeploy
+surface.
+
+@table @code
+@item OAuthAuthorizationServer
+@b{Required}.  The canonical public URL of the OwnSona server, with
+scheme (e.g.@: @code{https://ownsona.example.com}).  This single URL
+drives several derived defaults: the resource identifier, the AS
+issuer, and the JWKS URI all derive from it unless explicitly
+overridden.  No trailing slash --- the validator trims it but
+matching is easier to reason about when the configured value is
+canonical.
+
+@item OAuthAsEnabled
+@b{Required for the embedded AS.}  Set to @code{true} to turn on
+the AS endpoints (@code{/oauth/authorize}, @code{/oauth/token},
+@code{/oauth/register}, @code{/oauth/jwks}, and the metadata
+documents under @code{/.well-known/}).  When unset or false, the
+endpoints return 404.
+
+@item OAuthAsIniFile
+Default @code{oauth.ini}, resolved against the application root
+(@file{WEB-INF/backend/} in the deployed Tomcat).  @b{Strongly
+recommended for production:} set this to an absolute path outside
+the deployed webapp, e.g.@: @code{/home/ownsona/oauth.ini} or
+@code{/var/lib/ownsona/oauth.ini}.  Without that, every WAR redeploy
+rewrites the file, silently rotating the AS signing key and forcing
+every MCP client through the browser OAuth flow again.  See
+@ref{Installation} for the full discussion.
+
+@item OAuthRequiredScopes
+Optional comma- or space-separated list of scopes every access
+token must carry.  Empty (the default) means ``any token signed by
+the AS for the right audience is accepted.''  Single-user installs
+typically leave this empty.
+
+@item OAuthResourceIdentifier
+Optional override for the value tokens must carry as @code{aud}.
+Defaults to @code{OAuthAuthorizationServer}.  Set this if you want
+tokens bound to a more specific URL (e.g.@:
+@code{https://@var{your-host}/mcp}).
+
+@item OAuthAsIssuer
+Optional override for the AS issuer URL announced in the metadata
+document.  Defaults to @code{OAuthAuthorizationServer}.
+
+@item OAuthJwksUri
+Optional override for the JWKS URL the resource server fetches keys
+from.  Default is auto-discovered from the AS's RFC 8414 metadata.
+Set this only when pointing the RS at an AS that publishes neither
+RFC 8414 nor OIDC discovery (rare).
+
+@item OAuthAccessTokenTtlSeconds
+Default @code{3600} (1 hour).  Longer-lived tokens are harder to
+revoke; shorter ones force more frequent refresh exchanges.
+
+@item OAuthRefreshTokenTtlSeconds
+Default @code{2592000} (30 days).  When this elapses the client
+transparently opens the browser again for re-login.
+
+@item OAuthAllowDynamicRegistration
+Default @code{true}.  Disabling this breaks every modern MCP client
+that registers itself via RFC 7591.
 @end table
 
 @node Optional keys with defaults
@@ -141,7 +222,8 @@ than necessary.
 
 @item UserInactiveSeconds
 Default @code{900}.  Kiss's session-inactivity timeout.  Not used by
-OwnSona's bearer-auth path, but the framework expects it.
+OwnSona's OAuth path (which is stateless and runs on JWT TTLs), but
+the framework expects the key to be present.
 @end table
 
 @node Re-embedding flag

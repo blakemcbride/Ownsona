@@ -172,7 +172,8 @@ Next: <a href="Subcommand-reference.html" accesskey="n" rel="next">Subcommand re
 <ul class="mini-toc">
 <li><a href="#Default-config-file-location" accesskey="1">Default config file location</a></li>
 <li><a href="#Resolution-order" accesskey="2">Resolution order</a></li>
-<li><a href="#Config-file-format" accesskey="3">Config file format</a></li>
+<li><a href="#Authenticating-to-the-server" accesskey="3">Authenticating to the server</a></li>
+<li><a href="#Config-file-format" accesskey="4">Config file format</a></li>
 </ul>
 <div class="subsection-level-extent" id="Default-config-file-location">
 <h4 class="subsection"><span>9.2.1 Default config file location<a class="copiable-link" href="#Default-config-file-location"> &para;</a></span></h4>
@@ -206,8 +207,35 @@ Next: <a href="Subcommand-reference.html" accesskey="n" rel="next">Subcommand re
 </li></ol>
 
 </div>
+<div class="subsection-level-extent" id="Authenticating-to-the-server">
+<h4 class="subsection"><span>9.2.3 Authenticating to the server<a class="copiable-link" href="#Authenticating-to-the-server"> &para;</a></span></h4>
+
+<a class="index-entry-id" id="index-ownsona-auth-login"></a>
+<a class="index-entry-id" id="index-OAuth-_0028CLI_0029"></a>
+
+<p>The CLI talks to OwnSona over OAuth 2.1, just like every other MCP
+client.  The first time you point it at a server, run:
+</p>
+<div class="example">
+<pre class="example-preformatted">ownsona auth login
+</pre></div>
+
+<p>That subcommand discovers your server&rsquo;s authorization server,
+registers the CLI dynamically (RFC 7591), opens a browser tab to
+<code class="code">https://<var class="var">your-host</var>/oauth/authorize</code>, and waits for the
+redirect.  You enter your <code class="code">OWNSONA_LOGIN_USERNAME</code> /
+<code class="code">OWNSONA_LOGIN_PASSWORD</code> (from the server&rsquo;s
+<samp class="file">application.ini</samp>), click <b class="b">Allow</b>, and the CLI stores the
+resulting access + refresh tokens in its config file.  From then on
+every subcommand transparently refreshes the access token as needed.
+</p>
+<p>Inspect status with <code class="code">ownsona auth status</code>; it prints the auth
+mode, the refresh token&rsquo;s TTL, and how much time is left on the
+current access token.
+</p>
+</div>
 <div class="subsection-level-extent" id="Config-file-format">
-<h4 class="subsection"><span>9.2.3 Config file format<a class="copiable-link" href="#Config-file-format"> &para;</a></span></h4>
+<h4 class="subsection"><span>9.2.4 Config file format<a class="copiable-link" href="#Config-file-format"> &para;</a></span></h4>
 
 <p>INI-style.  <code class="code">#</code> and <code class="code">;</code> start comments.  <code class="code">[sections]</code>
 are parsed but ignored.  A template ships at
@@ -215,18 +243,34 @@ are parsed but ignored.  A template ships at
 </p>
 <div class="example">
 <pre class="example-preformatted"># --- MCP server (required for every subcommand) ---
-server_url = https://your.host/mcp
-token      = &lt;bearer-token&gt;
+server_url = https://<var class="var">your-host</var>/mcp
+
+# --- OAuth credentials (populated by `ownsona auth login`) ---
+# Edit these directly only if you know what you're doing.
+oauth_client_id                  = &lt;generated-by-dynamic-registration&gt;
+oauth_refresh_token              = &lt;stored-by-auth-login&gt;
+oauth_access_token               = &lt;stored-by-auth-login&gt;
+oauth_access_token_expires_at    = &lt;unix-epoch-seconds&gt;
 
 # --- LLM (used only by `teach`) ---
 llm_api_key  = sk-...
 llm_model    = gpt-4o
 llm_base_url = https://api.openai.com/v1
 subject_name = Blake
+
+# --- Legacy / external-IdP path ---
+# If your OwnSona instance is fronted by a different IdP (Cloudflare
+# Access, oauth2-proxy, ...) that hands you a static bearer token,
+# put it here.  Mutually exclusive with the OAuth fields above.
+# token = &lt;static-bearer-from-external-idp&gt;
 </pre></div>
 
-<p>The token is the same bearer token any other MCP client uses against
-your OwnSona server.  Treat it as a secret.
+<p>The default mode is OAuth.  The <code class="code">token =</code> field exists only as
+a legacy escape hatch for users fronting OwnSona with an external
+identity provider that issues static bearer tokens &mdash; it is not the
+path against a vanilla OwnSona install, and the embedded AS does
+not accept it.  See <a class="ref" href="Re_002dauthenticating.html">Re-authenticating</a> in <a class="ref" href="Connecting-OpenAI.html">Connecting OpenAI</a>
+for cases when an existing OAuth session stops working.
 </p>
 </div>
 </div>

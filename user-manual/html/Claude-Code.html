@@ -162,21 +162,23 @@ Next: <a href="Anthropic-API.html" accesskey="n" rel="next">Anthropic API</a>, P
 <h3 class="section" id="Claude-Code-1"><span>7.3 Claude Code<a class="copiable-link" href="#Claude-Code-1"> &para;</a></span></h3>
 
 <p>Claude Code (the CLI) uses the same MCP infrastructure.  Add the
-server to its <samp class="file">~/.claude.json</samp>:
+server to its <samp class="file">~/.claude.json</samp>; only the URL is needed:
 </p>
 <div class="example">
 <pre class="example-preformatted">{
   &quot;mcpServers&quot;: {
     &quot;ownsona&quot;: {
-      &quot;url&quot;: &quot;https://your.host/mcp&quot;,
-      &quot;headers&quot;: { &quot;Authorization&quot;: &quot;Bearer &lt;token&gt;&quot; }
+      &quot;url&quot;: &quot;https://<var class="var">your-host</var>/mcp&quot;
     }
   }
 }
 </pre></div>
 
-<p>Restart any running Claude Code sessions.  The tools will appear with
-the <code class="code">mcp__ownsona__*</code> prefix (Claude Code namespaces MCP tools by
+<p>Restart any running Claude Code sessions.  The first request opens
+the same OAuth login browser tab Claude Desktop does; enter your
+<code class="code">OWNSONA_LOGIN_USERNAME</code> / <code class="code">OWNSONA_LOGIN_PASSWORD</code> and
+click <b class="b">Allow</b>.  The tools will then appear with the
+<code class="code">mcp__ownsona__*</code> prefix (Claude Code namespaces MCP tools by
 server name).
 </p>
 </div>

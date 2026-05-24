@@ -190,16 +190,119 @@ DatabaseName     = ownsona
 DatabaseUser     = ownsona
 DatabasePassword = &lt;PGPW&gt;
 
-EMBEDDING_API_KEY    = sk-...your-OpenAI-key...
-OWNSONA_API_TOKEN    = &lt;openssl rand -hex 32&gt;
-EMBEDDING_ENDPOINT   = https://api.openai.com/v1/embeddings
-EMBEDDING_MODEL      = text-embedding-3-small
-EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_ENDPOINT     = https://api.openai.com/v1/embeddings
+EMBEDDING_API_KEY      = sk-...your-OpenAI-key...
+EMBEDDING_MODEL        = text-embedding-3-small
+EMBEDDING_DIMENSIONS   = 1536
+
+OWNSONA_LOGIN_USERNAME = &lt;pick-any-username&gt;
+OWNSONA_LOGIN_PASSWORD = &lt;pick-a-strong-password&gt;
+
+# OAuth 2.1 (resource server + embedded authorization server).
+# OAuthAuthorizationServer is the single URL that drives everything:
+# the resource identifier, the AS issuer, and the JWKS URI all derive
+# from it.  Use the full URL with scheme.
+OAuthAuthorizationServer = https://&lt;your-host&gt;
+OAuthAsEnabled           = true
 </pre></div>
 
-<p>Generate the bearer token with <code class="code">openssl rand -hex 32</code> and save it
-somewhere safe &mdash; it&rsquo;s what every MCP client must present in
-<code class="code">Authorization: Bearer ...</code>.
+<ul class="mini-toc">
+<li><a href="#What-OWNSONA_005fLOGIN_005fUSERNAME-and-OWNSONA_005fLOGIN_005fPASSWORD-are" accesskey="1">What <code class="code">OWNSONA_LOGIN_USERNAME</code> and <code class="code">OWNSONA_LOGIN_PASSWORD</code> are</a></li>
+<li><a href="#What-the-OAuth_002a-keys-do" accesskey="2">What the <code class="code">OAuth*</code> keys do</a></li>
+<li><a href="#Where-the-AS-keeps-its-signing-key-_0028OAuthAsIniFile_0029" accesskey="3">Where the AS keeps its signing key (<code class="code">OAuthAsIniFile</code>)</a></li>
+</ul>
+<div class="subsection-level-extent" id="What-OWNSONA_005fLOGIN_005fUSERNAME-and-OWNSONA_005fLOGIN_005fPASSWORD-are">
+<h4 class="subsection"><span>3.10.1 What <code class="code">OWNSONA_LOGIN_USERNAME</code> and <code class="code">OWNSONA_LOGIN_PASSWORD</code> are<a class="copiable-link" href="#What-OWNSONA_005fLOGIN_005fUSERNAME-and-OWNSONA_005fLOGIN_005fPASSWORD-are"> &para;</a></span></h4>
+
+<p>These are credentials <b class="b">you invent</b> when setting up the server &mdash;
+a username and password that guard the OwnSona OAuth consent page.
+They are <b class="b">not</b> tied to any external service: not your OpenAI /
+Anthropic / Google account, not your Unix login, not anything else.
+They exist nowhere outside <samp class="file">application.ini</samp> and the
+<code class="code">OwnsonaUserAuthenticator</code> class that reads them.
+</p>
+<p>The single flow they&rsquo;re used in: when someone (you) connects an
+MCP client like Claude or ChatGPT to your OwnSona server, the client
+opens a browser tab to <code class="code">https://<var class="var">your-host</var>/oauth/authorize</code>.
+That page asks for <code class="code">OWNSONA_LOGIN_USERNAME</code> and
+<code class="code">OWNSONA_LOGIN_PASSWORD</code>.  You type them in, click <b class="b">Allow</b> on
+the consent screen, and the OwnSona authorization server issues an
+OAuth access token + refresh token back to the client.  The client
+uses those for every subsequent MCP call.  After the first time the
+user doesn&rsquo;t see the login page again until the refresh token expires
+(30 days by default).
+</p>
+<p>Because OwnSona is single-user, one username/password pair is
+enough.  Pick anything you&rsquo;ll remember.  Treat the password like any
+other password (strong, not reused).  Both values sit in plaintext
+in <samp class="file">application.ini</samp> alongside the database password and the
+embedding API key; keep the file <code class="code">chmod 600</code>.
+</p>
+</div>
+<div class="subsection-level-extent" id="What-the-OAuth_002a-keys-do">
+<h4 class="subsection"><span>3.10.2 What the <code class="code">OAuth*</code> keys do<a class="copiable-link" href="#What-the-OAuth_002a-keys-do"> &para;</a></span></h4>
+
+<p>They turn on the resource server (validates incoming
+<code class="code">Authorization: Bearer <var class="var">JWT</var></code> access tokens) and the
+embedded authorization server (issues those JWTs at
+<code class="code">/oauth/authorize</code> and <code class="code">/oauth/token</code>, with dynamic client
+registration at <code class="code">/oauth/register</code>).  MCP clients discover both
+via auto-served metadata documents at
+<code class="code">/.well-known/oauth-protected-resource</code> and
+<code class="code">/.well-known/oauth-authorization-server</code>.
+</p>
+<p>The resource server discovers the JWKS URI automatically via the RFC
+8414 metadata document the AS publishes; no separate JWKS key is
+needed.  The resource identifier and the AS issuer URL also default
+to <code class="code">OAuthAuthorizationServer</code>.
+</p>
+</div>
+<div class="subsection-level-extent" id="Where-the-AS-keeps-its-signing-key-_0028OAuthAsIniFile_0029">
+<h4 class="subsection"><span>3.10.3 Where the AS keeps its signing key (<code class="code">OAuthAsIniFile</code>)<a class="copiable-link" href="#Where-the-AS-keeps-its-signing-key-_0028OAuthAsIniFile_0029"> &para;</a></span></h4>
+<a class="index-entry-id" id="index-OAuthAsIniFile"></a>
+<a class="index-entry-id" id="index-AS-state-file"></a>
+
+<p>The authorization server persists its signing key, dynamically-
+registered clients, and refresh tokens to a single INI file.  By
+default it lives at <samp class="file">WEB-INF/backend/oauth.ini</samp> under the
+deployed Tomcat &mdash; but this default is <b class="b">strongly inadvisable for
+production</b>.  The deployed WAR&rsquo;s <samp class="file">WEB-INF/backend/</samp> directory
+is replaced on every WAR redeploy: any file written there at runtime
+is overwritten with whatever the build packaged.  In practice that
+means every <code class="code">./bld war</code> + <code class="code">cp ROOT.war ...</code> silently
+rotates the AS signing key, invalidating every issued access token
+and forcing every MCP client through the browser OAuth flow again.
+</p>
+<p><b class="b">The fix is one config line.</b>  Choose a path <b class="b">outside</b> the
+Tomcat webapps tree, owned and writable by the service user the JVM
+runs as (typically <code class="code">ownsona</code>), and set <code class="code">OAuthAsIniFile</code>
+to that absolute path in <samp class="file">application.ini</samp>.  Common choices:
+</p>
+<div class="example">
+<pre class="example-preformatted"># In the service user's home directory:
+OAuthAsIniFile = /home/ownsona/oauth.ini
+
+# Or a conventional state directory:
+OAuthAsIniFile = /var/lib/ownsona/oauth.ini
+</pre></div>
+
+<p>Create the parent directory if needed and make sure it&rsquo;s writable
+by the service user:
+</p>
+<div class="example">
+<pre class="example-preformatted"># Example for the /var/lib/ownsona option:
+sudo install -d -o ownsona -g ownsona -m 700 /var/lib/ownsona
+</pre></div>
+
+<p>The file itself is created on first AS request; you don&rsquo;t need to
+pre-create it.  Once it exists, include the chosen location in your
+backup policy &mdash; it holds the AS&rsquo;s master signing key.  Treat it
+as sensitive as <samp class="file">application.ini</samp> itself.
+</p>
+<p>A relative value or an omitted <code class="code">OAuthAsIniFile</code> falls back to
+the <samp class="file">WEB-INF/backend/oauth.ini</samp> default, which is fine for
+local development (where there is no redeploy) but should not be
+left in that state for production.
 </p>
 <p><code class="code">EMBEDDING_DIMENSIONS</code> must match the <code class="code">vector(N)</code> column
 type in <samp class="file">sql/001_init.sql</samp>.  The shipped schema uses
@@ -207,6 +310,12 @@ type in <samp class="file">sql/001_init.sql</samp>.  The shipped schema uses
 </p>
 <p>Optional keys with defaults are documented in <a class="ref" href="Configuration.html">Configuration</a>.
 </p>
+</div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Install-the-systemd-service.html">Install the systemd service</a>, Previous: <a href="Apply-the-database-migration.html">Apply the database migration</a>, Up: <a href="Installation.html">Installation</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 
