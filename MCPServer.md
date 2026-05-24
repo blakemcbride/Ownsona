@@ -37,7 +37,7 @@ place.
 
 ```
 src/main/precompiled/ai/ownsona/
-    MCPServer.java                       # @WebServlet("/mcp"); MCP tool catalog + bearer auth
+    MCPServer.java                       # @WebServlet("/mcp"); MCP tool catalog (auth inherited from MCPServerBase via OAuth validator)
     Config.java                          # application.ini loader (via MainServlet.getEnvironment)
     SecretScanner.java                   # regex-based credential filter
     TextNormalizer.java                  # trim / lowercase for dup-detection key
@@ -270,9 +270,12 @@ Per request:
   responses carry the RFC 6750 / RFC 9728 `WWW-Authenticate` challenge,
   whose `resource_metadata` parameter points clients at
   `/.well-known/oauth-protected-resource` for AS discovery. The AS's
-  signing key, registered clients, and refresh tokens are persisted in
-  `WEB-INF/backend/oauth.ini`; auth codes are in-memory only with a 60s
-  TTL.
+  signing key, registered clients, and refresh tokens are persisted to
+  the path set in `OAuthAsIniFile` (production: an absolute path
+  outside the deployed webapp; default: `WEB-INF/backend/oauth.ini`,
+  which is rewritten on every WAR redeploy and therefore inadvisable
+  for anything but local development). Auth codes are in-memory only
+  with a 60s TTL.
 - **Secret rejection:** `SecretScanner` blocks obvious tokens
   (OpenAI `sk-...`/`sk-ant-...`/`sk-proj-...`, GitHub `ghp_`/`ghs_`,
   GitHub fine-grained PAT, AWS access key IDs, Slack `xox?-`, Google
