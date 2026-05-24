@@ -26,9 +26,22 @@ import java.util.concurrent.locks.ReentrantLock;
  * arrives with an unknown {@code kid} (which indicates the authorization
  * server has rotated its signing keys).
  * <br><br>
- * The JWKS URI is either taken from {@code OAuthJwksUri} or discovered
- * from {@code <authorization-server>/.well-known/openid-configuration} on
- * first access.
+ * The JWKS URI is resolved in this order on first access:
+ * <ol>
+ *   <li>An explicit {@code OAuthJwksUri} in {@code application.ini}.</li>
+ *   <li>The {@code jwks_uri} field of the RFC 8414 OAuth 2.0
+ *       authorization-server metadata document served at
+ *       {@code <issuer>/.well-known/oauth-authorization-server}.
+ *       This is the OAuth 2.1 / MCP standard.</li>
+ *   <li>The {@code jwks_uri} field of the OpenID Connect discovery
+ *       document at {@code <issuer>/.well-known/openid-configuration}.
+ *       This is the older OIDC path, kept as a fallback for
+ *       OIDC-only authorization servers.</li>
+ * </ol>
+ * In practice this means apps that pair Kiss's RS with Kiss's
+ * own AS (which publishes RFC 8414 but not OIDC discovery) need
+ * no {@code OAuthJwksUri} setting at all; the RS finds the JWKS
+ * via the same metadata document MCP clients use for discovery.
  */
 public final class JwksCache {
 
@@ -152,27 +165,62 @@ public final class JwksCache {
         if (resolvedJwksUri != null)
             return resolvedJwksUri;
 
-        // Explicit override wins.
+        // 1. Explicit override wins.
         final String explicit = config.getJwksUri();
         if (explicit != null && !explicit.isEmpty()) {
             resolvedJwksUri = explicit;
             return resolvedJwksUri;
         }
 
-        // Discover via the OpenID Connect discovery document.  This is
-        // also what RFC 8414 (OAuth 2.0 Authorization Server Metadata)
-        // recommends --- the discovery URL and field names align.
-        final String discovery = config.getAuthorizationServer() + "/.well-known/openid-configuration";
-        logger.info("Discovering JWKS URI from " + discovery);
-        final RestClient client = new RestClient();
-        final JSONObject meta = client.jsonCall("GET", discovery);
-        if (meta == null)
-            throw new IOException("Discovery endpoint returned empty body: " + discovery);
-        final String uri = meta.getString("jwks_uri", null);
-        if (uri == null || uri.isEmpty())
-            throw new IOException("Discovery document does not contain jwks_uri: " + discovery);
-        resolvedJwksUri = uri;
-        return resolvedJwksUri;
+        final String issuer = config.getAuthorizationServer();
+
+        // 2. RFC 8414 OAuth authorization-server metadata.  This is
+        //    the OAuth 2.1 / MCP standard discovery doc, and the one
+        //    Kiss's own AS publishes (it does not publish OIDC's
+        //    openid-configuration).  Try this first.
+        final String rfc8414 = issuer + "/.well-known/oauth-authorization-server";
+        final String fromRfc8414 = tryMetadataDoc(rfc8414);
+        if (fromRfc8414 != null) {
+            resolvedJwksUri = fromRfc8414;
+            return resolvedJwksUri;
+        }
+
+        // 3. OpenID Connect discovery document.  Kept as a fallback
+        //    for OIDC-only authorization servers.
+        final String oidc = issuer + "/.well-known/openid-configuration";
+        final String fromOidc = tryMetadataDoc(oidc);
+        if (fromOidc != null) {
+            resolvedJwksUri = fromOidc;
+            return resolvedJwksUri;
+        }
+
+        throw new IOException("Could not resolve JWKS URI for issuer " + issuer
+                + ".  Tried explicit OAuthJwksUri (unset), " + rfc8414
+                + ", and " + oidc + ".  Set OAuthJwksUri in application.ini "
+                + "if your authorization server publishes neither metadata document.");
+    }
+
+    /**
+     * GET the given metadata URL and return the {@code jwks_uri} field
+     * if the document is well-formed, or {@code null} if the endpoint
+     * returns nothing usable.  An empty/missing body, a missing
+     * {@code jwks_uri} field, or any I/O failure is treated as
+     * "metadata not available at this URL" --- the caller falls
+     * through to the next discovery option.
+     */
+    private static String tryMetadataDoc(String url) {
+        try {
+            logger.info("Looking for jwks_uri in " + url);
+            final RestClient client = new RestClient();
+            final JSONObject meta = client.jsonCall("GET", url);
+            if (meta == null)
+                return null;
+            final String uri = meta.getString("jwks_uri", null);
+            return (uri == null || uri.isEmpty()) ? null : uri;
+        } catch (Exception e) {
+            logger.debug("Metadata fetch from " + url + " failed: " + e.getMessage());
+            return null;
+        }
     }
 
     /**
