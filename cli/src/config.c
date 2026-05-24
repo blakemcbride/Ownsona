@@ -100,8 +100,12 @@ static char *default_config_path(void) {
 static int parse_file(const char *path, bool required, ownsona_config_t *cfg) {
     FILE *fp = fopen(path, "r");
     if (fp == NULL) {
-        if (errno == ENOENT && !required)
+        if (errno == ENOENT && !required) {
+            /* Remember the path anyway --- `ownsona auth login` needs
+             * somewhere to write the first time. */
+            cfg->source_path = xstrdup(path);
             return 0;
+        }
         fprintf(stderr, "ownsona: cannot open config '%s': %s\n",
                 path, strerror(errno));
         return 1;
@@ -143,6 +147,23 @@ static int parse_file(const char *path, bool required, ownsona_config_t *cfg) {
         } else if (strcmp(key, "token") == 0 || strcmp(key, "api_token") == 0) {
             free(cfg->token);
             cfg->token = xstrdup(value);
+        } else if (strcmp(key, "oauth_client_id") == 0) {
+            free(cfg->oauth_client_id);
+            cfg->oauth_client_id = xstrdup(value);
+        } else if (strcmp(key, "oauth_refresh_token") == 0) {
+            free(cfg->oauth_refresh_token);
+            cfg->oauth_refresh_token = xstrdup(value);
+        } else if (strcmp(key, "oauth_access_token") == 0) {
+            free(cfg->oauth_access_token);
+            cfg->oauth_access_token = xstrdup(value);
+        } else if (strcmp(key, "oauth_access_token_expires_at") == 0) {
+            cfg->oauth_access_token_expires_at = strtoll(value, NULL, 10);
+        } else if (strcmp(key, "oauth_authorization_server") == 0) {
+            free(cfg->oauth_authorization_server);
+            cfg->oauth_authorization_server = xstrdup(value);
+        } else if (strcmp(key, "oauth_resource") == 0) {
+            free(cfg->oauth_resource);
+            cfg->oauth_resource = xstrdup(value);
         } else if (strcmp(key, "llm_api_key") == 0) {
             free(cfg->llm_api_key);
             cfg->llm_api_key = xstrdup(value);
@@ -165,9 +186,27 @@ static int parse_file(const char *path, bool required, ownsona_config_t *cfg) {
 
 /* ----- public API ----------------------------------------------------- */
 
+static int load_internal(const char *explicit_path,
+                         const ownsona_config_t *cli,
+                         ownsona_config_t *cfg,
+                         bool enforce_credentials);
+
 int ownsona_config_load(const char *explicit_path,
                         const ownsona_config_t *cli,
                         ownsona_config_t *cfg) {
+    return load_internal(explicit_path, cli, cfg, true);
+}
+
+int ownsona_config_load_permissive(const char *explicit_path,
+                                   const ownsona_config_t *cli,
+                                   ownsona_config_t *cfg) {
+    return load_internal(explicit_path, cli, cfg, false);
+}
+
+static int load_internal(const char *explicit_path,
+                         const ownsona_config_t *cli,
+                         ownsona_config_t *cfg,
+                         bool enforce_credentials) {
     memset(cfg, 0, sizeof *cfg);
 
     /* 1) Config file --- only required if the caller supplied an explicit
@@ -252,18 +291,27 @@ int ownsona_config_load(const char *explicit_path,
         cfg->subject_name = xstrdup("the user");
     }
 
-    /* Required-ness check */
+    /* Required-ness check: must have server_url, and either a static
+     * bearer token (legacy / external-IdP mode) or a refresh token from
+     * a prior `ownsona auth login`.  The `auth` subcommand skips this
+     * check (it's the one that *creates* the credentials). */
     if (cfg->server_url == NULL || *cfg->server_url == '\0') {
         fprintf(stderr, "ownsona: server URL not set "
                 "(use --server, $OWNSONA_SERVER, or 'server_url = ...' in %s)\n",
                 cfg->source_path ? cfg->source_path : "config file");
         return 1;
     }
-    if (cfg->token == NULL || *cfg->token == '\0') {
-        fprintf(stderr, "ownsona: bearer token not set "
-                "(use --token, $OWNSONA_TOKEN, or 'token = ...' in %s)\n",
-                cfg->source_path ? cfg->source_path : "config file");
-        return 1;
+    if (enforce_credentials) {
+        const bool has_static  = cfg->token != NULL && *cfg->token != '\0';
+        const bool has_refresh = cfg->oauth_refresh_token != NULL
+                              && *cfg->oauth_refresh_token != '\0';
+        if (!has_static && !has_refresh) {
+            fprintf(stderr, "ownsona: no credentials configured.  Run "
+                    "`ownsona auth login` to authenticate, or (legacy path) set "
+                    "'token = ...' in %s.\n",
+                    cfg->source_path ? cfg->source_path : "the config file");
+            return 1;
+        }
     }
 
     return 0;
@@ -275,6 +323,11 @@ void ownsona_config_free(ownsona_config_t *cfg) {
     free(cfg->server_url);
     free(cfg->token);
     free(cfg->source_path);
+    free(cfg->oauth_client_id);
+    free(cfg->oauth_refresh_token);
+    free(cfg->oauth_access_token);
+    free(cfg->oauth_authorization_server);
+    free(cfg->oauth_resource);
     free(cfg->llm_api_key);
     free(cfg->llm_model);
     free(cfg->llm_base_url);

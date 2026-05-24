@@ -67,6 +67,25 @@ int ownsona_http_post_json(const ownsona_config_t *cfg,
                            ownsona_http_response_t *resp) {
     memset(resp, 0, sizeof *resp);
 
+    /* Refresh the OAuth access token if necessary.  No-op in static-
+     * token mode.  Cast away const --- the refresh path mutates
+     * cfg->oauth_access_token / expires_at / refresh_token in place.
+     * Every caller in this codebase owns a writable cfg, so this is
+     * safe in practice; if a future caller passes a truly read-only
+     * cfg the assertion will surface at compile time as a -Wcast-
+     * qual warning rather than a runtime issue. */
+    if (ownsona_oauth_ensure_fresh_token((ownsona_config_t *) cfg) != 0)
+        return 1;
+
+    /* Pick the effective bearer token: explicit static token wins,
+     * else the OAuth access token. */
+    const char *bearer = (cfg->token != NULL && *cfg->token != '\0')
+        ? cfg->token : cfg->oauth_access_token;
+    if (bearer == NULL || *bearer == '\0') {
+        fprintf(stderr, "ownsona: no bearer token available\n");
+        return 1;
+    }
+
     CURL *curl = curl_easy_init();
     if (curl == NULL) {
         fprintf(stderr, "ownsona: curl_easy_init failed\n");
@@ -75,13 +94,13 @@ int ownsona_http_post_json(const ownsona_config_t *cfg,
 
     buf_t buf = {0};
 
-    /* Build Authorization header.  64-char bearer fits in ~96 bytes;
-     * still allocate generously. */
-    const size_t auth_sz = strlen(cfg->token) + 32;
+    /* Build Authorization header.  JWTs run ~600-1200 chars; allocate
+     * generously. */
+    const size_t auth_sz = strlen(bearer) + 32;
     char *auth_hdr = malloc(auth_sz);
     if (auth_hdr == NULL)
         ownsona_die(2, "out of memory");
-    snprintf(auth_hdr, auth_sz, "Authorization: Bearer %s", cfg->token);
+    snprintf(auth_hdr, auth_sz, "Authorization: Bearer %s", bearer);
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");

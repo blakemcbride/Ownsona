@@ -9,7 +9,14 @@ import org.kissweb.restServer.MainServlet;
  * {@link MainServlet#getEnvironment(String)}) once at class load.  Required
  * keys throw {@link IllegalStateException} when missing, which causes the
  * servlet to fail to load --- the desired behavior, since the server cannot
- * do its job without embedding credentials and an auth token.
+ * do its job without embedding credentials and login credentials.
+ *
+ * <p>OAuth 2.1 resource-server and authorization-server settings
+ * ({@code OAuthAuthorizationServer}, {@code OAuthResourceIdentifier},
+ * {@code OAuthAsEnabled}, etc.) are not read here --- Kiss's
+ * {@link org.kissweb.oauth.OAuthConfig} and
+ * {@link org.kissweb.oauth.as.AuthorizationServerConfig} read them
+ * directly from {@code application.ini}.
  *
  * <p>The Postgres connection itself is not configured here; it uses Kiss's
  * {@code DatabaseHost / DatabasePort / DatabaseName / DatabaseUser /
@@ -20,8 +27,19 @@ public final class Config {
     /** API key for the embeddings endpoint (provider-agnostic). */
     public static final String EMBEDDING_API_KEY;
 
-    /** Bearer token MCP clients must present in {@code Authorization: Bearer ...}. */
-    public static final String OWNSONA_API_TOKEN;
+    /**
+     * Username the OAuth AS login page accepts.  Single-user server, so
+     * one credential pair lives in {@code application.ini}.
+     */
+    public static final String OWNSONA_LOGIN_USERNAME;
+
+    /**
+     * Password the OAuth AS login page accepts.  Plaintext in
+     * {@code application.ini}; the file is chmod 600 and already holds
+     * the database password and the embedding API key, so the marginal
+     * exposure is bounded.
+     */
+    public static final String OWNSONA_LOGIN_PASSWORD;
 
     /** User-id stamped on every memory in single-user mode. */
     public static final String OWNSONA_USER_ID;
@@ -49,7 +67,8 @@ public final class Config {
 
     static {
         EMBEDDING_API_KEY        = required("EMBEDDING_API_KEY");
-        OWNSONA_API_TOKEN     = required("OWNSONA_API_TOKEN");
+        OWNSONA_LOGIN_USERNAME = required("OWNSONA_LOGIN_USERNAME");
+        OWNSONA_LOGIN_PASSWORD = required("OWNSONA_LOGIN_PASSWORD");
         EMBEDDING_MODEL       = required("EMBEDDING_MODEL");
         EMBEDDING_DIMENSIONS  = requiredInt("EMBEDDING_DIMENSIONS");
 

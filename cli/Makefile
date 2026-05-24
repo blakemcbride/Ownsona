@@ -84,8 +84,11 @@ endif
 # -----------------------------------------------------------------------
 ifeq ($(PLATFORM),linux)
     # Static curl on Linux still leaves glibc dynamic --- correct outcome.
+    # OpenSSL is added explicitly (oauth.c uses RAND_bytes + SHA256);
+    # curl-config --static-libs usually pulls it in too, but the explicit
+    # link guarantees the symbols resolve even with shared libcurl.
     LDFLAGS := -Wl,--as-needed
-    LDLIBS  := $(CURL_LIBS) -ldl -lpthread
+    LDLIBS  := $(CURL_LIBS) -lssl -lcrypto -ldl -lpthread
     BIN     := ownsona
 endif
 ifeq ($(PLATFORM),macos)
@@ -93,7 +96,7 @@ ifeq ($(PLATFORM),macos)
     # come from the SDK at runtime; curl/openssl/zlib are static via
     # curl-config --static-libs when Homebrew was built with static libs.
     LDFLAGS :=
-    LDLIBS  := $(CURL_LIBS) -framework SystemConfiguration -framework CoreFoundation
+    LDLIBS  := $(CURL_LIBS) -lssl -lcrypto -framework SystemConfiguration -framework CoreFoundation
     BIN     := ownsona
 endif
 ifeq ($(PLATFORM),windows)

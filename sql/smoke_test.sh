@@ -3,18 +3,40 @@
 # Smoke test for the deployed Ownsona MCP server.
 #
 # Usage:
-#   OWNSONA_API_TOKEN=... sql/smoke_test.sh [base-url]
+#   OWNSONA_ACCESS_TOKEN=<jwt> sql/smoke_test.sh <base-url>
 #
-# Default base URL is https://ownsona.com/mcp.  Provide OWNSONA_API_TOKEN
-# in the environment so it does not appear in shell history.
+# `base-url` is REQUIRED: pass the full URL to your /mcp endpoint, e.g.
+#   sql/smoke_test.sh https://your.host/mcp
+#
+# Earlier versions of this script defaulted to https://ownsona.com/mcp;
+# the default was removed so a stray invocation never targets someone
+# else's server.
+#
+# OAuth 2.1 note
+# --------------
+# Ownsona uses OAuth 2.1 (auth code + PKCE).  The embedded AS does not
+# support the client_credentials grant, so this script cannot fetch a
+# token on its own.  Obtain one once via the browser flow, then export
+# it as OWNSONA_ACCESS_TOKEN.  See INSTALL.md for the procedure (run a
+# throwaway curl-driven auth code dance, or copy the access_token your
+# real MCP client already obtained from its local config).
+#
+# The token expires --- 1 hour by default (OAuthAccessTokenTtlSeconds).
+# If the smoke test starts returning 401, refresh.
 
 set -euo pipefail
 
-BASE_URL="${1:-https://ownsona.com/mcp}"
-TOKEN="${OWNSONA_API_TOKEN:-}"
+BASE_URL="${1:-}"
+TOKEN="${OWNSONA_ACCESS_TOKEN:-}"
 
+if [[ -z "$BASE_URL" ]]; then
+    echo "Usage: OWNSONA_ACCESS_TOKEN=<jwt> $0 <base-url>" >&2
+    echo "Example: $0 https://your.host/mcp" >&2
+    exit 1
+fi
 if [[ -z "$TOKEN" ]]; then
-    echo "Set OWNSONA_API_TOKEN in the environment first." >&2
+    echo "Set OWNSONA_ACCESS_TOKEN in the environment first." >&2
+    echo "See INSTALL.md for how to obtain one via the OAuth auth code flow." >&2
     exit 1
 fi
 
@@ -48,6 +70,6 @@ call '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"text_searc
 echo
 echo "Manual cleanup: forget the smoke-test memory by id from the list_memories output:"
 echo '  curl -sS -X POST "'"$BASE_URL"'" \'
-echo '       -H "Authorization: Bearer $OWNSONA_API_TOKEN" \'
+echo '       -H "Authorization: Bearer $OWNSONA_ACCESS_TOKEN" \'
 echo '       -H "Content-Type: application/json" \'
 echo '       -d '"'"'{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"forget","arguments":{"id":<ID>,"hard_delete":true}}}'"'"

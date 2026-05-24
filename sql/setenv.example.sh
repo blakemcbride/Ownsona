@@ -5,7 +5,8 @@
 # via MainServlet.getEnvironment(). The keys it expects are:
 #
 #   EMBEDDING_API_KEY        (required)
-#   OWNSONA_API_TOKEN     (required)
+#   OWNSONA_LOGIN_USERNAME (required; username for the OAuth AS login page)
+#   OWNSONA_LOGIN_PASSWORD (required; password for the OAuth AS login page)
 #   EMBEDDING_ENDPOINT       (required)
 #   EMBEDDING_MODEL       (required)
 #   EMBEDDING_DIMENSIONS  (required; must match vector(N) in sql/001_init.sql)
@@ -15,6 +16,10 @@
 #   MAX_RECALL_LIMIT      (optional, default 50)
 #   MAX_TEXT_CHARS        (optional, default 16000)
 #   MAX_BATCH_SIZE        (optional, default 200)
+#   OAuthAuthorizationServer (required; AS issuer URL, e.g. https://ownsona.com)
+#   OAuthResourceIdentifier  (required; e.g. https://ownsona.com/mcp)
+#   OAuthAsEnabled           (required for the embedded AS; "true")
+#   OAuthAsIssuer            (optional; defaults to OAuthAuthorizationServer)
 #
 # The PostgreSQL connection itself uses Kiss's standard keys
 # (DatabaseType, DatabaseHost, DatabasePort, DatabaseName, DatabaseUser,

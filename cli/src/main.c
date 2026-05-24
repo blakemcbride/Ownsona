@@ -230,6 +230,7 @@ static const char USAGE_TOP[] =
 "  prompt     build an LLM prompt augmented with relevant facts\n"
 "  import     bulk-load facts from a file (remember_batch)\n"
 "  teach      extract facts from prose via an LLM and load them in bulk\n"
+"  auth       manage OAuth credentials (login, status)\n"
 "\n"
 "Global options:\n"
 "  --config PATH    use this config file (default is OS-specific:\n"
@@ -266,6 +267,7 @@ static const cmd_entry_t COMMANDS[] = {
     { "prompt",  cmd_prompt  },
     { "import",  cmd_import  },
     { "teach",   cmd_teach   },
+    { "auth",    cmd_auth    },
     { NULL,      NULL        }
 };
 

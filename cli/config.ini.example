@@ -1,21 +1,30 @@
 # OwnSona CLI configuration template.
 #
-# Copy this file to the OS-specific default location and fill in your
-# server URL + bearer token:
+# Copy this file to the OS-specific default location:
 #
 #   Linux / BSD     ~/.config/ownsona/config.ini
 #   macOS           ~/Library/Application Support/ownsona/config.ini
 #   Windows         %LOCALAPPDATA%\ownsona\config.ini
 #
-# Or point $OWNSONA_CONFIG at it.  Both server URL and token can also
-# be set via environment (OWNSONA_SERVER, OWNSONA_TOKEN) or
-# per-invocation flags (--server, --token).
+# Or point $OWNSONA_CONFIG at it.  --server / --token also work as
+# per-invocation flags.
+#
+# After copying, set `server_url` below and then run:
+#
+#   ownsona auth login
+#
+# That command performs an OAuth 2.1 auth code flow against the AS
+# that protects your server.  It opens a browser, you sign in, and the
+# resulting OAuth state gets written back into this file under the
+# auto-managed `oauth_*` keys at the bottom.  Refresh happens
+# automatically before each subsequent CLI call.
 
 server_url = https://your.host/mcp
 
-# Bearer token --- same one MCP clients use in `Authorization: Bearer`.
-# Treat as a secret: anyone with this can read/write your memory store.
-token = REPLACE_ME
+# Legacy / external-IdP path: a static bearer token used verbatim with
+# no refresh.  Leave commented out unless you're talking to a server
+# that issues long-lived tokens out of band.
+# token = REPLACE_ME
 
 # ---------------------------------------------------------------------
 # Settings below are used only by the `teach` subcommand (LLM-driven
@@ -45,3 +54,15 @@ token = REPLACE_ME
 # extracted memories match the style of your existing ones.
 # Env override: OWNSONA_SUBJECT
 # subject_name = Blake
+
+# ---------------------------------------------------------------------
+# Below this point: managed by `ownsona auth login` and the per-request
+# refresh path.  You normally do not edit these by hand; if they look
+# stale or broken, run `ownsona auth login` again.
+# ---------------------------------------------------------------------
+# oauth_client_id                 = (set by `auth login`)
+# oauth_refresh_token             = (set by `auth login` and rotated on each refresh)
+# oauth_access_token              = (rotated on each refresh; ~1h TTL)
+# oauth_access_token_expires_at   = (Unix epoch seconds)
+# oauth_authorization_server      = (auto-discovered via RFC 9728 if unset)
+# oauth_resource                  = (defaults to server_url)

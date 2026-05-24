@@ -31,8 +31,28 @@
 
 typedef struct {
     char *server_url;       /* https://host/mcp                          */
-    char *token;            /* bearer token for the MCP server           */
+    char *token;            /* optional static bearer token (legacy /    *
+                             * external-IdP path); when set, http.c uses *
+                             * it verbatim with no refresh.              */
     char *source_path;      /* config file path, for messages            */
+
+    /* OAuth 2.1 state populated by `ownsona auth login` and updated on
+     * each refresh.  When oauth_refresh_token is set, http.c calls
+     * ownsona_oauth_ensure_fresh_token() before every request, which
+     * trades the refresh token for a new access token whenever the
+     * cached one is within a minute of expiry.                          */
+    char     *oauth_client_id;
+    char     *oauth_refresh_token;
+    char     *oauth_access_token;
+    long long oauth_access_token_expires_at;   /* Unix epoch seconds   */
+    char     *oauth_authorization_server;      /* AS issuer URL; auto-
+                                                * discovered via RFC 9728
+                                                * during `auth login` if
+                                                * the user does not set
+                                                * it explicitly.        */
+    char     *oauth_resource;                  /* RFC 8707 resource
+                                                * indicator; defaults to
+                                                * server_url.           */
 
     /* Optional LLM credentials, used only by the `teach` subcommand
      * to extract facts from prose.  llm_api_key may be NULL when no
@@ -62,6 +82,17 @@ typedef struct {
 int  ownsona_config_load(const char *explicit_path,
                          const ownsona_config_t *cli_overrides,
                          ownsona_config_t *cfg);
+
+/*
+ * Same as ownsona_config_load() but does NOT enforce the
+ * credentials check.  Used by `ownsona auth login` --- the whole
+ * point of that subcommand is to populate credentials, so they
+ * cannot be required for it to start.  server_url is still required.
+ */
+int  ownsona_config_load_permissive(const char *explicit_path,
+                                    const ownsona_config_t *cli_overrides,
+                                    ownsona_config_t *cfg);
+
 void ownsona_config_free(ownsona_config_t *cfg);
 
 /* ---------------------------------------------------------------------- */
@@ -146,6 +177,36 @@ int cmd_forget (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_prompt (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_import (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_teach  (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_auth   (int argc, char **argv, const ownsona_global_opts_t *gopt);
+
+/* ---------------------------------------------------------------------- */
+/* oauth --- bootstrap (auth login) + per-request refresh                 */
+/* ---------------------------------------------------------------------- */
+
+/*
+ * Ensure cfg->oauth_access_token is non-expired.  Called by http.c
+ * before every MCP request.  Behavior:
+ *   - If cfg->token is set (static-bearer mode), this is a no-op.
+ *   - If cfg->oauth_access_token is set and expires more than 60s in
+ *     the future, return immediately.
+ *   - Otherwise, trade cfg->oauth_refresh_token at the AS token
+ *     endpoint for a fresh access token (and rotated refresh token),
+ *     update cfg in memory, and atomically rewrite the config file
+ *     so the new tokens survive across CLI invocations.
+ * Returns 0 on success.  Non-zero on failure (no usable token); a
+ * diagnostic has already been printed to stderr.  Caller is expected
+ * to abort the operation if non-zero.
+ */
+int ownsona_oauth_ensure_fresh_token(ownsona_config_t *cfg);
+
+/*
+ * Drive the full OAuth 2.1 auth code + PKCE flow once: dynamic client
+ * registration, browser-driven login + consent, code-to-token
+ * exchange, atomic config persist.  Called by `ownsona auth login`.
+ * Returns 0 on success.  Non-zero on any failure (diagnostic printed
+ * to stderr).
+ */
+int ownsona_oauth_bootstrap(ownsona_config_t *cfg);
 
 /* ---------------------------------------------------------------------- */
 /* llm --- OpenAI-compatible chat-completion call (used by `teach`)       */

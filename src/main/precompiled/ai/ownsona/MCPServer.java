@@ -20,12 +20,7 @@ import org.kissweb.json.JSONArray;
 import org.kissweb.json.JSONObject;
 
 import jakarta.servlet.annotation.WebServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
@@ -58,9 +53,16 @@ import java.util.List;
  * {@code sql/001_init.sql}).  Embeddings come from the OpenAI
  * {@code /v1/embeddings} endpoint via {@link OpenAIEmbeddingProvider}.
  *
- * <p>Authentication is a bearer token compared in constant time
- * against {@link Config#OWNSONA_API_TOKEN}.  Auth failures return 401
- * without revealing whether the header was missing or just wrong.
+ * <p>Authentication is OAuth 2.1: MCP clients present an
+ * {@code Authorization: Bearer <JWT>} header.  Validation is handled by
+ * the Kiss framework ({@link MCPServerBase#authenticate} delegates to
+ * {@link org.kissweb.oauth.BearerTokenValidator}) as soon as
+ * {@code OAuthAuthorizationServer} is set in {@code application.ini}.
+ * Tokens are issued by the embedded authorization server in
+ * {@link org.kissweb.oauth.as} --- see
+ * {@link ai.ownsona.oauth.OwnsonaUserAuthenticator} for the login check
+ * and {@link ai.ownsona.oauth.OwnsonaConsentProvider} for the consent
+ * page text, both wired in by {@code KissInit.groovy}.
  */
 // loadOnStartup = 1 ensures the static initializer (and therefore the
 // auto-migrator) runs at Tomcat startup rather than lazily on the first
@@ -133,52 +135,12 @@ public class MCPServer extends MCPServerBase {
     // ====================================================================================
     // Authentication
     // ====================================================================================
-
-    @Override
-    protected boolean authenticate(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        // Preferred: Authorization: Bearer <token> header.  Used by the OpenAI
-        // Responses API (`headers` field), curl, the smoke test, and any custom
-        // client that can set HTTP headers.
-        final String header = request.getHeader("Authorization");
-        if (header != null && header.startsWith("Bearer ")) {
-            if (tokenMatches(header.substring(7).trim()))
-                return true;
-            logger.info("auth: bad bearer token from {}", request.getRemoteAddr());
-            return reject401(response);
-        }
-
-        // Fallback: ?token=<token> query parameter.  Exists because ChatGPT's
-        // connector UI does not let users supply an Authorization header ---
-        // its three modes are OAuth, No auth, and Mixed.  With "No auth"
-        // selected and the token in the URL, ChatGPT can still authenticate
-        // to Ownsona.  See OpenAI.md sec. 1.2 option E for the security
-        // tradeoff (token in access logs unless the AccessLogValve pattern is
-        // adjusted to drop query strings, which it is in tomcat/conf/server.xml).
-        final String urlToken = request.getParameter("token");
-        if (urlToken != null) {
-            if (tokenMatches(urlToken))
-                return true;
-            logger.info("auth: bad token URL parameter from {}", request.getRemoteAddr());
-            return reject401(response);
-        }
-
-        logger.info("auth: no credentials presented from {}", request.getRemoteAddr());
-        return reject401(response);
-    }
-
-    private static boolean tokenMatches(String supplied) {
-        return MessageDigest.isEqual(
-                supplied.getBytes(StandardCharsets.UTF_8),
-                Config.OWNSONA_API_TOKEN.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static boolean reject401(HttpServletResponse response) throws IOException {
-        response.setHeader("WWW-Authenticate", "Bearer realm=\"ownsona\"");
-        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-        response.setContentType("application/json");
-        response.getWriter().write("{\"ok\":false,\"error\":{\"code\":\"AUTH_FAILED\",\"message\":\"Authentication required.\"}}");
-        return false;
-    }
+    //
+    // No authenticate() override: MCPServerBase.authenticate() handles
+    // OAuth 2.1 bearer-token validation automatically as soon as
+    // OAuthAuthorizationServer is set in application.ini.  Tokens are
+    // issued by the embedded AS (see KissInit.groovy + the
+    // ai.ownsona.oauth package).
 
     // ====================================================================================
     // Tool catalog
