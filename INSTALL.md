@@ -471,11 +471,52 @@ needed. The resource identifier and the AS issuer URL also default to
 nor OIDC discovery, or bind tokens to a more specific audience), see
 the "Optional overrides" block in `application.ini.example`.
 
-The AS persists its signing key and registered clients in
-`WEB-INF/backend/oauth.ini` under the deployed Tomcat. That file is
-created on first start; the `ownsona` user must own `WEB-INF/backend/`
-or the AS cannot save state. (The systemd unit runs the JVM as
-`ownsona`, so this is normally automatic.)
+#### Where the AS keeps its signing key (`OAuthAsIniFile`)
+
+The authorization server persists its signing key, dynamically-
+registered clients, and refresh tokens to a single INI file. By
+default it lives at `WEB-INF/backend/oauth.ini` under the deployed
+Tomcat — but this default is **strongly inadvisable for production**.
+The deployed WAR's `WEB-INF/backend/` directory is replaced on every
+WAR redeploy: any file written there at runtime is overwritten with
+whatever the build packaged. In practice that means every `./bld war`
++ `cp ROOT.war …` silently rotates the AS signing key, invalidating
+every issued access token and forcing every MCP client through the
+browser OAuth flow again.
+
+**The fix is one config line.** Choose a path *outside* the Tomcat
+webapps tree, owned and writable by the service user the JVM runs as
+(typically `ownsona`), and set `OAuthAsIniFile` to that absolute path
+in `application.ini`. Examples — pick whichever fits your conventions:
+
+```ini
+# In the service user's home directory:
+OAuthAsIniFile = /home/ownsona/oauth.ini
+
+# Or a conventional state directory:
+OAuthAsIniFile = /var/lib/ownsona/oauth.ini
+
+# Or alongside other host configuration:
+OAuthAsIniFile = /etc/ownsona/oauth.ini
+```
+
+Create the parent directory if needed and make sure it is writable by
+the service user:
+
+```bash
+# Example for the /var/lib/ownsona option:
+sudo install -d -o ownsona -g ownsona -m 700 /var/lib/ownsona
+```
+
+The file itself is created on first AS request; you do not need to
+pre-create it. Once it exists, include the chosen location in your
+backup policy — it holds the AS's master signing key. (Treat it as
+sensitive as `application.ini` itself.)
+
+A relative value or an omitted `OAuthAsIniFile` falls back to the
+`WEB-INF/backend/oauth.ini` default, which is fine for local
+development (where there is no redeploy) but should not be left in
+that state for production.
 
 `EMBEDDING_DIMENSIONS` must match the `vector(N)` column type in
 `sql/001_init.sql`. The shipped schema uses `vector(1536)`, which
@@ -945,22 +986,23 @@ Change `OWNSONA_LOGIN_PASSWORD` in `src/main/backend/application.ini`,
 rebuild the WAR (`./bld -v build && ./bld war`), and redeploy. Issued
 access tokens remain valid until their TTL expires — the password is
 only consulted on the AS login page. To invalidate every existing
-token immediately, also delete `WEB-INF/backend/oauth.ini` from the
-deployed Tomcat before restart: the AS will mint a new signing key
-and every previously-issued JWT will fail signature verification.
-Registered clients will have to re-register and re-authorize, which
-for typical MCP clients means the user redoes the login + Allow flow.
+token immediately, also delete the AS state file (the path you set in
+`OAuthAsIniFile`, or `WEB-INF/backend/oauth.ini` if you kept the
+default) before restart: the AS will mint a new signing key and every
+previously-issued JWT will fail signature verification. Registered
+clients will have to re-register and re-authorize, which for typical
+MCP clients means the user redoes the login + Allow flow.
 
 ### Rotating the AS signing key only
 
 To rotate the JWT signing key without forcing a re-registration of
-every client: stop the service, edit
-`WEB-INF/backend/oauth.ini` and remove the `[key]` section (and any
-`kid` references in `[clients]` entries you wish to keep), restart.
-The AS will generate a fresh key on first OAuth request; existing
-access tokens become invalid. Clients with refresh tokens issued
-before the rotation also lose them — refresh tokens are signed with
-the same key.
+every client: stop the service, edit the AS state file (the path you
+set in `OAuthAsIniFile`, or `WEB-INF/backend/oauth.ini` if you kept
+the default) and remove the `[key]` section (and any `kid` references
+in `[clients]` entries you wish to keep), restart. The AS will
+generate a fresh key on first OAuth request; existing access tokens
+become invalid. Clients with refresh tokens issued before the rotation
+also lose them — refresh tokens are signed with the same key.
 
 ### Top common failure modes
 
@@ -973,17 +1015,23 @@ the same key.
   (auth, DB, listing, text search) keeps working.
 - **Every `/mcp` request returns 401** — the client is sending no
   token, an expired one, or one signed by a different AS key than the
-  one in the deployed `oauth.ini`. The `WWW-Authenticate` header on
+  one in the current AS state file. The `WWW-Authenticate` header on
   the 401 names the resource-metadata URL the client should use to
-  re-discover the AS.
+  re-discover the AS. If every client started failing all at once
+  right after a redeploy and you kept the default `oauth.ini` location
+  in the WAR tree, this is the redeploy clobbering the state file —
+  set `OAuthAsIniFile` to an absolute path outside the webapp (see §10).
 - **`/oauth/authorize` returns 500 with "UserAuthenticator not
   registered"** — `KissInit.groovy` did not register
   `OwnsonaUserAuthenticator`. Check that the WAR contains both
   `WEB-INF/classes/ai/ownsona/oauth/OwnsonaUserAuthenticator.class`
   and a `KissInit.groovy` that wires it via
   `AsExtensions.setUserAuthenticator(...)`.
-- **AS cannot persist state** — `WEB-INF/backend/` is not writable by
-  the JVM user. Confirm `ls -ld /home/ownsona/tomcat/webapps/ROOT/WEB-INF/backend`
+- **AS cannot persist state** — the directory containing the AS state
+  file is not writable by the JVM user. Run
+  `ls -ld <dirname of OAuthAsIniFile>` and confirm it is owned by the
+  service user. If you kept the default and see `WEB-INF/backend/`
+  permission errors, confirm `ls -ld /home/ownsona/tomcat/webapps/ROOT/WEB-INF/backend`
   is owned by `ownsona`.
 - **First request after deploy is slow / 404** — Tomcat is still
   redeploying the WAR; ~10 s window with `autoDeploy="true"`. Subsequent

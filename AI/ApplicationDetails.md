@@ -243,11 +243,17 @@ phase (not in the migration class).
 - **`ownsona` Postgres role needs `CREATE ON SCHEMA public` and
   ownership of `memories`**. Fresh installs get this via `001_init.sql`;
   existing installs need `sql/migrator_prep.sql` once.
-- **The AS persists state to `WEB-INF/backend/oauth.ini`**. The
-  servlet-container user (the `ownsona` user under systemd) must own
-  that directory or the AS cannot save its signing key, registered
-  clients, or refresh tokens. Symptom: every `/oauth/token` exchange
-  fails after a restart.
+- **The AS persists state to the path set in `OAuthAsIniFile`**.
+  Production deployments set this to an absolute path outside the
+  Tomcat webapps tree (e.g. `/home/ownsona/oauth.ini`) so WAR
+  redeploys can't touch it. The containing directory must be writable
+  by the JVM user (`ownsona` under systemd). If `OAuthAsIniFile` is
+  unset, the AS falls back to `WEB-INF/backend/oauth.ini`, which is
+  rewritten on every redeploy — never leave a production install in
+  that state. Symptom of either misconfig: every `/oauth/token`
+  exchange fails after restart (state-file write error) or every LLM
+  client gets 401 after every redeploy (signing key rotated under
+  them).
 - **OAuth access tokens have a 1-hour default TTL**. A long-running
   smoke-test or curl session against `/mcp` starts returning 401
   mid-stream when the token expires; refresh via `/oauth/token` with

@@ -130,6 +130,22 @@ OAuthAsEnabled = true
 # OIDC discovery (rare).
 # OAuthJwksUri = https://<your-host>/oauth/jwks
 
+# Path to the AS persistence file (signing key, registered clients,
+# refresh tokens).  Default is "oauth.ini", resolved against the
+# application root (the deployed WEB-INF/backend/ directory).  Set this
+# to an ABSOLUTE path to place the file outside the deployed webapp ---
+# strongly recommended for production, because the default location is
+# overwritten on every WAR redeploy, which silently revokes the AS
+# signing key (every issued access token fails verification) and forces
+# every registered client to re-do the OAuth login flow.  Choose a path
+# that is:
+#   - outside the Tomcat webapps tree, so redeploys cannot touch it;
+#   - writable by the service user the JVM runs as;
+#   - included in your backup policy (it is the master secret of the
+#     authorization server).
+# Example:
+# OAuthAsIniFile = /home/<service-user>/oauth.ini
+
 # ===== DATABASE CONNECTION POOL SETTINGS =====
 # These settings control the C3P0 connection pool behavior
 # Uncomment and adjust for production/large applications
