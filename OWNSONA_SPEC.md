@@ -1054,6 +1054,14 @@ OAuthAsEnabled           = true
 `EMBEDDING_DIMENSIONS` must match the `vector(N)` column type in
 `sql/001_init.sql`.
 
+Strongly recommended for production: set `OAuthAsIniFile` to an
+absolute path outside the deployed webapp (e.g.
+`/home/ownsona/oauth.ini`).  Without it, the AS state file defaults
+to `WEB-INF/backend/oauth.ini` inside the WAR's exploded directory,
+which is rewritten on every redeploy — silently rotating the AS
+signing key and forcing every registered MCP client back through
+the browser OAuth flow.
+
 Optional (defaults shown):
 
 ```ini
@@ -1063,6 +1071,12 @@ DEFAULT_RECALL_LIMIT = 8
 MAX_RECALL_LIMIT     = 50
 MAX_TEXT_CHARS       = 16000
 MAX_BATCH_SIZE       = 200
+
+OAuthAsIniFile                = oauth.ini    # absolute path recommended; see above
+OAuthAccessTokenTtlSeconds    = 3600
+OAuthRefreshTokenTtlSeconds   = 2592000
+OAuthAllowDynamicRegistration = true
+OAuthRequiredScopes           =              # empty = no scope check
 ```
 
 Tomcat itself listens on 80/443 (configured in `tomcat/conf/server.xml`),
@@ -1104,7 +1118,7 @@ ownsona/                                   # repo root (was Kiss/ in early dev)
                 org/kissweb/restServer/MainServlet.java
             precompiled/
                 ai/ownsona/
-                    MCPServer.java          # @WebServlet("/mcp"); MCP tool catalog + bearer auth
+                    MCPServer.java          # @WebServlet("/mcp"); MCP tool catalog (auth inherited from MCPServerBase via OAuth validator)
                     Config.java             # application.ini loader
                     SecretScanner.java
                     TextNormalizer.java
@@ -1489,7 +1503,8 @@ Later enhancements:
 
 ### Milestone 6: Security
 
-1. Add bearer-token authentication.
+1. Add OAuth 2.1 authentication (resource server + embedded
+   authorization server).
 2. Add basic secret scanner.
 3. Add safe logging.
 4. Add per-user default isolation.
@@ -1547,21 +1562,23 @@ The project is complete enough for version 1 when:
 After version 1 works:
 
 1. Multi-user accounts.
-2. OAuth authentication for remote MCP clients.
-3. Web UI for memory management.
-4. Memory import/export.
-5. Semantic deduplication.
-6. Fact confidence scoring.
-7. Expiring memories.
-8. Memory categories and namespaces.
-9. Support for local embeddings.
-10. Support for Ollama embeddings.
-11. Support for hybrid search: vector + keyword + recency.
-12. Custom LLM gateway that always injects Ownsona context before calling providers.
-13. Browser extension.
-14. Desktop tray app.
-15. Mobile app.
-16. Audit dashboard.
+2. Web UI for memory management.
+3. Memory import/export.
+4. Fact confidence scoring.
+5. Memory categories and namespaces.
+6. Support for local embeddings.
+7. Support for Ollama embeddings.
+8. Support for hybrid search: vector + keyword + recency.
+9. Custom LLM gateway that always injects Ownsona context before calling providers.
+10. Browser extension.
+11. Desktop tray app.
+12. Mobile app.
+13. Audit dashboard.
+
+(Items removed from this list because they have since been
+implemented: OAuth authentication for remote MCP clients (§12.2),
+semantic deduplication (`dedup_policy` on `remember` / `remember_batch`),
+and expiring memories (`expires_at` field).)
 17. Encrypted-at-rest memory text.
 18. Per-provider access rules.
 
