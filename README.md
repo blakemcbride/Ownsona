@@ -129,6 +129,7 @@ manual):
 | [Manual (published)](https://blakemcbride.github.io/Ownsona/user-manual/html/) | **Full manual** — install, configure, MCP tools, server internals, client integration, CLI, `teach`, embedding migration, tutorials, troubleshooting, reference. (Offline copy: [`user-manual/html/index.html`](user-manual/html/index.html).) |
 | [`MCPServer.md`](MCPServer.md) | Architecture, configuration keys, tool surface, security, deploy & ops |
 | [`INSTALL.md`](INSTALL.md) | Linux VPS install: PostgreSQL, Tomcat, systemd, HTTPS, `application.ini` |
+| [`Deploy.md`](Deploy.md) | Step-by-step deploy procedure: server upgrade + connecting each LLM client over OAuth 2.1 |
 | [`OpenAI.md`](OpenAI.md) | Wiring Ownsona into ChatGPT and the OpenAI Responses API |
 | [`OWNSONA_SPEC.md`](OWNSONA_SPEC.md) | Functional spec, schema, security model |
 | [`CLI.md`](CLI.md) | Portable command-line client: build, configure, every subcommand, and the LLM-driven `teach`-from-prose workflow |
@@ -145,6 +146,16 @@ sql/setup_db.sh "<postgres-password>"
 
 # 2. Configuration: copy the template and populate secrets/endpoints.
 #    application.ini is gitignored; only the .example template ships in the repo.
+#    Required values at minimum:
+#      - DatabasePassword
+#      - EMBEDDING_API_KEY (your OpenAI key)
+#      - OWNSONA_LOGIN_USERNAME / OWNSONA_LOGIN_PASSWORD (invent these;
+#        they guard the OAuth consent page)
+#      - OAuthAuthorizationServer = https://<your-host>
+#      - OAuthAsEnabled           = true
+#      - OAuthAsIniFile = /absolute/path/outside/the/webapp/oauth.ini
+#        (recommended for production; without it, every WAR redeploy
+#        rotates the AS signing key and re-prompts every LLM client)
 cp src/main/backend/application.ini.example src/main/backend/application.ini
 $EDITOR src/main/backend/application.ini
 
@@ -154,11 +165,21 @@ cp work/Kiss.war /home/ownsona/tomcat/webapps/ROOT.war
 
 # 4. Smoke-test the live endpoint (token from the OAuth flow; see INSTALL.md §12)
 OWNSONA_ACCESS_TOKEN=... sql/smoke_test.sh https://<your-host>/mcp
+
+# 5. Connect an LLM client.  In Claude.ai / Claude Desktop / ChatGPT /
+#    Grok / any OAuth-capable MCP client, paste the URL:
+#        https://<your-host>/mcp
+#    and pick OAuth as the auth mode.  The client opens a browser tab
+#    to /oauth/authorize; enter the OWNSONA_LOGIN_USERNAME /
+#    OWNSONA_LOGIN_PASSWORD from step 2, click Allow, and you're done.
+#    See INSTALL.md §12 or the manual chapter "Connecting Claude" /
+#    "Connecting OpenAI" for the per-client click-throughs.
 ```
 
 See [`INSTALL.md`](INSTALL.md) for the complete walkthrough including
-HTTPS certificates, the `ownsona.service` systemd unit, and daily
-backups.
+HTTPS certificates, the `ownsona.service` systemd unit, daily backups,
+and the OAuth setup details.  See [`Deploy.md`](Deploy.md) when
+upgrading an existing install.
 
 ## Built on Kiss
 
