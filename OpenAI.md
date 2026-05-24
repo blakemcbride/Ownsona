@@ -57,8 +57,8 @@ conversation.
    - **Name**: `Ownsona` (or anything — purely cosmetic).
    - **Description**: `Personal durable memory store.` (also cosmetic).
    - **MCP Server URL**: `https://<your-host>/mcp`.
-   - **Authentication**: see [§1.2](#12-authentication-the-openai-ownsona-gap)
-     — this is the awkward part.
+   - **Authentication**: see [§1.2](#12-authentication) — just pick
+     **OAuth** and save.
 
 ### 1.2 Authentication
 
@@ -80,14 +80,17 @@ expires or you delete the connector and re-add it.
 
 ### 1.3 Enable the connector in a conversation
 
-Once the connector is saved (and one of the auth options above is
-working), it appears in the **tools / connectors** menu inside any
-chat. Toggle Ownsona on for a conversation to make its tools available
-to the model.
+Once the connector is saved and you've completed the OAuth login, it
+appears in the **tools / connectors** menu inside any chat. Toggle
+Ownsona on for a conversation to make its tools available to the
+model.
 
-Until the connector authenticates successfully, ChatGPT may show a
-generic "connector unavailable" error in the menu — that's the symptom
-of the auth-gap problem above, not a server-side bug.
+Until the OAuth login completes successfully, ChatGPT may show a
+generic "connector unavailable" error in the menu. The usual causes
+are OAuth discovery failure (server unreachable, TLS cert problem,
+or `/.well-known/oauth-protected-resource` not served — see
+[§7 Troubleshooting](#7-troubleshooting)) or a stale dynamic-registration
+record on ChatGPT's side (delete the connector and re-add it).
 
 ### 1.4 Tell ChatGPT to use Ownsona by default (Custom Instructions)
 
@@ -488,24 +491,27 @@ its own refresh token. Treat refresh tokens accordingly:
   on demand and only need to live in memory.
 - **Don't paste a refresh token into shared docs, public repos, or
   screenshots.** A leaked refresh token grants memory access until
-  it's revoked (currently: until you delete the corresponding line
-  from `WEB-INF/backend/oauth.ini` on the server and restart).
+  it's revoked (currently: until you delete the corresponding
+  `[refresh.*]` line from the AS state file --- the path set by
+  `OAuthAsIniFile`, or `WEB-INF/backend/oauth.ini` if the default was
+  kept --- and restart the service).
 - Each MCP client gets its own registration + token pair, so revoking
   one client doesn't disturb the others.
 
 ### Rotation
 
-See `INSTALL.md` §16 "Rotating login credentials" and "Rotating the
-AS signing key" for the operator-side rotation procedures. Briefly:
+See `INSTALL.md` §17 "Rotating login credentials" and "Rotating the
+AS signing key only" for the operator-side rotation procedures.
+Briefly:
 
 - **Change the consent-page password**: edit
   `OWNSONA_LOGIN_PASSWORD`, rebuild, redeploy. Existing tokens stay
   valid until their TTL.
-- **Invalidate every issued token**: delete
-  `WEB-INF/backend/oauth.ini` on the server and restart. The AS
-  generates a new signing key; every previously-issued JWT fails
-  signature verification. Clients re-register and the user redoes
-  the login + Allow flow.
+- **Invalidate every issued token**: delete the AS state file (the
+  path set by `OAuthAsIniFile`, or `WEB-INF/backend/oauth.ini` if
+  the default was kept) and restart. The AS generates a new signing
+  key; every previously-issued JWT fails signature verification.
+  Clients re-register and the user redoes the login + Allow flow.
 
 ### What ChatGPT sees vs. what's stored
 
