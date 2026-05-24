@@ -686,12 +686,13 @@ Expected:
 ```
 
 A 401 means the token is missing, malformed, expired, or signed by a
-different AS key than the one in the current `oauth.ini`. The 401
-response carries an RFC 6750 / RFC 9728 `WWW-Authenticate` header that
-points clients at the resource-metadata document — use it to confirm
-the AS the client should be talking to. A connection refused/reset
-generally means Tomcat failed to bind 443 — check
-`journalctl -u ownsona.service`.
+different AS key than the one in the current AS state file (the path
+set by `OAuthAsIniFile`, or `WEB-INF/backend/oauth.ini` if you kept
+the default). The 401 response carries an RFC 6750 / RFC 9728
+`WWW-Authenticate` header that points clients at the resource-metadata
+document — use it to confirm the AS the client should be talking to.
+A connection refused/reset generally means Tomcat failed to bind 443 —
+check `journalctl -u ownsona.service`.
 
 End-to-end exercise of every tool:
 
