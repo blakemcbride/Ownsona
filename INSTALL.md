@@ -21,13 +21,14 @@ Everything in this guide assumes you can `sudo`. Commands shown without
 7. [TLS certificates](#7-tls-certificates)
 8. [Clone the repository and build](#8-clone-the-repository-and-build)
 9. [Apply the database migration](#9-apply-the-database-migration)
-10. [Configure environment variables](#10-configure-environment-variables)
+10. [Configure application.ini](#10-configure-applicationini)
 11. [Install the systemd service](#11-install-the-systemd-service)
-12. [Smoke test](#12-smoke-test)
-13. [Daily backups (optional but recommended)](#13-daily-backups)
-14. [Restore from backup](#14-restore-from-backup)
-15. [Upgrading an existing install](#15-upgrading-an-existing-install)
-16. [Operational reference](#16-operational-reference)
+12. [Connecting an AI client](#12-connecting-an-ai-client)
+13. [Smoke test](#13-smoke-test)
+14. [Daily backups (optional but recommended)](#14-daily-backups)
+15. [Restore from backup](#15-restore-from-backup)
+16. [Upgrading an existing install](#16-upgrading-an-existing-install)
+17. [Operational reference](#17-operational-reference)
 
 ---
 
@@ -66,6 +67,22 @@ For background and the per-tool wire format see `OWNSONA_SPEC.md` and
   - An OpenAI account with billing enabled (the embeddings endpoint is
     pay-per-use).
   - An AWS S3 bucket if you want the daily backups (optional).
+
+**Convention used in this document.** Wherever you see `<your-host>`,
+substitute the bare hostname you registered in DNS — `example.com`,
+not `https://example.com` and not `example.com/mcp`. When the doc
+needs a full URL it shows the scheme and path inline,
+e.g. `https://<your-host>/mcp`. Other recurring placeholders:
+
+| Placeholder | Shape | Example |
+|---|---|---|
+| `<your-host>` | bare hostname | `example.com` |
+| `<PGPW>` | plain string password you choose | `s9aT2x...` |
+| `<keystore-pw>` | plain string password you choose | `keystore-pw-here` |
+| `<your-OpenAI-key>` | full OpenAI API key including `sk-` prefix | `sk-proj-abc123...` |
+| `<git-url-of-ownsona-repo>` | full git URL | `https://github.com/blakemcbride/Ownsona.git` |
+| `<pick-any-username>` | plain string login name | `blake` |
+| `<pick-a-strong-password>` | plain string password | `correct-horse-battery-staple` |
 
 ---
 
@@ -152,7 +169,7 @@ The script:
   unique index, and the `updated_at` trigger),
 - grants the `ownsona` role the table and sequence privileges it needs
   plus `CREATE ON SCHEMA public` and ownership of `memories` (and its
-  sequence). The auto-migrator (see section 15) needs these to create
+  sequence). The auto-migrator (see section 16) needs these to create
   its `db_version` bookkeeping table and apply future migrations
   without requiring the postgres superuser at runtime.
 
@@ -220,7 +237,7 @@ Edit `/home/ownsona/tomcat/conf/server.xml` and make four changes:
    <Connector port="443" protocol="org.apache.coyote.http11.Http11NioProtocol"
               maxThreads="150" SSLEnabled="true">
        <UpgradeProtocol className="org.apache.coyote.http2.Http2Protocol" />
-       <SSLHostConfig hostName="ownsona.com">
+       <SSLHostConfig hostName="<your-host>">
            <Certificate certificateKeystoreFile="conf/tomcat.p12"
                         certificateKeystoreType="PKCS12"
                         certificateKeystorePassword="<keystore-pw>"
@@ -228,6 +245,11 @@ Edit `/home/ownsona/tomcat/conf/server.xml` and make four changes:
        </SSLHostConfig>
    </Connector>
    ```
+
+   `hostName` is the bare hostname only (e.g. `example.com`), no
+   scheme, no path. `<keystore-pw>` is a password string you choose
+   (e.g. `s3cret-keystore-pw`); §7 below uses the same value when
+   generating the keystore.
 
    (Add additional `SSLHostConfig` blocks if you serve multiple
    hostnames from the same VM.)
@@ -266,7 +288,10 @@ sudo chown -R ownsona:ownsona /home/ownsona/tomcat
 ## 7. TLS certificates
 
 Tomcat reads PKCS12 keystores. The simplest production path is Let's
-Encrypt via certbot, then a one-time conversion:
+Encrypt via certbot, then a one-time conversion. Substitute your
+bare hostname (e.g. `example.com`) for `<your-host>` and any
+keystore password you choose (e.g. `s3cret-keystore-pw`) for
+`<keystore-pw>`:
 
 ```bash
 sudo apt install -y certbot
@@ -317,6 +342,7 @@ As `ownsona`:
 ```bash
 cd /home/ownsona
 git clone <git-url-of-ownsona-repo> ownsona
+# e.g. git clone https://github.com/blakemcbride/Ownsona.git ownsona
 cd ownsona
 ./bld -v build       # compiles core + precompiled into work/exploded/
 ./bld war            # produces work/Kiss.war
@@ -380,16 +406,76 @@ DatabaseName     = ownsona
 DatabaseUser     = ownsona
 DatabasePassword = <PGPW>
 
-EMBEDDING_API_KEY       = sk-...your-OpenAI-key...
-OWNSONA_API_TOKEN    = <openssl rand -hex 32>
-EMBEDDING_ENDPOINT   = https://api.openai.com/v1/embeddings
-EMBEDDING_MODEL      = text-embedding-3-small
-EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_ENDPOINT     = https://api.openai.com/v1/embeddings
+EMBEDDING_API_KEY      = sk-...your-OpenAI-key...
+EMBEDDING_MODEL        = text-embedding-3-small
+EMBEDDING_DIMENSIONS   = 1536
+
+OWNSONA_LOGIN_USERNAME = <pick-any-username>
+OWNSONA_LOGIN_PASSWORD = <pick-a-strong-password>
+
+# OAuth 2.1 (resource server + embedded authorization server).
+# OAuthAuthorizationServer is the single URL that drives everything:
+# the resource identifier, the AS issuer, and the JWKS URI all derive
+# from it.  Use the full URL with scheme; for host example.com that's
+# https://example.com.
+OAuthAuthorizationServer = https://<your-host>
+OAuthAsEnabled           = true
 ```
 
-Generate the bearer token with `openssl rand -hex 32` and save it
-somewhere safe — it's what every MCP client must present in
-`Authorization: Bearer ...`.
+#### What `OWNSONA_LOGIN_USERNAME` / `OWNSONA_LOGIN_PASSWORD` are
+
+These are credentials **you invent** when setting up the server —
+a username and password that guard the OwnSona OAuth consent page.
+They are **not** tied to any external service: not your OpenAI /
+Anthropic / Google account, not your Unix login, not anything else.
+They exist nowhere outside `application.ini` and the
+`OwnsonaUserAuthenticator` class that reads it.
+
+The single flow they're used in: when someone (you) connects an MCP
+client like Claude or ChatGPT to your OwnSona server, the client
+opens a browser tab to `https://<your-host>/oauth/authorize`. That
+page asks for `OWNSONA_LOGIN_USERNAME` and `OWNSONA_LOGIN_PASSWORD`.
+You type them in, click **Allow** on the consent screen, and the
+OwnSona authorization server issues an OAuth access token + refresh
+token back to the client. The client uses those for every
+subsequent MCP call. After the first time, the user doesn't see the
+login page again until the refresh token expires (30 days by
+default).
+
+Because OwnSona is single-user, one username/password pair is
+enough. Pick anything you'll remember — `blake` /
+`correct-horse-battery-staple`, `admin` / whatever, anything goes.
+Treat the password like any other password (strong, not reused) and
+rotate it via §17 if you ever expose it. Both values sit in
+plaintext in `src/main/backend/application.ini` alongside the
+database password and the embedding API key; keep the file
+`chmod 600` as the rest of this guide assumes.
+
+#### What the `OAuth*` keys do
+
+They turn on the resource server (validates incoming
+`Authorization: Bearer ...` JWTs) and the embedded authorization
+server (issues those JWTs at `/oauth/authorize` and `/oauth/token`,
+with dynamic client registration at `/oauth/register`). MCP clients
+discover both via the auto-served metadata documents at
+`/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-authorization-server`.
+
+The resource server discovers the JWKS URI automatically via the RFC
+8414 metadata document the AS publishes at
+`/.well-known/oauth-authorization-server`, so no separate JWKS key is
+needed. The resource identifier and the AS issuer URL also default to
+`OAuthAuthorizationServer`. If you ever need to override any of these
+(e.g. point the RS at an external AS that publishes neither RFC 8414
+nor OIDC discovery, or bind tokens to a more specific audience), see
+the "Optional overrides" block in `application.ini.example`.
+
+The AS persists its signing key and registered clients in
+`WEB-INF/backend/oauth.ini` under the deployed Tomcat. That file is
+created on first start; the `ownsona` user must own `WEB-INF/backend/`
+or the AS cannot save state. (The systemd unit runs the JVM as
+`ownsona`, so this is normally automatic.)
 
 `EMBEDDING_DIMENSIONS` must match the `vector(N)` column type in
 `sql/001_init.sql`. The shipped schema uses `vector(1536)`, which
@@ -404,6 +490,12 @@ Optional keys with defaults:
 # MAX_RECALL_LIMIT     = 50
 # MAX_TEXT_CHARS       = 16000
 # MAX_BATCH_SIZE       = 200
+
+# OAuth tuning (sensible defaults applied if omitted):
+# OAuthRequiredScopes          =                  # no required scopes
+# OAuthAccessTokenTtlSeconds   = 3600             # 1 hour
+# OAuthRefreshTokenTtlSeconds  = 2592000          # 30 days
+# OAuthAllowDynamicRegistration = true
 ```
 
 `tomcat/bin/setenv.sh` is no longer used for application secrets —
@@ -451,11 +543,95 @@ sudo setcap 'cap_net_bind_service=+ep' /usr/lib/jvm/java-21-openjdk-amd64/bin/ja
 
 ---
 
-## 12. Smoke test
+## 12. Connecting an AI client
+
+Once the systemd service is running and `https://<your-host>/mcp`
+answers, you connect AI clients (Claude, ChatGPT, Grok, etc.) to it.
+
+**For every modern OAuth-capable MCP client, the only piece of
+information you give the client is the MCP server URL itself:**
+
+```
+https://<your-host>/mcp
+```
+
+That single URL is enough because OwnSona advertises everything else
+the client needs via the OAuth metadata documents
+(`/.well-known/oauth-protected-resource`,
+`/.well-known/oauth-authorization-server`) and accepts dynamic
+client registration at `/oauth/register`.
+
+The first time the client tries to use the server:
+
+1. The client discovers the OwnSona authorization server, registers
+   itself dynamically, and opens a browser tab.
+2. The browser lands on the OwnSona login page. **Enter the
+   `OWNSONA_LOGIN_USERNAME` and `OWNSONA_LOGIN_PASSWORD` you put in
+   `application.ini` in §10.** (Not your OpenAI / Anthropic / Google
+   credentials — those have nothing to do with this. The login page
+   is checking only against the values in your own
+   `application.ini`.)
+3. A consent screen shows what's being requested. Click **Allow**.
+4. The browser hands the resulting OAuth code back to the client,
+   which exchanges it for an access token + refresh token. From then
+   on the client uses those tokens automatically; the access token
+   gets refreshed before expiry without any further action from you.
+
+Per-client specifics:
+
+| Client | What you give it |
+|---|---|
+| **Claude.ai** (web) | Settings → Custom connectors → Add custom connector. URL: `https://<your-host>/mcp`. Pick OAuth (it's the default). |
+| **Claude Desktop** | Settings → Connectors → Add. URL: `https://<your-host>/mcp`. |
+| **ChatGPT** | Settings → Connectors → Add custom connector. URL: `https://<your-host>/mcp`. Choose **OAuth** as the authentication mode. |
+| **Grok / xAI** | Same shape: an MCP-server URL of `https://<your-host>/mcp` and OAuth. (UI labels vary.) |
+| **Anything with MCP support** | Look for an "MCP server URL" field. Paste `https://<your-host>/mcp`. If it asks for an auth mode, choose OAuth. Don't paste a static token. |
+
+You will *never* paste an OpenAI / Anthropic / Google API key into
+OwnSona's login screen — those are unrelated services. You will *never*
+paste the OwnSona login password into a Claude / ChatGPT / Grok
+settings UI — that password is entered only in the browser tab the
+client opens during step 2. If a client UI asks for a "bearer token"
+in a text field, it's the legacy non-OAuth path; leave it blank and
+pick OAuth instead.
+
+If you want a token to drive curl yourself (for §13 smoke-testing or
+ad-hoc scripts), do the OAuth flow with any client above, then copy
+the access token out of its local config — see §13 for one workflow.
+
+---
+
+## 13. Smoke test
+
+OwnSona requires an OAuth 2.1 access token. The embedded AS supports
+only the auth code (+ PKCE) and refresh grants, so curl cannot fetch a
+token unattended. Get one once via the browser, then export it.
+
+Quick way to obtain an `OWNSONA_ACCESS_TOKEN` for testing:
+
+1. Add OwnSona as an MCP server in any OAuth-capable MCP client
+   (Claude Desktop, ChatGPT, Claude.ai). The client performs dynamic
+   registration, opens the browser, you log in with
+   `OWNSONA_LOGIN_USERNAME` / `OWNSONA_LOGIN_PASSWORD`, click Allow on
+   the consent page, and the client stores the access token in its
+   local config. Copy that token out.
+2. Or drive the flow manually with curl + browser. The sequence is
+   documented in the Kiss `org.kissweb.oauth.as` package-info; the
+   relevant endpoints are `/oauth/register`, `/oauth/authorize`, and
+   `/oauth/token`. With the default config, the AS issues tokens with
+   `aud = <OAuthAuthorizationServer>` and the RS validates against the
+   same value, so the `resource=` parameter (RFC 8707) can be omitted
+   from curl flows. If you set `OAuthResourceIdentifier` to a more
+   specific URL in `application.ini`, send `resource=<that-value>` on
+   both `/oauth/authorize` and `/oauth/token`.
+
+Then:
 
 ```bash
+export OWNSONA_ACCESS_TOKEN="eyJhbGciOiJSUzI1NiIs..."
+
 curl -sS -X POST https://<your-host>/mcp \
-    -H "Authorization: Bearer $OWNSONA_API_TOKEN" \
+    -H "Authorization: Bearer $OWNSONA_ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
 ```
@@ -468,14 +644,18 @@ Expected:
  "protocolVersion":"2025-06-18"},"id":1,"jsonrpc":"2.0"}
 ```
 
-A 401 means the bearer token is wrong. A connection refused/reset
+A 401 means the token is missing, malformed, expired, or signed by a
+different AS key than the one in the current `oauth.ini`. The 401
+response carries an RFC 6750 / RFC 9728 `WWW-Authenticate` header that
+points clients at the resource-metadata document — use it to confirm
+the AS the client should be talking to. A connection refused/reset
 generally means Tomcat failed to bind 443 — check
 `journalctl -u ownsona.service`.
 
 End-to-end exercise of every tool:
 
 ```bash
-OWNSONA_API_TOKEN="..." /home/ownsona/ownsona/sql/smoke_test.sh
+OWNSONA_ACCESS_TOKEN="..." /home/ownsona/ownsona/sql/smoke_test.sh https://<your-host>/mcp
 ```
 
 Run the test suite:
@@ -488,7 +668,7 @@ OWNSONA_TEST_DATABASE_URL="postgresql://ownsona:$PGPW@localhost:5432/ownsona_tes
 
 ---
 
-## 13. Daily backups
+## 14. Daily backups
 
 Backups go to an S3 bucket mounted at `/mnt/backups` via
 `s3fs` and are triggered by a `systemd` timer at 03:00 daily. Two files
@@ -580,7 +760,7 @@ in the first place.)
 
 ---
 
-## 14. Restore from backup
+## 15. Restore from backup
 
 If you have a recent backup, **this path is faster than steps 5–11.**
 
@@ -648,7 +828,7 @@ so no manual `adduser` is needed. PostgreSQL roles (including the
 
 ---
 
-## 15. Upgrading an existing install
+## 16. Upgrading an existing install
 
 If your Ownsona database was created BEFORE the auto-migration
 framework landed (rollout Phase 2), you need a one-time privilege
@@ -717,7 +897,7 @@ corresponding phase's ship checklist in
 
 ---
 
-## 16. Operational reference
+## 17. Operational reference
 
 ### Service control
 
@@ -759,13 +939,28 @@ sudo tail -f /var/log/ownsona-backup.log              # last run + history
 | `tomcat/logs/localhost_access_log.YYYY-MM-DD.txt`     | `AccessLogValve`       | `maxDays=90`                |
 | `tomcat/logs/catalina.out`                            | n/a                    | unused under systemd        |
 
-### Rotating the bearer token
+### Rotating login credentials
 
-Generate a new token, update `OWNSONA_API_TOKEN` in
-`src/main/backend/application.ini`, run `./bld -v build && ./bld war`
-to rebuild the WAR, redeploy, and distribute the new token to MCP
-clients. There is no dual-token grace window; clients see a 401 until
-they update.
+Change `OWNSONA_LOGIN_PASSWORD` in `src/main/backend/application.ini`,
+rebuild the WAR (`./bld -v build && ./bld war`), and redeploy. Issued
+access tokens remain valid until their TTL expires — the password is
+only consulted on the AS login page. To invalidate every existing
+token immediately, also delete `WEB-INF/backend/oauth.ini` from the
+deployed Tomcat before restart: the AS will mint a new signing key
+and every previously-issued JWT will fail signature verification.
+Registered clients will have to re-register and re-authorize, which
+for typical MCP clients means the user redoes the login + Allow flow.
+
+### Rotating the AS signing key only
+
+To rotate the JWT signing key without forcing a re-registration of
+every client: stop the service, edit
+`WEB-INF/backend/oauth.ini` and remove the `[key]` section (and any
+`kid` references in `[clients]` entries you wish to keep), restart.
+The AS will generate a fresh key on first OAuth request; existing
+access tokens become invalid. Clients with refresh tokens issued
+before the rotation also lose them — refresh tokens are signed with
+the same key.
 
 ### Top common failure modes
 
@@ -776,9 +971,20 @@ they update.
 - **MCP returns `EMBEDDING_ERROR` with `insufficient_quota`** — the
   OpenAI account is out of credit. Top up; the rest of the system
   (auth, DB, listing, text search) keeps working.
-- **MCP returns `AUTH_FAILED`** on every request — `OWNSONA_API_TOKEN`
-  in `application.ini` doesn't match what the client is sending, or
-  the WAR wasn't rebuilt/redeployed after editing the ini.
+- **Every `/mcp` request returns 401** — the client is sending no
+  token, an expired one, or one signed by a different AS key than the
+  one in the deployed `oauth.ini`. The `WWW-Authenticate` header on
+  the 401 names the resource-metadata URL the client should use to
+  re-discover the AS.
+- **`/oauth/authorize` returns 500 with "UserAuthenticator not
+  registered"** — `KissInit.groovy` did not register
+  `OwnsonaUserAuthenticator`. Check that the WAR contains both
+  `WEB-INF/classes/ai/ownsona/oauth/OwnsonaUserAuthenticator.class`
+  and a `KissInit.groovy` that wires it via
+  `AsExtensions.setUserAuthenticator(...)`.
+- **AS cannot persist state** — `WEB-INF/backend/` is not writable by
+  the JVM user. Confirm `ls -ld /home/ownsona/tomcat/webapps/ROOT/WEB-INF/backend`
+  is owned by `ownsona`.
 - **First request after deploy is slow / 404** — Tomcat is still
   redeploying the WAR; ~10 s window with `autoDeploy="true"`. Subsequent
   requests are normal.

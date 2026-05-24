@@ -21,25 +21,24 @@ You can use either, both, or neither.
 | Item | Where to get it |
 |---|---|
 | Public Ownsona endpoint | `https://<your-host>/mcp` (e.g. `https://ownsona.com/mcp`) |
-| Bearer token | `OWNSONA_API_TOKEN` from `src/main/backend/application.ini` |
-| Eligible OpenAI plan | ChatGPT path: Plus, Pro, Team, or Enterprise. API path: any account with API access. |
+| Login credentials      | `OWNSONA_LOGIN_USERNAME` / `OWNSONA_LOGIN_PASSWORD` from `src/main/backend/application.ini` |
+| Eligible OpenAI plan   | ChatGPT path: Plus, Pro, Team, or Enterprise. API path: any account with API access. |
 
-The bearer token is what proves to Ownsona that the request came from
-you. **Treat it like a password.** Anyone who has it can read and
-overwrite your memories.
+Ownsona uses OAuth 2.1: clients perform a dynamic registration + auth
+code flow against the server's embedded authorization server and use
+the resulting access token (a short-lived JWT) for every MCP request.
+The user-facing piece is a one-time login on Ownsona's consent page,
+done automatically by any OAuth-capable MCP client.
 
 Confirm the server is reachable before doing anything in OpenAI's UI:
 
 ```bash
-curl -sS -X POST https://<your-host>/mcp \
-    -H "Authorization: Bearer $OWNSONA_API_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+curl -sS https://<your-host>/.well-known/oauth-protected-resource
 ```
 
-You should get back JSON containing `"name":"ownsona-mcp"`. A 401 means
-the token is wrong; anything else means the server isn't healthy and
-you should fix that first (see `MCPServer.md`).
+You should get back a small JSON document naming the authorization
+server. A 404 means the server is up but OAuth isn't configured
+(`OAuthAuthorizationServer` missing from `application.ini`).
 
 ---
 
@@ -61,115 +60,23 @@ conversation.
    - **Authentication**: see [§1.2](#12-authentication-the-openai-ownsona-gap)
      — this is the awkward part.
 
-### 1.2 Authentication: the OpenAI ↔ Ownsona gap
+### 1.2 Authentication
 
-OpenAI's connector form does **not** offer "API Key" or "Bearer
-token" as an authentication mode. As of early 2026 the choices are:
+Pick **OAuth** in ChatGPT's connector form and save. The MCP
+authorization profile that ChatGPT speaks (OAuth 2.1 + PKCE + RFC
+7591 dynamic client registration + RFC 9728 protected-resource
+metadata + RFC 8414 AS metadata) is exactly what Ownsona's embedded
+authorization server implements, so no extra fields are needed.
 
-| OpenAI mode | What it means | Works with Ownsona v1? |
-|---|---|---|
-| **No auth** | ChatGPT sends no `Authorization` header. | Only if you also drop server-side auth — see option C below. |
-| **OAuth**   | ChatGPT performs an OAuth 2.1 + PKCE authorization-code flow against the MCP server. | No — Ownsona v1 has no OAuth endpoints. |
-| **Mixed**   | Hybrid mode. Practical behavior is for ChatGPT to follow what the server signals via the 401 `WWW-Authenticate` header (and possibly to prompt you for a static credential). | Worth trying first — see option B below. |
+The first time you enable the connector in a chat, ChatGPT opens a
+browser tab to `https://<your-host>/oauth/authorize`. Log in with
+`OWNSONA_LOGIN_USERNAME` / `OWNSONA_LOGIN_PASSWORD`, click **Allow**
+on the consent page, and the tab closes. ChatGPT now holds an access
+token (one-hour TTL by default) and a refresh token (30 days);
+it refreshes automatically as the access token expires.
 
-That mismatch leaves four practical paths:
-
-#### Option A — Skip the ChatGPT UI; use the OpenAI API only
-
-Use Ownsona from your own scripts and apps via the OpenAI Responses
-API ([§5](#5-programmatic-access-via-the-openai-api)), where you can
-attach `Authorization: Bearer <OWNSONA_API_TOKEN>` directly in the
-tool spec. Don't add a ChatGPT connector at all. **This is the
-lowest-friction option that keeps the bearer-token security model
-intact** and is the recommended path until OAuth lands on Ownsona.
-
-#### Option B — Try **Mixed** first
-
-Pick **Mixed** in the connector form and save. Ownsona returns
-`401 Unauthorized` with `WWW-Authenticate: Bearer realm="ownsona"`
-on every unauthenticated request, which is the standard signal for
-"this resource needs a Bearer token." Some ChatGPT versions follow
-that signal and prompt you for a token; if that prompt appears,
-paste `OWNSONA_API_TOKEN` and it works. If instead ChatGPT reports
-an OAuth discovery failure (because Ownsona has no
-`/.well-known/oauth-authorization-server` endpoint), fall back to
-options C or D.
-
-This is unverified for any specific ChatGPT version — the UI
-evolves. It's a five-minute test, so try it before committing to the
-heavier paths.
-
-#### Option C — Run with **No auth** (least secure)
-
-Pick **No auth** in the connector form and relax server-side auth in
-Ownsona so unauthenticated requests are allowed:
-
-```java
-// MCPServer.authenticate(...)
-@Override
-protected boolean authenticate(HttpServletRequest req, HttpServletResponse resp) {
-    return true;     // anyone who can reach /mcp is allowed
-}
-```
-
-**Anyone who discovers the URL can read and overwrite your
-memories.** Acceptable for short-lived experimentation, not for
-production. If you go this route, at minimum:
-
-- Remap the servlet to a hard-to-guess path
-  (`@WebServlet(urlPatterns = "/mcp-<random>")`).
-- Tail `localhost_access_log` and treat any 200 from an unfamiliar
-  IP as a leak.
-- Plan to revert to authenticated mode promptly.
-
-#### Option D — Add OAuth to Ownsona (proper fix, future work)
-
-Implement an OAuth 2.1 authorization server endpoint set on Ownsona,
-or front Ownsona with an OAuth-capable proxy (Cloudflare Access,
-oauth2-proxy, Pomerium). ChatGPT does the OAuth dance with the
-proxy / Ownsona, the resulting Bearer token flows through, and
-nothing else changes. This is the spec-compliant path; it just isn't
-done in v1.
-
-The MCP authorization profile is OAuth 2.1 with PKCE plus optional
-dynamic client registration (RFC 7591) and authorization-server
-metadata (RFC 8414). A proxy is significantly less work than
-implementing those endpoints in Ownsona itself.
-
-#### Option E — "No auth" + token in URL query parameter (recommended for single-user)
-
-Pick **No auth** in the connector form, but include the bearer token
-as a `?token=` query parameter in the connector URL:
-
-```
-https://ownsona.com/mcp?token=<OWNSONA_API_TOKEN>
-```
-
-ChatGPT sends no `Authorization` header (it doesn't expose one), but
-the URL with the query string travels on every request. Ownsona's
-`MCPServer.authenticate()` looks for the token in the
-`Authorization: Bearer …` header **and** falls back to the `token`
-query parameter, so this works alongside the API path without
-breaking anything.
-
-**Security tradeoff.** A token in a query string is logged by web
-servers in places a header is not — by default Tomcat's
-`AccessLogValve` writes the full request line including the query.
-We mitigate this in `tomcat/conf/server.xml` by changing the
-`AccessLogValve` `pattern` to `%m %U %H` (method, URI without query,
-protocol) instead of `%r` (full request line). Verify after deploy
-that `localhost_access_log.<today>.txt` shows lines like
-`POST /mcp HTTP/2.0` with no `token=` substring anywhere.
-
-**The remaining exposure** is human factors: the connector URL
-itself is now a secret. Don't paste it into Slack, screenshots, or
-shared docs. If you ever do, rotate the token (see
-[§6 Security](#6-security)) and update every client.
-
-**Don't choose this path if** you plan to share Ownsona with another
-person or let it accept multiple distinct users. There is no per-user
-token; everyone authenticates as the same single principal. That's
-the trigger for Option D.
+You won't see the login screen again until either the refresh token
+expires or you delete the connector and re-add it.
 
 ### 1.3 Enable the connector in a conversation
 
@@ -401,11 +308,12 @@ tool (you'll see "Calling Ownsona / remember" or similar in the chat
 UI, depending on version). The second message should result in
 ChatGPT calling `recall` and answering "concise" or similar.
 
-Cross-check by curling the live server:
+Cross-check by curling the live server (using an access token obtained
+via the OAuth flow — see `INSTALL.md` §12):
 
 ```bash
 curl -sS -X POST https://<your-host>/mcp \
-    -H "Authorization: Bearer $OWNSONA_API_TOKEN" \
+    -H "Authorization: Bearer $OWNSONA_ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
          "params":{"name":"list_memories","arguments":{}}}'
@@ -461,7 +369,7 @@ takes care of the protocol from there.
 from openai import OpenAI
 import os
 
-client = OpenAI()  # uses EMBEDDING_API_KEY from env
+client = OpenAI()  # uses OPENAI_API_KEY from env
 
 response = client.responses.create(
     model="gpt-4o",
@@ -469,9 +377,11 @@ response = client.responses.create(
     tools=[{
         "type":         "mcp",
         "server_label": "ownsona",
-        "server_url":   "https://ownsona.com/mcp",
+        "server_url":   "https://<your-host>/mcp",
         "headers": {
-            "Authorization": f"Bearer {os.environ['OWNSONA_API_TOKEN']}"
+            # Short-lived OAuth access token.  See "Obtaining tokens"
+            # below for how to get and refresh one.
+            "Authorization": f"Bearer {os.environ['OWNSONA_ACCESS_TOKEN']}"
         },
         # "never" lets OpenAI invoke Ownsona's tools without asking
         # for human approval each time.  Set to "always" if you want
@@ -495,9 +405,9 @@ const response = await openai.responses.create({
     tools: [{
         type: "mcp",
         server_label: "ownsona",
-        server_url: "https://ownsona.com/mcp",
+        server_url: "https://<your-host>/mcp",
         headers: {
-            Authorization: `Bearer ${process.env.OWNSONA_API_TOKEN}`,
+            Authorization: `Bearer ${process.env.OWNSONA_ACCESS_TOKEN}`,
         },
         require_approval: "never",
     }],
@@ -509,6 +419,40 @@ console.log(response.output_text);
 OpenAI does the same `tools/list` discovery the ChatGPT UI does, then
 calls `tools/call` whenever the model decides one of Ownsona's tools is
 the right move.
+
+### Obtaining tokens
+
+The OpenAI Responses API takes a static `Authorization` header — it
+does **not** run the OAuth flow on your behalf. Run the flow once
+yourself to get the initial access + refresh token, then in your
+script trade the refresh token for a fresh access token before each
+batch of calls:
+
+```python
+import requests, os, time
+
+refresh = os.environ["OWNSONA_REFRESH_TOKEN"]
+client_id = os.environ["OWNSONA_CLIENT_ID"]   # from the one-time /oauth/register call
+
+r = requests.post(
+    "https://<your-host>/oauth/token",
+    data={
+        "grant_type":    "refresh_token",
+        "refresh_token": refresh,
+        "client_id":     client_id,
+    },
+    timeout=10,
+)
+r.raise_for_status()
+body = r.json()
+os.environ["OWNSONA_ACCESS_TOKEN"] = body["access_token"]
+# body["refresh_token"] is rotated --- save it for next time.
+```
+
+For the one-time bootstrap (`/oauth/register` + `/oauth/authorize` +
+`/oauth/token` with `grant_type=authorization_code`) see Kiss's
+`org.kissweb.oauth.as` package-info or run the flow once with a real
+MCP client and copy the tokens out of its local config.
 
 ### Field names may move
 
@@ -532,31 +476,36 @@ natively. You have two options there:
 
 ## 6. Security
 
-### The bearer token is the whole authentication story
+### Access tokens are short-lived; refresh tokens are the long-term secret
 
-Ownsona has no per-user accounts in v1; the bearer token alone grants
-full read/write access to your memory store. Treat it accordingly:
+Ownsona has no per-user accounts in v1 — every token authorizes the
+same single principal (`OWNSONA_USER_ID`). What separates clients is
+that each gets its own `client_id` (from dynamic registration) and
+its own refresh token. Treat refresh tokens accordingly:
 
-- **Don't paste it into shared docs, public repos, or screenshots.**
-  ChatGPT's connector UI and the OpenAI API both transmit it over
-  HTTPS; that's fine. Pasting it into a Slack channel is not.
-- **Use a different token** for the ChatGPT UI vs. your API scripts if
-  you want the option to revoke one without affecting the other.
-  v1 supports only one token at a time, but that may change.
+- Refresh tokens are stored by your MCP client (ChatGPT, Claude
+  Desktop) in its local config; access tokens are derived from them
+  on demand and only need to live in memory.
+- **Don't paste a refresh token into shared docs, public repos, or
+  screenshots.** A leaked refresh token grants memory access until
+  it's revoked (currently: until you delete the corresponding line
+  from `WEB-INF/backend/oauth.ini` on the server and restart).
+- Each MCP client gets its own registration + token pair, so revoking
+  one client doesn't disturb the others.
 
 ### Rotation
 
-To rotate the token:
+See `INSTALL.md` §16 "Rotating login credentials" and "Rotating the
+AS signing key" for the operator-side rotation procedures. Briefly:
 
-1. Generate a new value: `openssl rand -hex 32`.
-2. Update `OWNSONA_API_TOKEN` in `src/main/backend/application.ini`.
-3. Rebuild and redeploy: `./bld -v build && ./bld war && cp work/Kiss.war /home/ownsona/tomcat/webapps/ROOT.war`
-   (or restart the service if you prefer).
-4. Update every client (the ChatGPT connector, every API script) with
-   the new token.
-
-There is no dual-token grace window — clients will see `401
-AUTH_FAILED` until they're updated.
+- **Change the consent-page password**: edit
+  `OWNSONA_LOGIN_PASSWORD`, rebuild, redeploy. Existing tokens stay
+  valid until their TTL.
+- **Invalidate every issued token**: delete
+  `WEB-INF/backend/oauth.ini` on the server and restart. The AS
+  generates a new signing key; every previously-issued JWT fails
+  signature verification. Clients re-register and the user redoes
+  the login + Allow flow.
 
 ### What ChatGPT sees vs. what's stored
 
@@ -579,8 +528,9 @@ keys into a chat.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Connector shows "unavailable" / can't list tools after save | Auth-mode mismatch (see [§1.2](#12-authentication-the-openai-ownsona-gap)) | Use the API path (Option A), or pick "Mixed" / "No auth" per options B/C. |
-| `AUTH_FAILED` on every call (API path) | Token mismatch | Re-check the `Authorization: Bearer ...` header in your tool spec. Cross-check `OWNSONA_API_TOKEN` in `application.ini` (and that the WAR has been rebuilt since the last edit). |
+| Connector shows "unavailable" / can't list tools after save | OAuth discovery failure (DNS, TLS, or `/.well-known/oauth-protected-resource` not served) | `curl https://<host>/.well-known/oauth-protected-resource` — must return JSON, not 404. |
+| Login page never appears when adding the connector | ChatGPT already cached a stale registration | Delete the connector and re-add it, or wait for ChatGPT to drop the stale `client_id`. |
+| 401 on every `/mcp` request (API path) | Access token expired (default TTL 1h) | Trade the refresh token for a fresh access token (see [§5 "Obtaining tokens"](#obtaining-tokens)). If the refresh also fails, the AS's signing key may have rotated — re-run the auth code flow. |
 | ChatGPT says "I don't have access to a memory tool" | Connector not enabled in this conversation | Toggle Ownsona on in the conversation's connectors menu. |
 | ChatGPT calls a tool that no longer exists | Cached tool list | Edit the connector (any save), start a new conversation. |
 | `remember` returns `EMBEDDING_ERROR insufficient_quota` | OpenAI account out of credit | Top up at <https://platform.openai.com/usage>. |

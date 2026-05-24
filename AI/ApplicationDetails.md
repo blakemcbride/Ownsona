@@ -46,12 +46,15 @@ installs and existing-install upgrades.
 
 ```
 src/main/precompiled/ai/ownsona/
-    MCPServer.java                       # @WebServlet(/mcp), MCP tool catalog, bearer auth
+    MCPServer.java                       # @WebServlet(/mcp), MCP tool catalog
     Config.java                          # application.ini loader
     SecretScanner.java
     TextNormalizer.java
     TagNormalizer.java                   # synonym → canonical tag map
     VectorFormat.java
+    oauth/
+        OwnsonaUserAuthenticator.java    # AS login: checks OWNSONA_LOGIN_USERNAME/PASSWORD
+        OwnsonaConsentProvider.java      # AS consent page text + display name
     embeddings/
         EmbeddingProvider.java           # the only vendor-coupled seam
         OpenAIEmbeddingProvider.java
@@ -145,6 +148,16 @@ sql/
    and one-time ops scripts (`migrator_prep.sql`) are the only SQL
    files in `sql/`. Schema migrations are Java classes.
 
+8. **OAuth 2.1 is the only authentication path.** `MCPServer` does NOT
+   override `authenticate()` — the base class's OAuth validator handles
+   every request. Don't re-introduce a static bearer-token shortcut,
+   a `?token=` URL fallback, or a `return true` debug bypass. The
+   embedded AS lives at `/oauth/*` and is configured by
+   `OAuthAsEnabled` + the registered `UserAuthenticator` /
+   `ConsentProvider`. The user-facing credentials are
+   `OWNSONA_LOGIN_USERNAME` / `OWNSONA_LOGIN_PASSWORD` in
+   `application.ini`.
+
 ---
 
 ## Operational model
@@ -230,6 +243,17 @@ phase (not in the migration class).
 - **`ownsona` Postgres role needs `CREATE ON SCHEMA public` and
   ownership of `memories`**. Fresh installs get this via `001_init.sql`;
   existing installs need `sql/migrator_prep.sql` once.
+- **The AS persists state to `WEB-INF/backend/oauth.ini`**. The
+  servlet-container user (the `ownsona` user under systemd) must own
+  that directory or the AS cannot save its signing key, registered
+  clients, or refresh tokens. Symptom: every `/oauth/token` exchange
+  fails after a restart.
+- **OAuth access tokens have a 1-hour default TTL**. A long-running
+  smoke-test or curl session against `/mcp` starts returning 401
+  mid-stream when the token expires; refresh via `/oauth/token` with
+  `grant_type=refresh_token`. Bump `OAuthAccessTokenTtlSeconds` only
+  if you understand the tradeoff (longer-lived tokens harder to
+  revoke).
 - **Compiled tests run against the *currently-compiled* classes in
   `work/exploded/`**. If you change a `private` to package-private for
   testability, run `./bld -v build` before `sql/run_tests.sh` or you'll

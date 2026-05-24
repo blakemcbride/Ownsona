@@ -27,18 +27,6 @@ UserInactiveSeconds = 900
 
 # --- Required: the servlet fails to load if any of these are missing. ---
 
-# Login credentials for the OAuth authorization server's consent page.
-# You invent these --- they are not tied to any external account (not
-# OpenAI, not Anthropic, not your Unix login).  When an MCP client
-# (Claude, ChatGPT, etc.) connects, it opens a browser tab to the AS
-# login page which asks for these two values.  Enter them, click
-# Allow, and the AS issues the client an access token.
-# Single-user server, so one pair is enough.  Plaintext is acceptable
-# here because this file is chmod 600 and already holds the database
-# password and the embeddings API key.
-OWNSONA_LOGIN_USERNAME = <pick-any-username>
-OWNSONA_LOGIN_PASSWORD = <pick-a-strong-password>
-
 # Embedding provider name, recorded on each row.
 EMBEDDING_PROVIDER = openai
 
@@ -53,6 +41,20 @@ EMBEDDING_MODEL = text-embedding-3-small
 
 # Embedding vector dimensions.  Must match the vector(N) column type in sql/001_init.sql.
 EMBEDDING_DIMENSIONS = 1536
+
+# Login credentials for the OAuth authorization server's consent page.
+# You invent these --- they are not tied to any external account (not
+# OpenAI, not Anthropic, not Google, not your Unix login).  When an
+# MCP client (Claude, ChatGPT, etc.) connects, it opens a browser tab
+# to the AS login page which asks for these two values.  Enter them,
+# click Allow, and the AS issues the client an access token.  The
+# user does not see the login page again until the refresh token
+# expires (30 days by default).
+# Single-user server, so one pair is enough.  Plaintext is acceptable
+# here because this file is chmod 600 and already holds the database
+# password and the embeddings API key.
+OWNSONA_LOGIN_USERNAME = <pick-any-username>
+OWNSONA_LOGIN_PASSWORD = <pick-a-strong-password>
 
 # --- Optional with sensible defaults. ---
 
@@ -92,41 +94,41 @@ REEMBED_ON_STARTUP = false
 # Substitute your public hostname (the one your TLS cert covers and
 # that you'll point MCP clients at) for <your-host> below.
 
-# --- Resource-server settings (read by org.kissweb.oauth.OAuthConfig). ---
-
-# Issuer URL of the authorization server.  Required; if unset, the
-# whole OAuth machinery is inert and every /mcp request returns 500.
+# Issuer URL of the authorization server.  Required.  Everything else
+# is derived from this:
+#   * resource identifier ........ defaults to this URL (the 'aud' claim)
+#   * AS issuer (in metadata) .... defaults to this URL
+#   * JWKS URI ................... auto-discovered via the RFC 8414
+#                                  metadata document the AS publishes
 OAuthAuthorizationServer = https://<your-host>
-
-# Canonical URL of this protected resource.  MCP clients must obtain
-# tokens whose 'aud' claim contains this value.  Set it to the URL
-# clients actually use to reach the resource --- usually the /mcp path.
-OAuthResourceIdentifier = https://<your-host>/mcp
-
-# Comma- or space-separated list of scopes every token must carry.
-# Empty / unset means "no scope requirement" --- any token validly
-# signed by the AS for the right audience is accepted.  OwnSona runs
-# without required scopes since the single user owns every token.
-# OAuthRequiredScopes =
-
-# Explicit JWKS URL.  REQUIRED when using the embedded Kiss AS below:
-# without it, the resource server tries to discover the JWKS via
-# /.well-known/openid-configuration (the OIDC discovery doc), which
-# Kiss's AS does not publish (it publishes only the RFC 8414 OAuth
-# metadata doc).  Setting this skips discovery and points the RS
-# straight at the AS's JWKS endpoint.
-OAuthJwksUri = https://<your-host>/oauth/jwks
-
-# --- Authorization-server settings (read by org.kissweb.oauth.as.AuthorizationServerConfig). ---
 
 # Master switch for the embedded authorization server.  When true the
 # /oauth/* endpoints come alive; when false they all return 404 (the
 # resource server can still validate tokens issued elsewhere).
 OAuthAsEnabled = true
 
-# Canonical issuer URL announced by the AS.  Defaults to
-# OAuthAuthorizationServer above; setting it explicitly is clearer.
-OAuthAsIssuer = https://<your-host>
+# --- Optional overrides (uncomment only when defaults don't fit). ---
+
+# Comma- or space-separated list of scopes every token must carry.
+# Empty / unset means "no scope requirement" --- any token validly
+# signed by the AS for the right audience is accepted.
+# OAuthRequiredScopes =
+
+# Override the resource identifier (the value tokens must carry as
+# 'aud').  Default = OAuthAuthorizationServer above.  Set this if you
+# want tokens bound to a more specific URL (e.g. https://<your-host>/mcp).
+# OAuthResourceIdentifier = https://<your-host>/mcp
+
+# Override the AS issuer URL announced in the metadata document.
+# Default = OAuthAuthorizationServer above.
+# OAuthAsIssuer = https://<your-host>
+
+# Override the JWKS URL the resource server fetches signing keys from.
+# Default = auto-discovered from the AS's RFC 8414 metadata document at
+# <issuer>/.well-known/oauth-authorization-server.  Set this only when
+# you're pointing the RS at an AS that publishes neither RFC 8414 nor
+# OIDC discovery (rare).
+# OAuthJwksUri = https://<your-host>/oauth/jwks
 
 # ===== DATABASE CONNECTION POOL SETTINGS =====
 # These settings control the C3P0 connection pool behavior

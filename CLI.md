@@ -137,8 +137,8 @@ mkdir "%LOCALAPPDATA%\ownsona"
 ```
 
 If the default file is missing, the CLI continues silently — it will
-only complain when something it needs (server URL, token) is still
-unset after the environment and CLI overrides are applied.
+only complain when something it needs (server URL, credentials) is
+still unset after the environment and CLI overrides are applied.
 
 ### Resolution order
 
@@ -161,13 +161,13 @@ are stripped.
 
 A template is shipped at [`cli/config.ini.example`](cli/config.ini.example);
 copy it to the OS-specific default path (see the
-[Default config file location](#default-config-file-location) table)
-and fill in your values.
+[Default config file location](#default-config-file-location) table),
+fill in `server_url`, and run `ownsona auth login` to populate the
+OAuth credentials.
 
 ```ini
 # --- MCP server (required for every subcommand) ---
 server_url = https://your.host/mcp
-token      = <bearer-token>
 
 # --- LLM (used only by `teach`) ---
 # Required only when running `teach`.
@@ -175,11 +175,63 @@ llm_api_key  = sk-...
 llm_model    = gpt-4o              # default; --model NAME overrides per-run
 llm_base_url = https://api.openai.com/v1
 subject_name = Blake               # how `teach` refers to you in facts
+
+# --- OAuth state (auto-managed by `ownsona auth login`) ---
+# You don't write these by hand; `auth login` populates them and the
+# per-request refresh path keeps them current.
+# oauth_client_id                 = ...
+# oauth_refresh_token             = ...
+# oauth_access_token              = ...
+# oauth_access_token_expires_at   = ...
+# oauth_authorization_server      = ...
+# oauth_resource                  = ...
 ```
 
-The token is the same bearer token any other MCP client uses against
-your OwnSona server.  Treat it as a secret — anyone holding it can
-read and write your memory store.
+### Authentication
+
+The CLI uses OAuth 2.1 (auth code + PKCE + RFC 7591 dynamic client
+registration + RFC 8707 resource indicators) against the AS that
+protects your `server_url`.  Discovery is automatic via RFC 9728.
+
+First-time setup:
+
+```bash
+ownsona auth login
+```
+
+`auth login` opens your browser to the server's `/oauth/authorize`
+endpoint.  You log in (with `OWNSONA_LOGIN_USERNAME` /
+`OWNSONA_LOGIN_PASSWORD` from the server's `application.ini` —
+single-user server), click **Allow** on the consent page, and the CLI
+captures the resulting access + refresh tokens via a one-shot
+localhost listener.  The tokens get written into your config file
+atomically.
+
+If the browser doesn't open (headless / SSH), the CLI also prints the
+URL to stderr — paste it into any browser that can reach the
+configured server.
+
+From then on, every subcommand uses the saved tokens.  The access
+token expires after ~1 hour by default; before each call, the CLI
+trades the refresh token for a fresh one and rewrites the config.
+The user sees no interruption until the refresh token itself
+eventually expires (default 30 days), at which point `auth login`
+needs to be re-run.
+
+Check current status:
+
+```bash
+ownsona auth status
+```
+
+prints the configured server, the AS issuer, the client_id, and how
+many seconds remain on the cached access token.
+
+**Legacy static-bearer mode:** if your server issues long-lived
+bearer tokens out of band (e.g. an external IdP that you've taken
+care of separately, or a non-OAuth MCP server), set `token = <jwt>`
+in the config file.  When `token` is set, the CLI uses it verbatim
+and skips the refresh path entirely.
 
 The `llm_api_key` can be the same OpenAI key the server uses for
 embeddings, or a separate key if you want to track CLI costs
@@ -212,6 +264,8 @@ ownsona forget <id>                        soft-delete (--hard to drop)
 ownsona prompt "<user prompt>"             build an LLM-ready prompt
 ownsona import FILE                        bulk-load JSON or one-per-line
 ownsona teach FILE                         extract facts from prose via LLM
+ownsona auth login                         OAuth bootstrap (run once)
+ownsona auth status                        show current credentials state
 ```
 
 ### Common flags across subcommands

@@ -13,15 +13,16 @@ lives at [kissweb.org](https://kissweb.org).
 ## Status
 
 **Version 1 implemented.** All spec tools plus later extensions are
-wired up. Bearer-token authentication, secret rejection, soft-delete,
-duplicate detection, OpenAI embeddings, and pgvector cosine search are
-all in place.
+wired up. OAuth 2.1 authentication (resource server + embedded
+authorization server), secret rejection, soft-delete, duplicate
+detection, OpenAI embeddings, and pgvector cosine search are all in
+place.
 
 | Spec section | State |
 |---|---|
 | Core spec tools: `remember`, `recall`, `build_context_prompt`, `list_memories`, `update_memory`, `forget`, `text_search` | done |
 | Post-spec extensions: `remember_batch`, `confirm`, `get_memory`, `count_memories`, `memory_stats`, `list_tags`, `export_memories` | done |
-| Bearer-token auth on every request | done |
+| OAuth 2.1 (RFC 6750 RS + RFC 7591/8414 AS) on every request | done |
 | Secret rejection (OpenAI/AWS/GitHub/Slack/JWT/PEM) | done |
 | Duplicate detection by normalized text + unique partial index | done |
 | Soft delete by default; `hard_delete: true` opt-in | done |
@@ -75,7 +76,7 @@ src/main/core/org/kissweb/MCPServerBase.java   # framework base class (do not mo
 ## URL
 
 ```
-https://ownsona.com/mcp
+https://<your-host>/mcp
 ```
 
 The bundled Kiss example is mounted at `/sample-mcp` and is left untouched.
@@ -97,7 +98,10 @@ Required keys:
 |---|---|
 | `DatabaseHost`, `DatabasePort`, `DatabaseName`, `DatabaseUser`, `DatabasePassword` | Kiss's standard PostgreSQL connection settings |
 | `EMBEDDING_API_KEY`        | OpenAI key for the embeddings endpoint |
-| `OWNSONA_API_TOKEN`     | Bearer token MCP clients must present |
+| `OWNSONA_LOGIN_USERNAME` | Username the OAuth AS consent page accepts |
+| `OWNSONA_LOGIN_PASSWORD` | Password the OAuth AS consent page accepts (plaintext; file is chmod 600) |
+| `OAuthAuthorizationServer` | AS issuer URL (`https://<your-host>`); turns on the resource server. Resource identifier, AS issuer, and JWKS URI all default from this single value, so no other OAuth key is required for a standard embedded-AS deployment. |
+| `OAuthAsEnabled`           | `true` to enable the embedded authorization server |
 | `EMBEDDING_ENDPOINT`       | Embeddings endpoint URL (e.g. `https://api.openai.com/v1/embeddings`) |
 | `EMBEDDING_MODEL`       | Embedding model name (e.g. `text-embedding-3-small`) |
 | `EMBEDDING_DIMENSIONS`  | Embedding vector dimensions; **must match** the `vector(N)` column type in `sql/001_init.sql` |
@@ -192,8 +196,13 @@ bind 443.
 After deploy:
 
 ```bash
-OWNSONA_API_TOKEN=<token> sql/smoke_test.sh
+OWNSONA_ACCESS_TOKEN=<jwt> sql/smoke_test.sh https://<your-host>/mcp
 ```
+
+The token is an OAuth 2.1 access token issued by the embedded AS — see
+`INSTALL.md` §13 for the one-time setup that produces one (typically:
+add OwnSona as an MCP server in any OAuth-capable client and copy the
+token out of its local config).
 
 This walks `initialize`, `tools/list`, `remember`, `recall`,
 `list_memories`, and `text_search` against the live endpoint.
@@ -239,8 +248,9 @@ console appender's destination) flows to **journald**, not
 | `tomcat/logs/catalina.out` | n/a | static; only written when Tomcat is started by hand via `startup.sh`, which is no longer the supported path |
 
 Per request:
-- Auth failures log the remote IP and reason (header missing vs. bad
-  token), but never log the supplied token bytes.
+- Auth failures are logged by `BearerTokenValidator` at DEBUG with the
+  validation reason (bad signature, expired, wrong audience, etc.); the
+  raw token is never logged.
 - Tool calls log name + memory id (where applicable) + char count + ms.
   Full memory text is **not** logged at INFO/ERROR --- the spec calls
   this out as a privacy requirement.
@@ -250,18 +260,19 @@ Per request:
 
 - **Transport:** Tomcat terminates HTTPS on `:443`
   (`conf/tomcat.p12`/`tomcat-com.p12`).
-- **Auth:** `MCPServer.authenticate()` accepts the bearer token in
-  either of two places, in this order: `Authorization: Bearer
-  <OWNSONA_API_TOKEN>` (preferred --- used by curl, the smoke test,
-  and the OpenAI Responses API), or `?token=<OWNSONA_API_TOKEN>` as
-  a URL query parameter (fallback for clients like ChatGPT's
-  connector UI that cannot supply a custom Authorization header ---
-  see `OpenAI.md` §1.2 option E for the security tradeoff).
-  Constant-time comparison via `MessageDigest.isEqual`. 401 with
-  `WWW-Authenticate: Bearer` on any auth failure.
-  The Tomcat `AccessLogValve` pattern in `conf/server.xml` is
-  deliberately set to `%m %U %H` (omitting the query string) so the
-  query-parameter token is not written to the access log.
+- **Auth:** OAuth 2.1. The resource side (`org.kissweb.oauth`) validates
+  every incoming `Authorization: Bearer <JWT>` against the JWKS
+  published by the embedded authorization server
+  (`org.kissweb.oauth.as`). `MCPServerBase.authenticate()` handles
+  this with no application code; OwnSona contributes only a
+  `UserAuthenticator` (constant-time compare against the
+  `OWNSONA_LOGIN_*` keys) and a `ConsentProvider` (display text). 401
+  responses carry the RFC 6750 / RFC 9728 `WWW-Authenticate` challenge,
+  whose `resource_metadata` parameter points clients at
+  `/.well-known/oauth-protected-resource` for AS discovery. The AS's
+  signing key, registered clients, and refresh tokens are persisted in
+  `WEB-INF/backend/oauth.ini`; auth codes are in-memory only with a 60s
+  TTL.
 - **Secret rejection:** `SecretScanner` blocks obvious tokens
   (OpenAI `sk-...`/`sk-ant-...`/`sk-proj-...`, GitHub `ghp_`/`ghs_`,
   GitHub fine-grained PAT, AWS access key IDs, Slack `xox?-`, Google

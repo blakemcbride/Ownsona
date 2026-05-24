@@ -952,17 +952,30 @@ Ownsona stores personal knowledge. Security should be part of version 1.
 
 ### 12.2 Authentication
 
-For version 1, use bearer-token authentication.
+Ownsona uses OAuth 2.1 (auth code flow with PKCE) for all MCP requests.
+The server runs both roles: it validates incoming tokens as a resource
+server and issues them as an embedded authorization server, so no
+external IdP is required.
 
 Request header:
 
 ```http
-Authorization: Bearer <OWNSONA_API_TOKEN>
+Authorization: Bearer <access_token>
 ```
 
-All MCP HTTP requests must require a valid token.
+MCP clients discover the AS via RFC 9728 protected-resource metadata
+served at `/.well-known/oauth-protected-resource`, register
+dynamically (RFC 7591) at `/oauth/register`, send the user through
+`/oauth/authorize` (login + consent), and exchange the resulting code
+at `/oauth/token` for an access token and refresh token. The access
+token is a JWT signed by the AS's RSA key; the resource server
+validates signature, issuer, audience, and expiry on every request.
 
-The token should be loaded from an environment variable.
+Login credentials for the consent page are
+`OWNSONA_LOGIN_USERNAME` / `OWNSONA_LOGIN_PASSWORD` from
+`application.ini`. The token's `sub` claim is `OWNSONA_USER_ID`
+(default `"default"`) — the same value stamped on every memory row,
+so token authorization and data ownership use the same identifier.
 
 ### 12.3 Secrets
 
@@ -999,7 +1012,9 @@ Default user ID:
 default
 ```
 
-Later, user ID can be derived from API token, OAuth subject, or account ID.
+In a future multi-user mode the user ID would come straight from the
+validated token's `sub` claim — the AS already places that claim on
+every issued JWT.
 
 ---
 
@@ -1025,11 +1040,15 @@ DatabaseName     = ownsona
 DatabaseUser     = ownsona
 DatabasePassword = <PGPW>
 
-EMBEDDING_API_KEY    = sk-...
-OWNSONA_API_TOKEN    = <bearer token>
-EMBEDDING_ENDPOINT   = https://api.openai.com/v1/embeddings
-EMBEDDING_MODEL      = text-embedding-3-small
-EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_API_KEY      = sk-...
+OWNSONA_LOGIN_USERNAME = <username for the AS consent page>
+OWNSONA_LOGIN_PASSWORD = <password for the AS consent page>
+EMBEDDING_ENDPOINT     = https://api.openai.com/v1/embeddings
+EMBEDDING_MODEL        = text-embedding-3-small
+EMBEDDING_DIMENSIONS   = 1536
+
+OAuthAuthorizationServer = https://<your-host>
+OAuthAsEnabled           = true
 ```
 
 `EMBEDDING_DIMENSIONS` must match the `vector(N)` column type in
@@ -1136,8 +1155,6 @@ Common error codes:
 
 ```text
 INVALID_INPUT
-AUTH_REQUIRED
-AUTH_FAILED
 DATABASE_ERROR
 EMBEDDING_ERROR
 NOT_FOUND
@@ -1145,6 +1162,12 @@ LIMIT_EXCEEDED
 SECRET_REJECTED
 INTERNAL_ERROR
 ```
+
+Authentication failures do not appear here.  They are emitted as
+RFC 6750 `401 Unauthorized` responses outside the JSON-RPC envelope,
+with a `WWW-Authenticate` header carrying the OAuth challenge (and
+when applicable, `error="invalid_token"` plus a brief
+`error_description`).
 
 ---
 
@@ -1287,7 +1310,7 @@ Build and operational tooling lives at the repo root and under `sql/`:
 | `./bld develop` | Build + run frontend + backend Tomcat for local dev |
 | `sql/setup_db.sh <password>` | Create the `ownsona` PG role + extensions + run schema migration |
 | `sql/run_tests.sh` | Run Ownsona's JUnit 5 tests in `src/test/precompiled/` (integration tests gated on `OWNSONA_TEST_DATABASE_URL`) |
-| `sql/smoke_test.sh [url]` | End-to-end curl drive of every MCP tool against a live server (token via `OWNSONA_API_TOKEN` env var) |
+| `sql/smoke_test.sh <url>` | End-to-end curl drive of every MCP tool against a live server (OAuth access token via `OWNSONA_ACCESS_TOKEN` env var; `<url>` is the full `https://<your-host>/mcp` URL) |
 
 ---
 

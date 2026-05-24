@@ -17,8 +17,8 @@ make test       # sanity-check the binary
 ```
 
 Configure: copy [`config.ini.example`](config.ini.example) to the
-OS-specific default location and fill in `server_url` and `token`
-(plus `llm_api_key` if you'll use the `teach` subcommand):
+OS-specific default location and fill in `server_url` (plus
+`llm_api_key` if you'll use the `teach` subcommand):
 
 | OS | Default config path |
 |---|---|
@@ -26,12 +26,19 @@ OS-specific default location and fill in `server_url` and `token`
 | macOS       | `~/Library/Application Support/ownsona/config.ini` |
 | Windows     | `%LOCALAPPDATA%\ownsona\config.ini` |
 
-Then:
+Then authenticate once via OAuth (opens a browser):
+
+```bash
+ownsona auth login            # one-time OAuth bootstrap
+```
+
+After that:
 
 ```bash
 ownsona --help
 ownsona add "fact"            # store a memory
 ownsona query "question"      # semantic recall
+ownsona auth status           # check the cached credentials
 ```
 
 See [`../CLI.md`](../CLI.md) for the full subcommand reference and

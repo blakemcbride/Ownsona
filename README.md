@@ -71,9 +71,10 @@ MCP-capable client can be pointed at it.
 | `forget` | Soft delete (default) or hard delete |
 | `text_search` | Trigram text match for known phrases |
 
-Every tool requires a bearer token; secret-shaped inputs (API keys,
-JWTs, PEM private-key markers, etc.) are rejected before they hit the
-database.
+Every tool requires an OAuth 2.1 access token (the server bundles its
+own authorization server, so no external IdP is required); secret-shaped
+inputs (API keys, JWTs, PEM private-key markers, etc.) are rejected
+before they hit the database.
 
 ## Command-line client
 
@@ -151,8 +152,8 @@ $EDITOR src/main/backend/application.ini
 ./bld -v build && ./bld war
 cp work/Kiss.war /home/ownsona/tomcat/webapps/ROOT.war
 
-# 4. Smoke-test the live endpoint
-OWNSONA_API_TOKEN=... sql/smoke_test.sh https://<your-host>/mcp
+# 4. Smoke-test the live endpoint (token from the OAuth flow; see INSTALL.md §12)
+OWNSONA_ACCESS_TOKEN=... sql/smoke_test.sh https://<your-host>/mcp
 ```
 
 See [`INSTALL.md`](INSTALL.md) for the complete walkthrough including
