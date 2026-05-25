@@ -27,8 +27,8 @@ in the source distribution for the full text. -->
 <link href="Index.html" rel="index" title="Index">
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="MCP-Tools.html" rel="up" title="MCP Tools">
-<link href="Error-codes.html" rel="next" title="Error codes">
-<link href="The-forget-tool.html" rel="prev" title="The forget tool">
+<link href="The-get_005fmemory-tool.html" rel="next" title="The get_memory tool">
+<link href="The-find_005fnear_005fduplicates-tool.html" rel="prev" title="The find_near_duplicates tool">
 <style type="text/css">
 <!--
 /*
@@ -155,10 +155,10 @@ dl dd {
 <div class="section-level-extent" id="The-text_005fsearch-tool">
 <div class="nav-panel">
 <p>
-Next: <a href="Error-codes.html" accesskey="n" rel="next">Error codes</a>, Previous: <a href="The-forget-tool.html" accesskey="p" rel="prev">The <code class="code">forget</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="The-get_005fmemory-tool.html" accesskey="n" rel="next">The <code class="code">get_memory</code> tool</a>, Previous: <a href="The-find_005fnear_005fduplicates-tool.html" accesskey="p" rel="prev">The <code class="code">find_near_duplicates</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="The-text_005fsearch-tool-1"><span>5.10 The <code class="code">text_search</code> tool<a class="copiable-link" href="#The-text_005fsearch-tool-1"> &para;</a></span></h3>
+<h3 class="section" id="The-text_005fsearch-tool-1"><span>5.14 The <code class="code">text_search</code> tool<a class="copiable-link" href="#The-text_005fsearch-tool-1"> &para;</a></span></h3>
 <a class="index-entry-id" id="index-text_005fsearch"></a>
 
 <p>Plain substring search (case-insensitive).  Useful for direct lookup
@@ -166,12 +166,12 @@ when you already know roughly what to find.  Indexed via
 <code class="code">pg_trgm</code> so partial matches are fast.
 </p>
 <ul class="mini-toc">
-<li><a href="#Inputs-8" accesskey="1">Inputs</a></li>
-<li><a href="#Output-8" accesskey="2">Output</a></li>
-<li><a href="#Errors-8" accesskey="3">Errors</a></li>
+<li><a href="#Inputs-11" accesskey="1">Inputs</a></li>
+<li><a href="#Output-11" accesskey="2">Output</a></li>
+<li><a href="#Errors-11" accesskey="3">Errors</a></li>
 </ul>
-<div class="subsection-level-extent" id="Inputs-8">
-<h4 class="subsection"><span>5.10.1 Inputs<a class="copiable-link" href="#Inputs-8"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Inputs-11">
+<h4 class="subsection"><span>5.14.1 Inputs<a class="copiable-link" href="#Inputs-11"> &para;</a></span></h4>
 
 <dl class="table">
 <dt><code class="code">text</code></dt>
@@ -184,14 +184,14 @@ when you already know roughly what to find.  Indexed via
 </dl>
 
 </div>
-<div class="subsection-level-extent" id="Output-8">
-<h4 class="subsection"><span>5.10.2 Output<a class="copiable-link" href="#Output-8"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Output-11">
+<h4 class="subsection"><span>5.14.2 Output<a class="copiable-link" href="#Output-11"> &para;</a></span></h4>
 
 <p>Same shape as <code class="code">list_memories</code>.
 </p>
 </div>
-<div class="subsection-level-extent" id="Errors-8">
-<h4 class="subsection"><span>5.10.3 Errors<a class="copiable-link" href="#Errors-8"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Errors-11">
+<h4 class="subsection"><span>5.14.3 Errors<a class="copiable-link" href="#Errors-11"> &para;</a></span></h4>
 
 <p><code class="code">INVALID_INPUT</code>, <code class="code">DATABASE_ERROR</code>.
 </p>

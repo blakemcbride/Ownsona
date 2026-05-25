@@ -158,11 +158,15 @@ dl dd {
 Next: <a href="The-update_005fmemory-tool.html" accesskey="n" rel="next">The <code class="code">update_memory</code> tool</a>, Previous: <a href="The-build_005fcontext_005fprompt-tool.html" accesskey="p" rel="prev">The <code class="code">build_context_prompt</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="The-list_005fmemories-tool-1"><span>5.6 The <code class="code">list_memories</code> tool<a class="copiable-link" href="#The-list_005fmemories-tool-1"> &para;</a></span></h3>
+<h3 class="section" id="The-list_005fmemories-tool-1"><span>5.7 The <code class="code">list_memories</code> tool<a class="copiable-link" href="#The-list_005fmemories-tool-1"> &para;</a></span></h3>
 <a class="index-entry-id" id="index-list_005fmemories"></a>
 
-<p>Paginated chronological listing for review, audit, and admin
-workflows.
+<p>Paginated chronological listing for review, audit, and cleanup
+workflows.  Optional filters narrow the result to untagged rows,
+very-short or very-long rows, or rows that haven&rsquo;t been confirmed
+since a given timestamp &mdash; the same filters are accepted by
+<code class="code">count_memories</code> so a client can preview the size of a cleanup
+slice before listing it.
 </p>
 <ul class="mini-toc">
 <li><a href="#Inputs-4" accesskey="1">Inputs</a></li>
@@ -170,7 +174,7 @@ workflows.
 <li><a href="#Errors-4" accesskey="3">Errors</a></li>
 </ul>
 <div class="subsection-level-extent" id="Inputs-4">
-<h4 class="subsection"><span>5.6.1 Inputs<a class="copiable-link" href="#Inputs-4"> &para;</a></span></h4>
+<h4 class="subsection"><span>5.7.1 Inputs<a class="copiable-link" href="#Inputs-4"> &para;</a></span></h4>
 
 <dl class="table">
 <dt><code class="code">limit</code></dt>
@@ -184,23 +188,56 @@ workflows.
 <dt><code class="code">include_deleted</code></dt>
 <dd><p>Boolean.  Optional, default false.  When true, soft-deleted memories
 (tombstones) and expired memories are also returned.
+</p>
+</dd>
+<dt><code class="code">untagged_only</code></dt>
+<dd><p>Boolean.  Optional, default false.  When true, restrict to rows with
+no tags (empty tag array).
+</p>
+</dd>
+<dt><code class="code">min_chars</code></dt>
+<dd><p>Integer.  Optional.  Return only rows whose <code class="code">text</code> length is at
+least this many characters.
+</p>
+</dd>
+<dt><code class="code">max_chars</code></dt>
+<dd><p>Integer.  Optional.  Return only rows whose <code class="code">text</code> length is at
+most this many characters.  Useful for finding fragments
+(e.g. <code class="code">max_chars=20</code>).
+</p>
+</dd>
+<dt><code class="code">not_confirmed_since</code></dt>
+<dd><p>ISO 8601 timestamp.  Optional.  Return only rows that have <b class="b">not</b>
+been confirmed since this instant &mdash; a row qualifies if
+<code class="code">last_confirmed_at IS NULL</code> (never confirmed) or
+<code class="code">last_confirmed_at &lt; this</code>.  Useful for finding stale memories
+during cleanup.
 </p></dd>
 </dl>
 
+<p>When multiple filters are supplied they combine with AND.
+</p>
 </div>
 <div class="subsection-level-extent" id="Output-4">
-<h4 class="subsection"><span>5.6.2 Output<a class="copiable-link" href="#Output-4"> &para;</a></span></h4>
+<h4 class="subsection"><span>5.7.2 Output<a class="copiable-link" href="#Output-4"> &para;</a></span></h4>
 
 <p>Same shape as <code class="code">recall</code>&rsquo;s <code class="code">matches</code>, but with no <code class="code">score</code>
 field, and ordered by <code class="code">created_at DESC</code>.
 </p>
 </div>
 <div class="subsection-level-extent" id="Errors-4">
-<h4 class="subsection"><span>5.6.3 Errors<a class="copiable-link" href="#Errors-4"> &para;</a></span></h4>
+<h4 class="subsection"><span>5.7.3 Errors<a class="copiable-link" href="#Errors-4"> &para;</a></span></h4>
 
-<p><code class="code">INVALID_INPUT</code>, <code class="code">DATABASE_ERROR</code>.
+<p><code class="code">INVALID_INPUT</code> (negative <code class="code">min_chars</code> or <code class="code">max_chars</code>,
+<code class="code">min_chars &gt; max_chars</code>, <code class="code">not_confirmed_since</code> in the
+future), <code class="code">DATABASE_ERROR</code>.
 </p>
 </div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="The-update_005fmemory-tool.html">The <code class="code">update_memory</code> tool</a>, Previous: <a href="The-build_005fcontext_005fprompt-tool.html">The <code class="code">build_context_prompt</code> tool</a>, Up: <a href="MCP-Tools.html">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

@@ -27,7 +27,7 @@ in the source distribution for the full text. -->
 <link href="Index.html" rel="index" title="Index">
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="MCP-Tools.html" rel="up" title="MCP Tools">
-<link href="The-confirm-tool.html" rel="next" title="The confirm tool">
+<link href="The-update_005fmemory_005fbatch-tool.html" rel="next" title="The update_memory_batch tool">
 <link href="The-list_005fmemories-tool.html" rel="prev" title="The list_memories tool">
 <style type="text/css">
 <!--
@@ -156,14 +156,20 @@ dl dd {
 <div class="section-level-extent" id="The-update_005fmemory-tool">
 <div class="nav-panel">
 <p>
-Next: <a href="The-confirm-tool.html" accesskey="n" rel="next">The <code class="code">confirm</code> tool</a>, Previous: <a href="The-list_005fmemories-tool.html" accesskey="p" rel="prev">The <code class="code">list_memories</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="The-update_005fmemory_005fbatch-tool.html" accesskey="n" rel="next">The <code class="code">update_memory_batch</code> tool</a>, Previous: <a href="The-list_005fmemories-tool.html" accesskey="p" rel="prev">The <code class="code">list_memories</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="The-update_005fmemory-tool-1"><span>5.7 The <code class="code">update_memory</code> tool<a class="copiable-link" href="#The-update_005fmemory-tool-1"> &para;</a></span></h3>
+<h3 class="section" id="The-update_005fmemory-tool-1"><span>5.8 The <code class="code">update_memory</code> tool<a class="copiable-link" href="#The-update_005fmemory-tool-1"> &para;</a></span></h3>
 <a class="index-entry-id" id="index-update_005fmemory"></a>
 
-<p>Replaces an existing memory&rsquo;s text and optionally its tags /
-importance / freshness fields.  The embedding is recomputed.
+<p>Updates an existing memory.  Each field except <code class="code">id</code> is optional
+and follows &ldquo;omit to leave unchanged&rdquo; semantics, so a caller can
+correct only the tags, only the importance, only the freshness
+timestamps, etc.  When <code class="code">text</code> is supplied the embedding is
+regenerated; when it is omitted the embedding (and the
+<code class="code">embedding_provider</code> / <code class="code">embedding_model</code>) are left alone.
+At least one of <code class="code">text</code>, <code class="code">tags</code>, <code class="code">importance</code>,
+<code class="code">expires_at</code>, or <code class="code">last_confirmed_at</code> must be supplied.
 </p>
 <ul class="mini-toc">
 <li><a href="#Inputs-5" accesskey="1">Inputs</a></li>
@@ -171,7 +177,7 @@ importance / freshness fields.  The embedding is recomputed.
 <li><a href="#Errors-5" accesskey="3">Errors</a></li>
 </ul>
 <div class="subsection-level-extent" id="Inputs-5">
-<h4 class="subsection"><span>5.7.1 Inputs<a class="copiable-link" href="#Inputs-5"> &para;</a></span></h4>
+<h4 class="subsection"><span>5.8.1 Inputs<a class="copiable-link" href="#Inputs-5"> &para;</a></span></h4>
 
 <dl class="table">
 <dt><code class="code">id</code></dt>
@@ -179,8 +185,9 @@ importance / freshness fields.  The embedding is recomputed.
 </p>
 </dd>
 <dt><code class="code">text</code></dt>
-<dd><p><b class="b">Required string.</b>  The replacement text.  Same length / secret-shape
-constraints as <code class="code">remember</code>.
+<dd><p>String.  Optional.  Replacement text; same length and secret-shape
+constraints as <code class="code">remember</code>.  Omit to leave text and embedding
+unchanged.
 </p>
 </dd>
 <dt><code class="code">tags</code></dt>
@@ -197,33 +204,49 @@ provided.
 </p>
 </dd>
 <dt><code class="code">last_confirmed_at</code></dt>
-<dd><p>ISO 8601 timestamp.  Optional.
+<dd><p>ISO 8601 timestamp.  Optional.  To refresh <b class="b">just</b> this field
+without otherwise touching the row, prefer the <code class="code">confirm</code> tool.
+</p>
+</dd>
+<dt><code class="code">dry_run</code></dt>
+<dd><p>Boolean.  Optional, default false.  When true, validate the request
+and report which fields would change, but make no writes.
 </p></dd>
 </dl>
 
 </div>
 <div class="subsection-level-extent" id="Output-5">
-<h4 class="subsection"><span>5.7.2 Output<a class="copiable-link" href="#Output-5"> &para;</a></span></h4>
+<h4 class="subsection"><span>5.8.2 Output<a class="copiable-link" href="#Output-5"> &para;</a></span></h4>
 
 <div class="example">
 <pre class="example-preformatted">{
   &quot;ok&quot;: true,
   &quot;memory_id&quot;: 123,
+  &quot;dry_run&quot;: false,
+  &quot;changed_fields&quot;: [&quot;tags&quot;, &quot;importance&quot;],
   &quot;message&quot;: &quot;Ok&quot;
 }
 </pre></div>
 
-<p>Updating a soft-deleted memory fails with <code class="code">NOT_FOUND</code> &mdash; forget
-and re-add instead.
+<p><code class="code">changed_fields</code> lists the field names the caller asked to
+change.  On a dry-run, <code class="code">message</code> reads <code class="code">&quot;Would update&quot;</code>
+instead.  Updating a soft-deleted memory fails with
+<code class="code">NOT_FOUND</code> &mdash; forget and re-add instead.
 </p>
 </div>
 <div class="subsection-level-extent" id="Errors-5">
-<h4 class="subsection"><span>5.7.3 Errors<a class="copiable-link" href="#Errors-5"> &para;</a></span></h4>
+<h4 class="subsection"><span>5.8.3 Errors<a class="copiable-link" href="#Errors-5"> &para;</a></span></h4>
 
-<p><code class="code">INVALID_INPUT</code>, <code class="code">NOT_FOUND</code>, <code class="code">SECRET_REJECTED</code>,
-<code class="code">EMBEDDING_ERROR</code>, <code class="code">DATABASE_ERROR</code>.
+<p><code class="code">INVALID_INPUT</code> (no fields supplied, or an out-of-range value),
+<code class="code">NOT_FOUND</code>, <code class="code">SECRET_REJECTED</code>, <code class="code">EMBEDDING_ERROR</code>,
+<code class="code">DATABASE_ERROR</code>.
 </p>
 </div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="The-update_005fmemory_005fbatch-tool.html">The <code class="code">update_memory_batch</code> tool</a>, Previous: <a href="The-list_005fmemories-tool.html">The <code class="code">list_memories</code> tool</a>, Up: <a href="MCP-Tools.html">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

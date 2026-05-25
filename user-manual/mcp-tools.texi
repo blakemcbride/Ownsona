@@ -3,8 +3,8 @@
 @cindex MCP tools
 @cindex tools
 
-OwnSona exposes its functionality as nine MCP tools.  Each one is a
-JSON-RPC method on the @code{/mcp} endpoint, callable by any MCP
+OwnSona exposes its functionality as a set of MCP tools.  Each one is
+a JSON-RPC method on the @code{/mcp} endpoint, callable by any MCP
 client that presents a valid OAuth 2.1 access token.  This chapter
 is the reference for every tool's inputs, outputs, errors, and
 example calls.
@@ -14,12 +14,21 @@ example calls.
 * The remember tool::            Store a new fact.
 * The remember_batch tool::      Bulk-load up to 200 facts in one call.
 * The recall tool::              Vector-similarity search.
+* The search_memory tool::       Alias of recall for clients that prefer verbs.
 * The build_context_prompt tool:: Pack relevant facts into a prompt envelope.
-* The list_memories tool::       Paginated listing for review.
+* The list_memories tool::       Paginated listing with cleanup filters.
 * The update_memory tool::       Edit an existing memory.
+* The update_memory_batch tool:: Edit up to 200 memories in one call.
 * The confirm tool::             Refresh last_confirmed_at.
-* The forget tool::              Soft-delete or hard-delete.
+* The forget tool::              Soft-delete or hard-delete a memory.
+* The forget_batch tool::        Soft-delete up to 200 memories in one call.
+* The find_near_duplicates tool:: Cluster active memories by cosine similarity.
 * The text_search tool::         Plain-substring search.
+* The get_memory tool::          Fetch a single memory by id.
+* The count_memories tool::      Cheap COUNT with optional filters.
+* The memory_stats tool::        Aggregate counts and top tags.
+* The list_tags tool::           Distinct tags with their counts.
+* The export_memories tool::     Full JSON dump for backup.
 * Error codes::                  The full error vocabulary.
 @end menu
 
@@ -313,6 +322,19 @@ compare @code{last_confirmed_at} first, then @code{updated_at}, then
 @}
 @end example
 
+@node The search_memory tool
+@section The @code{search_memory} tool
+@cindex search_memory
+@cindex recall alias
+
+Alias of @code{recall} with identical inputs, outputs, and errors.
+Exists because some MCP-client harnesses (notably Claude's
+deferred-tool-loading keyword ranker) fail to surface a tool named
+@code{recall} from a generic search query and pick the wrong
+fallback.  Registering the same tool under a more verb-led name
+gives those harnesses a discoverable handle.  Both names dispatch to
+the same handler.
+
 @node The build_context_prompt tool
 @section The @code{build_context_prompt} tool
 @cindex build_context_prompt
@@ -365,8 +387,12 @@ previously known facts were found."} instead of listing facts.
 @section The @code{list_memories} tool
 @cindex list_memories
 
-Paginated chronological listing for review, audit, and admin
-workflows.
+Paginated chronological listing for review, audit, and cleanup
+workflows.  Optional filters narrow the result to untagged rows,
+very-short or very-long rows, or rows that haven't been confirmed
+since a given timestamp --- the same filters are accepted by
+@code{count_memories} so a client can preview the size of a cleanup
+slice before listing it.
 
 @subsection Inputs
 
@@ -380,7 +406,29 @@ Integer.  Optional, default 0.
 @item include_deleted
 Boolean.  Optional, default false.  When true, soft-deleted memories
 (tombstones) and expired memories are also returned.
+
+@item untagged_only
+Boolean.  Optional, default false.  When true, restrict to rows with
+no tags (empty tag array).
+
+@item min_chars
+Integer.  Optional.  Return only rows whose @code{text} length is at
+least this many characters.
+
+@item max_chars
+Integer.  Optional.  Return only rows whose @code{text} length is at
+most this many characters.  Useful for finding fragments
+(e.g.@: @code{max_chars=20}).
+
+@item not_confirmed_since
+ISO 8601 timestamp.  Optional.  Return only rows that have @b{not}
+been confirmed since this instant --- a row qualifies if
+@code{last_confirmed_at IS NULL} (never confirmed) or
+@code{last_confirmed_at < this}.  Useful for finding stale memories
+during cleanup.
 @end table
+
+When multiple filters are supplied they combine with AND.
 
 @subsection Output
 
@@ -389,14 +437,22 @@ field, and ordered by @code{created_at DESC}.
 
 @subsection Errors
 
-@code{INVALID_INPUT}, @code{DATABASE_ERROR}.
+@code{INVALID_INPUT} (negative @code{min_chars} or @code{max_chars},
+@code{min_chars > max_chars}, @code{not_confirmed_since} in the
+future), @code{DATABASE_ERROR}.
 
 @node The update_memory tool
 @section The @code{update_memory} tool
 @cindex update_memory
 
-Replaces an existing memory's text and optionally its tags /
-importance / freshness fields.  The embedding is recomputed.
+Updates an existing memory.  Each field except @code{id} is optional
+and follows ``omit to leave unchanged'' semantics, so a caller can
+correct only the tags, only the importance, only the freshness
+timestamps, etc.  When @code{text} is supplied the embedding is
+regenerated; when it is omitted the embedding (and the
+@code{embedding_provider} / @code{embedding_model}) are left alone.
+At least one of @code{text}, @code{tags}, @code{importance},
+@code{expires_at}, or @code{last_confirmed_at} must be supplied.
 
 @subsection Inputs
 
@@ -405,8 +461,9 @@ importance / freshness fields.  The embedding is recomputed.
 @b{Required integer.}  The memory's id.
 
 @item text
-@b{Required string.}  The replacement text.  Same length / secret-shape
-constraints as @code{remember}.
+String.  Optional.  Replacement text; same length and secret-shape
+constraints as @code{remember}.  Omit to leave text and embedding
+unchanged.
 
 @item tags
 Array of strings.  Optional.  Replaces the tag list entirely if
@@ -419,7 +476,12 @@ Number, 0--1.  Optional.
 ISO 8601 timestamp.  Optional.
 
 @item last_confirmed_at
-ISO 8601 timestamp.  Optional.
+ISO 8601 timestamp.  Optional.  To refresh @b{just} this field
+without otherwise touching the row, prefer the @code{confirm} tool.
+
+@item dry_run
+Boolean.  Optional, default false.  When true, validate the request
+and report which fields would change, but make no writes.
 @end table
 
 @subsection Output
@@ -428,17 +490,75 @@ ISO 8601 timestamp.  Optional.
 @{
   "ok": true,
   "memory_id": 123,
+  "dry_run": false,
+  "changed_fields": ["tags", "importance"],
   "message": "Ok"
 @}
 @end example
 
-Updating a soft-deleted memory fails with @code{NOT_FOUND} --- forget
-and re-add instead.
+@code{changed_fields} lists the field names the caller asked to
+change.  On a dry-run, @code{message} reads @code{"Would update"}
+instead.  Updating a soft-deleted memory fails with
+@code{NOT_FOUND} --- forget and re-add instead.
 
 @subsection Errors
 
-@code{INVALID_INPUT}, @code{NOT_FOUND}, @code{SECRET_REJECTED},
-@code{EMBEDDING_ERROR}, @code{DATABASE_ERROR}.
+@code{INVALID_INPUT} (no fields supplied, or an out-of-range value),
+@code{NOT_FOUND}, @code{SECRET_REJECTED}, @code{EMBEDDING_ERROR},
+@code{DATABASE_ERROR}.
+
+@node The update_memory_batch tool
+@section The @code{update_memory_batch} tool
+@cindex update_memory_batch
+@cindex bulk update
+
+Updates up to @code{MAX_BATCH_SIZE} (default 200) memories in a
+single call.  The embedding provider is invoked once per batch for
+the items that supply new @code{text}; items that change only
+metadata (tags, importance, freshness) don't call the embedder at
+all, so a bulk tag-normalization pass is cheap.
+
+Strongly prefer this over calling @code{update_memory} repeatedly
+when correcting several memories at once.
+
+@subsection Inputs
+
+@table @code
+@item items
+@b{Required array.}  Each item is a partial @code{update_memory}
+payload: @code{id} required, plus at least one of @code{text},
+@code{tags}, @code{importance}, @code{expires_at},
+@code{last_confirmed_at}.
+
+@item dry_run
+Boolean.  Optional, default false.  When true, validate every item
+and report which fields would change, but make no writes.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "dry_run": false,
+  "results": [
+    @{ "input_index": 0, "id": 41, "ok": true,
+       "changed_fields": ["tags"], "message": "Ok" @},
+    @{ "input_index": 1, "id": 42, "ok": false,
+       "error": @{ "code": "NOT_FOUND",
+                  "message": "Memory 42 not found." @} @}
+  ],
+  "summary": @{ "total": 2, "updated": 1, "errors": 1 @}
+@}
+@end example
+
+Per-item failures (null id, unknown id, secret rejected, embedding
+failure on a single text) do @b{not} fail the rest of the batch.
+
+@subsection Errors
+
+Batch-level: @code{INVALID_INPUT} (empty list, over 200 items),
+@code{LIMIT_EXCEEDED}.  Per-item errors appear inside @code{results}.
 
 @node The confirm tool
 @section The @code{confirm} tool
@@ -497,6 +617,12 @@ delete has no row to attach the reason to).
 @item replaced_by_id
 Integer.  Optional.  Id of the memory that supersedes this one.  Same
 restriction as @code{reason}: not allowed with @code{hard_delete}.
+
+@item dry_run
+Boolean.  Optional, default false.  When true, validate the request
+and report what would happen, but make no changes.  The response
+still reports @code{already_deleted} so the caller can preview the
+outcome.
 @end table
 
 @subsection Output
@@ -505,13 +631,143 @@ restriction as @code{reason}: not allowed with @code{hard_delete}.
 @{
   "ok": true,
   "memory_id": 123,
+  "dry_run": false,
+  "already_deleted": false,
   "message": "Forgotten"
 @}
 @end example
 
+@code{already_deleted} is true when the row was already
+soft-deleted before this call (the tombstone metadata is updated in
+that case).  On a dry-run @code{message} reads @code{"Would
+soft-delete"} / @code{"Would hard-delete"} / @code{"Would update
+tombstone (already soft-deleted)"}.
+
 @subsection Errors
 
 @code{INVALID_INPUT}, @code{NOT_FOUND}, @code{DATABASE_ERROR}.
+
+@node The forget_batch tool
+@section The @code{forget_batch} tool
+@cindex forget_batch
+@cindex bulk delete
+
+Soft-deletes up to @code{MAX_BATCH_SIZE} (default 200) memories in a
+single call.  Soft-delete only by design --- a bulk hard delete has
+no tombstone trail and is intentionally not exposed here.  Use
+@code{forget} with @code{hard_delete=true} for individual rows that
+need to be erased completely.
+
+Strongly prefer this over calling @code{forget} repeatedly during
+cleanup.  A batch payload carries only a list of integer ids, which
+is also less likely to be misclassified by an LLM client's safety
+filter than repeated single-id forgets whose context contains the
+per-row memory text.
+
+@subsection Inputs
+
+@table @code
+@item ids
+@b{Required array of integers.}  The memory ids to forget.  Maximum
+200 per call.
+
+@item reason
+String.  Optional.  Shared explanation recorded as
+@code{forget_reason} on every soft-deleted row in the batch.
+
+@item dry_run
+Boolean.  Optional, default false.  When true, validate every id
+and report what would happen, but make no changes.  Each result
+still reports @code{already_deleted} reflecting current state.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "dry_run": false,
+  "results": [
+    @{ "input_index": 0, "id": 144, "ok": true,
+       "already_deleted": false, "message": "Forgotten" @},
+    @{ "input_index": 1, "id": 999999, "ok": false,
+       "error": @{ "code": "NOT_FOUND",
+                  "message": "Memory 999999 not found." @} @}
+  ],
+  "summary": @{ "total": 2, "deleted": 1,
+                "already_deleted": 0, "errors": 1 @}
+@}
+@end example
+
+If a row was already soft-deleted, the tombstone metadata is updated
+(reason rewritten if supplied) and @code{already_deleted} is reported
+true.
+
+@subsection Errors
+
+Batch-level: @code{INVALID_INPUT} (empty list, invalid reason),
+@code{LIMIT_EXCEEDED} (over 200 items).  Per-item errors appear
+inside @code{results}.
+
+@node The find_near_duplicates tool
+@section The @code{find_near_duplicates} tool
+@cindex find_near_duplicates
+@cindex duplicates
+@cindex cleanup
+
+Read-only diagnostic for memory cleanup.  Returns clusters of active
+memories whose embeddings are at least @code{threshold} similar to
+each other.  Clusters are formed by union-find over qualifying pairs
+(so transitively similar rows a~b~c land in the same group) and
+sorted strongest-first by the max pair-similarity within each
+cluster.  Soft-deleted and expired rows are excluded.
+
+Pair candidates are looked up via pgvector's HNSW index using a
+fixed top-10 per row, which is more than enough at the cutoffs
+typical for cleanup (@code{threshold >= 0.85}).
+
+@subsection Inputs
+
+@table @code
+@item threshold
+Number, 0.5--1.0.  Optional, default 0.92.  Cosine-similarity cutoff
+for pair candidates.  0.95+ is typical for ``effectively identical''
+rows.
+
+@item max_groups
+Integer.  Optional, default 50.  Hard cap 500.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "threshold": 0.92,
+  "groups": [
+    @{
+      "ids": [4, 5],
+      "max_similarity": 0.984,
+      "pair_count": 1,
+      "memories": [
+        @{ "id": 4, "text": "...", "tags": ["family"], ... @},
+        @{ "id": 5, "text": "...", "tags": ["family"], ... @}
+      ]
+    @}
+  ],
+  "summary": @{ "groups": 5, "pairs": 8 @}
+@}
+@end example
+
+@code{pair_count} is the number of qualifying pairs inside that
+cluster (always at least 1; higher means the cluster is denser).
+@code{pairs} in the summary is the total raw pair count across all
+returned clusters.
+
+@subsection Errors
+
+@code{INVALID_INPUT} (out-of-range threshold or max_groups),
+@code{DATABASE_ERROR}.
 
 @node The text_search tool
 @section The @code{text_search} tool
@@ -538,6 +794,216 @@ Same shape as @code{list_memories}.
 @subsection Errors
 
 @code{INVALID_INPUT}, @code{DATABASE_ERROR}.
+
+@node The get_memory tool
+@section The @code{get_memory} tool
+@cindex get_memory
+
+Fetches a single memory by id, including soft-deleted rows.  Useful
+for inspecting one row surfaced by @code{recall},
+@code{list_memories}, or as a near-duplicate candidate from
+@code{remember}, and for examining tombstone metadata (@code{deleted_at},
+@code{forget_reason}, @code{replaced_by_id}) of a soft-deleted row.
+
+@subsection Inputs
+
+@table @code
+@item id
+@b{Required integer.}  The memory's id.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "memory": @{
+    "id": 123,
+    "text": "...",
+    "tags": ["family"],
+    "importance": 0.5,
+    "created_at": "2026-05-05T12:00:00Z",
+    "updated_at": "2026-05-05T12:00:00Z",
+    "deleted_at": null,
+    "forget_reason": null,
+    "replaced_by_id": null,
+    "last_confirmed_at": "2026-05-05T12:00:00Z",
+    "expires_at": null,
+    "source_provider": "openai"
+  @}
+@}
+@end example
+
+@subsection Errors
+
+@code{INVALID_INPUT}, @code{NOT_FOUND}, @code{DATABASE_ERROR}.
+
+@node The count_memories tool
+@section The @code{count_memories} tool
+@cindex count_memories
+
+Returns @code{COUNT(*)} over the memory store, with the same set of
+optional filters that @code{list_memories} accepts plus tag and
+source-provider filters.  Cheap; useful as a sanity check before a
+bulk operation (``how many would I touch?'').
+
+@subsection Inputs
+
+@table @code
+@item include_deleted
+Boolean.  Optional, default false.
+
+@item tags
+Array of strings.  Optional.  A memory is counted if it has at least
+one of these tags.
+
+@item source_provider
+String.  Optional exact-match filter on @code{source_provider}.
+
+@item untagged_only
+Boolean.  Optional.  Only count rows with no tags.
+
+@item min_chars
+Integer.  Optional.  Only count rows whose text length is at least
+this many characters.
+
+@item max_chars
+Integer.  Optional.  Only count rows whose text length is at most
+this many characters.
+
+@item not_confirmed_since
+ISO 8601 timestamp.  Optional.  Only count rows with
+@code{last_confirmed_at IS NULL} or older than this instant.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "count": 412
+@}
+@end example
+
+@subsection Errors
+
+@code{INVALID_INPUT} (out-of-range filter values), @code{DATABASE_ERROR}.
+
+@node The memory_stats tool
+@section The @code{memory_stats} tool
+@cindex memory_stats
+@cindex stats
+
+Aggregate statistics for the whole store: total / active /
+soft-deleted / expired counts, average importance, oldest and newest
+@code{created_at}, top tags by count, and counts per
+@code{source_provider}.
+
+@subsection Inputs
+
+None.
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "total":         412,
+  "active":        400,
+  "soft_deleted":  10,
+  "expired":       2,
+  "avg_importance": 0.55,
+  "oldest_created_at": "2025-11-01T00:00:00Z",
+  "newest_created_at": "2026-05-25T12:00:00Z",
+  "top_tags": [
+    @{ "tag": "family",      "count": 87 @},
+    @{ "tag": "preferences", "count": 64 @}
+  ],
+  "by_provider": [
+    @{ "provider": "openai", "count": 200 @},
+    @{ "provider": "(none)", "count": 212 @}
+  ]
+@}
+@end example
+
+@subsection Errors
+
+@code{DATABASE_ERROR}.
+
+@node The list_tags tool
+@section The @code{list_tags} tool
+@cindex list_tags
+
+Returns the distinct tags currently in use, each with the number of
+memories carrying that tag.  Ordered by count descending, then tag
+ascending.
+
+@subsection Inputs
+
+@table @code
+@item include_deleted
+Boolean.  Optional, default false.  When true, tags from soft-deleted
+and expired rows are also surfaced.
+
+@item limit
+Integer.  Optional, capped server-side.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "tags": [
+    @{ "tag": "family", "count": 87 @},
+    @{ "tag": "work",   "count": 42 @}
+  ]
+@}
+@end example
+
+@subsection Errors
+
+@code{INVALID_INPUT}, @code{DATABASE_ERROR}.
+
+@node The export_memories tool
+@section The @code{export_memories} tool
+@cindex export_memories
+@cindex backup
+
+Dumps every memory for the user as a JSON array, ordered oldest-first.
+Embedding vectors are @b{not} included --- exports are intended for
+human-readable backup and migration, not for re-importing into a
+different embedding model.  Capped server-side at a large but finite
+number of rows per call.
+
+@subsection Inputs
+
+@table @code
+@item include_deleted
+Boolean.  Optional, default true so the export captures the full
+historical record.
+@end table
+
+@subsection Output
+
+Same per-row shape as @code{recall} matches, minus the @code{score}
+field and the embedding vector:
+
+@example
+@{
+  "ok": true,
+  "count": 412,
+  "memories": [
+    @{ "id": 1, "text": "...", "tags": ["..."],
+       "created_at": "2025-11-01T00:00:00Z", ... @}
+  ]
+@}
+@end example
+
+@subsection Errors
+
+@code{LIMIT_EXCEEDED} when the store exceeds the export cap (in
+which case obtain an out-of-band dump), @code{DATABASE_ERROR}.
 
 @node Error codes
 @section Error codes

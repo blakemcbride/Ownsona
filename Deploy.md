@@ -505,9 +505,10 @@ each path end-to-end.
    the smoke-test memory at the end.
 
 A 401 mid-stream means the token is expired (default TTL is 1 hour);
-get a fresh one from the client and rerun. If `tools/list` shows the
-expected 14 tools and `recall` returns real entries, the server is
-fully operational on OAuth.
+get a fresh one from the client and rerun. If `tools/list` enumerates
+the documented tool catalog (see `OWNSONA_SPEC.md` section 8) and
+`recall` returns real entries, the server is fully operational on
+OAuth.
 
 ---
 

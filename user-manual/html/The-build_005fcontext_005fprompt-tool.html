@@ -28,7 +28,7 @@ in the source distribution for the full text. -->
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="MCP-Tools.html" rel="up" title="MCP Tools">
 <link href="The-list_005fmemories-tool.html" rel="next" title="The list_memories tool">
-<link href="The-recall-tool.html" rel="prev" title="The recall tool">
+<link href="The-search_005fmemory-tool.html" rel="prev" title="The search_memory tool">
 <style type="text/css">
 <!--
 /*
@@ -156,10 +156,10 @@ dl dd {
 <div class="section-level-extent" id="The-build_005fcontext_005fprompt-tool">
 <div class="nav-panel">
 <p>
-Next: <a href="The-list_005fmemories-tool.html" accesskey="n" rel="next">The <code class="code">list_memories</code> tool</a>, Previous: <a href="The-recall-tool.html" accesskey="p" rel="prev">The <code class="code">recall</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="The-list_005fmemories-tool.html" accesskey="n" rel="next">The <code class="code">list_memories</code> tool</a>, Previous: <a href="The-search_005fmemory-tool.html" accesskey="p" rel="prev">The <code class="code">search_memory</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="The-build_005fcontext_005fprompt-tool-1"><span>5.5 The <code class="code">build_context_prompt</code> tool<a class="copiable-link" href="#The-build_005fcontext_005fprompt-tool-1"> &para;</a></span></h3>
+<h3 class="section" id="The-build_005fcontext_005fprompt-tool-1"><span>5.6 The <code class="code">build_context_prompt</code> tool<a class="copiable-link" href="#The-build_005fcontext_005fprompt-tool-1"> &para;</a></span></h3>
 <a class="index-entry-id" id="index-build_005fcontext_005fprompt"></a>
 <a class="index-entry-id" id="index-prompt-envelope"></a>
 
@@ -172,7 +172,7 @@ envelope, suitable for piping into a non-MCP LLM.
 <li><a href="#Errors-3" accesskey="3">Errors</a></li>
 </ul>
 <div class="subsection-level-extent" id="Inputs-3">
-<h4 class="subsection"><span>5.5.1 Inputs<a class="copiable-link" href="#Inputs-3"> &para;</a></span></h4>
+<h4 class="subsection"><span>5.6.1 Inputs<a class="copiable-link" href="#Inputs-3"> &para;</a></span></h4>
 
 <dl class="table">
 <dt><code class="code">user_prompt</code></dt>
@@ -203,7 +203,7 @@ facts.
 
 </div>
 <div class="subsection-level-extent" id="Output-3">
-<h4 class="subsection"><span>5.5.2 Output<a class="copiable-link" href="#Output-3"> &para;</a></span></h4>
+<h4 class="subsection"><span>5.6.2 Output<a class="copiable-link" href="#Output-3"> &para;</a></span></h4>
 
 <div class="example">
 <pre class="example-preformatted">{
@@ -217,7 +217,7 @@ previously known facts were found.&quot;</code> instead of listing facts.
 </p>
 </div>
 <div class="subsection-level-extent" id="Errors-3">
-<h4 class="subsection"><span>5.5.3 Errors<a class="copiable-link" href="#Errors-3"> &para;</a></span></h4>
+<h4 class="subsection"><span>5.6.3 Errors<a class="copiable-link" href="#Errors-3"> &para;</a></span></h4>
 
 <p><code class="code">INVALID_INPUT</code>, <code class="code">EMBEDDING_ERROR</code>, <code class="code">DATABASE_ERROR</code>.
 </p>

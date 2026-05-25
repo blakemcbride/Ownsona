@@ -14,10 +14,10 @@ Copyright © 2018-2026 Blake McBride.
 
 Distributed under the BSD 2-Clause License.  See LICENSE.txt
 in the source distribution for the full text. -->
-<title>The confirm tool (OwnSona Manual)</title>
+<title>The export_memories tool (OwnSona Manual)</title>
 
-<meta name="description" content="The confirm tool (OwnSona Manual)">
-<meta name="keywords" content="The confirm tool (OwnSona Manual)">
+<meta name="description" content="The export_memories tool (OwnSona Manual)">
+<meta name="keywords" content="The export_memories tool (OwnSona Manual)">
 <meta name="resource-type" content="document">
 <meta name="distribution" content="global">
 <meta name="Generator" content="makeinfo">
@@ -27,8 +27,8 @@ in the source distribution for the full text. -->
 <link href="Index.html" rel="index" title="Index">
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="MCP-Tools.html" rel="up" title="MCP Tools">
-<link href="The-forget-tool.html" rel="next" title="The forget tool">
-<link href="The-update_005fmemory_005fbatch-tool.html" rel="prev" title="The update_memory_batch tool">
+<link href="Error-codes.html" rel="next" title="Error codes">
+<link href="The-list_005ftags-tool.html" rel="prev" title="The list_tags tool">
 <style type="text/css">
 <!--
 /*
@@ -153,49 +153,61 @@ dl dd {
 </head>
 
 <body lang="en">
-<div class="section-level-extent" id="The-confirm-tool">
+<div class="section-level-extent" id="The-export_005fmemories-tool">
 <div class="nav-panel">
 <p>
-Next: <a href="The-forget-tool.html" accesskey="n" rel="next">The <code class="code">forget</code> tool</a>, Previous: <a href="The-update_005fmemory_005fbatch-tool.html" accesskey="p" rel="prev">The <code class="code">update_memory_batch</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="Error-codes.html" accesskey="n" rel="next">Error codes</a>, Previous: <a href="The-list_005ftags-tool.html" accesskey="p" rel="prev">The <code class="code">list_tags</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="The-confirm-tool-1"><span>5.10 The <code class="code">confirm</code> tool<a class="copiable-link" href="#The-confirm-tool-1"> &para;</a></span></h3>
-<a class="index-entry-id" id="index-confirm"></a>
+<h3 class="section" id="The-export_005fmemories-tool-1"><span>5.19 The <code class="code">export_memories</code> tool<a class="copiable-link" href="#The-export_005fmemories-tool-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-export_005fmemories"></a>
+<a class="index-entry-id" id="index-backup"></a>
 
-<p>Refreshes a memory&rsquo;s <code class="code">last_confirmed_at</code> to <code class="code">now()</code> without
-rebuilding the embedding.  Cheap operation.
+<p>Dumps every memory for the user as a JSON array, ordered oldest-first.
+Embedding vectors are <b class="b">not</b> included &mdash; exports are intended for
+human-readable backup and migration, not for re-importing into a
+different embedding model.  Capped server-side at a large but finite
+number of rows per call.
 </p>
 <ul class="mini-toc">
-<li><a href="#Inputs-7" accesskey="1">Inputs</a></li>
-<li><a href="#Output-7" accesskey="2">Output</a></li>
-<li><a href="#Errors-7" accesskey="3">Errors</a></li>
+<li><a href="#Inputs-16" accesskey="1">Inputs</a></li>
+<li><a href="#Output-16" accesskey="2">Output</a></li>
+<li><a href="#Errors-16" accesskey="3">Errors</a></li>
 </ul>
-<div class="subsection-level-extent" id="Inputs-7">
-<h4 class="subsection"><span>5.10.1 Inputs<a class="copiable-link" href="#Inputs-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Inputs-16">
+<h4 class="subsection"><span>5.19.1 Inputs<a class="copiable-link" href="#Inputs-16"> &para;</a></span></h4>
 
 <dl class="table">
-<dt><code class="code">id</code></dt>
-<dd><p><b class="b">Required integer.</b>  The memory&rsquo;s id.
+<dt><code class="code">include_deleted</code></dt>
+<dd><p>Boolean.  Optional, default true so the export captures the full
+historical record.
 </p></dd>
 </dl>
 
 </div>
-<div class="subsection-level-extent" id="Output-7">
-<h4 class="subsection"><span>5.10.2 Output<a class="copiable-link" href="#Output-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Output-16">
+<h4 class="subsection"><span>5.19.2 Output<a class="copiable-link" href="#Output-16"> &para;</a></span></h4>
 
+<p>Same per-row shape as <code class="code">recall</code> matches, minus the <code class="code">score</code>
+field and the embedding vector:
+</p>
 <div class="example">
 <pre class="example-preformatted">{
   &quot;ok&quot;: true,
-  &quot;memory_id&quot;: 123,
-  &quot;last_confirmed_at&quot;: &quot;2026-05-17T14:00:00Z&quot;
+  &quot;count&quot;: 412,
+  &quot;memories&quot;: [
+    { &quot;id&quot;: 1, &quot;text&quot;: &quot;...&quot;, &quot;tags&quot;: [&quot;...&quot;],
+       &quot;created_at&quot;: &quot;2025-11-01T00:00:00Z&quot;, ... }
+  ]
 }
 </pre></div>
 
 </div>
-<div class="subsection-level-extent" id="Errors-7">
-<h4 class="subsection"><span>5.10.3 Errors<a class="copiable-link" href="#Errors-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Errors-16">
+<h4 class="subsection"><span>5.19.3 Errors<a class="copiable-link" href="#Errors-16"> &para;</a></span></h4>
 
-<p><code class="code">INVALID_INPUT</code>, <code class="code">NOT_FOUND</code>.
+<p><code class="code">LIMIT_EXCEEDED</code> when the store exceeds the export cap (in
+which case obtain an out-of-band dump), <code class="code">DATABASE_ERROR</code>.
 </p>
 </div>
 </div>

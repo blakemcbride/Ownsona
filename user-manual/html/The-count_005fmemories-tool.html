@@ -14,10 +14,10 @@ Copyright © 2018-2026 Blake McBride.
 
 Distributed under the BSD 2-Clause License.  See LICENSE.txt
 in the source distribution for the full text. -->
-<title>The confirm tool (OwnSona Manual)</title>
+<title>The count_memories tool (OwnSona Manual)</title>
 
-<meta name="description" content="The confirm tool (OwnSona Manual)">
-<meta name="keywords" content="The confirm tool (OwnSona Manual)">
+<meta name="description" content="The count_memories tool (OwnSona Manual)">
+<meta name="keywords" content="The count_memories tool (OwnSona Manual)">
 <meta name="resource-type" content="document">
 <meta name="distribution" content="global">
 <meta name="Generator" content="makeinfo">
@@ -27,8 +27,8 @@ in the source distribution for the full text. -->
 <link href="Index.html" rel="index" title="Index">
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="MCP-Tools.html" rel="up" title="MCP Tools">
-<link href="The-forget-tool.html" rel="next" title="The forget tool">
-<link href="The-update_005fmemory_005fbatch-tool.html" rel="prev" title="The update_memory_batch tool">
+<link href="The-memory_005fstats-tool.html" rel="next" title="The memory_stats tool">
+<link href="The-get_005fmemory-tool.html" rel="prev" title="The get_memory tool">
 <style type="text/css">
 <!--
 /*
@@ -153,49 +153,78 @@ dl dd {
 </head>
 
 <body lang="en">
-<div class="section-level-extent" id="The-confirm-tool">
+<div class="section-level-extent" id="The-count_005fmemories-tool">
 <div class="nav-panel">
 <p>
-Next: <a href="The-forget-tool.html" accesskey="n" rel="next">The <code class="code">forget</code> tool</a>, Previous: <a href="The-update_005fmemory_005fbatch-tool.html" accesskey="p" rel="prev">The <code class="code">update_memory_batch</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="The-memory_005fstats-tool.html" accesskey="n" rel="next">The <code class="code">memory_stats</code> tool</a>, Previous: <a href="The-get_005fmemory-tool.html" accesskey="p" rel="prev">The <code class="code">get_memory</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="The-confirm-tool-1"><span>5.10 The <code class="code">confirm</code> tool<a class="copiable-link" href="#The-confirm-tool-1"> &para;</a></span></h3>
-<a class="index-entry-id" id="index-confirm"></a>
+<h3 class="section" id="The-count_005fmemories-tool-1"><span>5.16 The <code class="code">count_memories</code> tool<a class="copiable-link" href="#The-count_005fmemories-tool-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-count_005fmemories"></a>
 
-<p>Refreshes a memory&rsquo;s <code class="code">last_confirmed_at</code> to <code class="code">now()</code> without
-rebuilding the embedding.  Cheap operation.
+<p>Returns <code class="code">COUNT(*)</code> over the memory store, with the same set of
+optional filters that <code class="code">list_memories</code> accepts plus tag and
+source-provider filters.  Cheap; useful as a sanity check before a
+bulk operation (&ldquo;how many would I touch?&rdquo;).
 </p>
 <ul class="mini-toc">
-<li><a href="#Inputs-7" accesskey="1">Inputs</a></li>
-<li><a href="#Output-7" accesskey="2">Output</a></li>
-<li><a href="#Errors-7" accesskey="3">Errors</a></li>
+<li><a href="#Inputs-13" accesskey="1">Inputs</a></li>
+<li><a href="#Output-13" accesskey="2">Output</a></li>
+<li><a href="#Errors-13" accesskey="3">Errors</a></li>
 </ul>
-<div class="subsection-level-extent" id="Inputs-7">
-<h4 class="subsection"><span>5.10.1 Inputs<a class="copiable-link" href="#Inputs-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Inputs-13">
+<h4 class="subsection"><span>5.16.1 Inputs<a class="copiable-link" href="#Inputs-13"> &para;</a></span></h4>
 
 <dl class="table">
-<dt><code class="code">id</code></dt>
-<dd><p><b class="b">Required integer.</b>  The memory&rsquo;s id.
+<dt><code class="code">include_deleted</code></dt>
+<dd><p>Boolean.  Optional, default false.
+</p>
+</dd>
+<dt><code class="code">tags</code></dt>
+<dd><p>Array of strings.  Optional.  A memory is counted if it has at least
+one of these tags.
+</p>
+</dd>
+<dt><code class="code">source_provider</code></dt>
+<dd><p>String.  Optional exact-match filter on <code class="code">source_provider</code>.
+</p>
+</dd>
+<dt><code class="code">untagged_only</code></dt>
+<dd><p>Boolean.  Optional.  Only count rows with no tags.
+</p>
+</dd>
+<dt><code class="code">min_chars</code></dt>
+<dd><p>Integer.  Optional.  Only count rows whose text length is at least
+this many characters.
+</p>
+</dd>
+<dt><code class="code">max_chars</code></dt>
+<dd><p>Integer.  Optional.  Only count rows whose text length is at most
+this many characters.
+</p>
+</dd>
+<dt><code class="code">not_confirmed_since</code></dt>
+<dd><p>ISO 8601 timestamp.  Optional.  Only count rows with
+<code class="code">last_confirmed_at IS NULL</code> or older than this instant.
 </p></dd>
 </dl>
 
 </div>
-<div class="subsection-level-extent" id="Output-7">
-<h4 class="subsection"><span>5.10.2 Output<a class="copiable-link" href="#Output-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Output-13">
+<h4 class="subsection"><span>5.16.2 Output<a class="copiable-link" href="#Output-13"> &para;</a></span></h4>
 
 <div class="example">
 <pre class="example-preformatted">{
   &quot;ok&quot;: true,
-  &quot;memory_id&quot;: 123,
-  &quot;last_confirmed_at&quot;: &quot;2026-05-17T14:00:00Z&quot;
+  &quot;count&quot;: 412
 }
 </pre></div>
 
 </div>
-<div class="subsection-level-extent" id="Errors-7">
-<h4 class="subsection"><span>5.10.3 Errors<a class="copiable-link" href="#Errors-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Errors-13">
+<h4 class="subsection"><span>5.16.3 Errors<a class="copiable-link" href="#Errors-13"> &para;</a></span></h4>
 
-<p><code class="code">INVALID_INPUT</code>, <code class="code">NOT_FOUND</code>.
+<p><code class="code">INVALID_INPUT</code> (out-of-range filter values), <code class="code">DATABASE_ERROR</code>.
 </p>
 </div>
 </div>

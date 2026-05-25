@@ -65,7 +65,9 @@ endpoint, including self-hosted models).
 @end itemize
 
 The mechanism is unspectacular: MCP standardizes tool-calling for
-LLMs, OwnSona implements seven tools, and any LLM client that speaks
+LLMs, OwnSona implements a small catalog of memory tools (store,
+recall, list, update, forget, plus batch variants and cleanup
+diagnostics; see @ref{MCP Tools}), and any LLM client that speaks
 MCP can call them.  Under the hood, memories are stored in PostgreSQL
 with the @code{pgvector} extension; recall is vector-similarity search
 over OpenAI's @code{text-embedding-3-small} model by default

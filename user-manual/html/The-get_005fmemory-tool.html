@@ -14,10 +14,10 @@ Copyright © 2018-2026 Blake McBride.
 
 Distributed under the BSD 2-Clause License.  See LICENSE.txt
 in the source distribution for the full text. -->
-<title>The confirm tool (OwnSona Manual)</title>
+<title>The get_memory tool (OwnSona Manual)</title>
 
-<meta name="description" content="The confirm tool (OwnSona Manual)">
-<meta name="keywords" content="The confirm tool (OwnSona Manual)">
+<meta name="description" content="The get_memory tool (OwnSona Manual)">
+<meta name="keywords" content="The get_memory tool (OwnSona Manual)">
 <meta name="resource-type" content="document">
 <meta name="distribution" content="global">
 <meta name="Generator" content="makeinfo">
@@ -27,8 +27,8 @@ in the source distribution for the full text. -->
 <link href="Index.html" rel="index" title="Index">
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="MCP-Tools.html" rel="up" title="MCP Tools">
-<link href="The-forget-tool.html" rel="next" title="The forget tool">
-<link href="The-update_005fmemory_005fbatch-tool.html" rel="prev" title="The update_memory_batch tool">
+<link href="The-count_005fmemories-tool.html" rel="next" title="The count_memories tool">
+<link href="The-text_005fsearch-tool.html" rel="prev" title="The text_search tool">
 <style type="text/css">
 <!--
 /*
@@ -153,25 +153,28 @@ dl dd {
 </head>
 
 <body lang="en">
-<div class="section-level-extent" id="The-confirm-tool">
+<div class="section-level-extent" id="The-get_005fmemory-tool">
 <div class="nav-panel">
 <p>
-Next: <a href="The-forget-tool.html" accesskey="n" rel="next">The <code class="code">forget</code> tool</a>, Previous: <a href="The-update_005fmemory_005fbatch-tool.html" accesskey="p" rel="prev">The <code class="code">update_memory_batch</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="The-count_005fmemories-tool.html" accesskey="n" rel="next">The <code class="code">count_memories</code> tool</a>, Previous: <a href="The-text_005fsearch-tool.html" accesskey="p" rel="prev">The <code class="code">text_search</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="The-confirm-tool-1"><span>5.10 The <code class="code">confirm</code> tool<a class="copiable-link" href="#The-confirm-tool-1"> &para;</a></span></h3>
-<a class="index-entry-id" id="index-confirm"></a>
+<h3 class="section" id="The-get_005fmemory-tool-1"><span>5.15 The <code class="code">get_memory</code> tool<a class="copiable-link" href="#The-get_005fmemory-tool-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-get_005fmemory"></a>
 
-<p>Refreshes a memory&rsquo;s <code class="code">last_confirmed_at</code> to <code class="code">now()</code> without
-rebuilding the embedding.  Cheap operation.
+<p>Fetches a single memory by id, including soft-deleted rows.  Useful
+for inspecting one row surfaced by <code class="code">recall</code>,
+<code class="code">list_memories</code>, or as a near-duplicate candidate from
+<code class="code">remember</code>, and for examining tombstone metadata (<code class="code">deleted_at</code>,
+<code class="code">forget_reason</code>, <code class="code">replaced_by_id</code>) of a soft-deleted row.
 </p>
 <ul class="mini-toc">
-<li><a href="#Inputs-7" accesskey="1">Inputs</a></li>
-<li><a href="#Output-7" accesskey="2">Output</a></li>
-<li><a href="#Errors-7" accesskey="3">Errors</a></li>
+<li><a href="#Inputs-12" accesskey="1">Inputs</a></li>
+<li><a href="#Output-12" accesskey="2">Output</a></li>
+<li><a href="#Errors-12" accesskey="3">Errors</a></li>
 </ul>
-<div class="subsection-level-extent" id="Inputs-7">
-<h4 class="subsection"><span>5.10.1 Inputs<a class="copiable-link" href="#Inputs-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Inputs-12">
+<h4 class="subsection"><span>5.15.1 Inputs<a class="copiable-link" href="#Inputs-12"> &para;</a></span></h4>
 
 <dl class="table">
 <dt><code class="code">id</code></dt>
@@ -180,22 +183,34 @@ rebuilding the embedding.  Cheap operation.
 </dl>
 
 </div>
-<div class="subsection-level-extent" id="Output-7">
-<h4 class="subsection"><span>5.10.2 Output<a class="copiable-link" href="#Output-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Output-12">
+<h4 class="subsection"><span>5.15.2 Output<a class="copiable-link" href="#Output-12"> &para;</a></span></h4>
 
 <div class="example">
 <pre class="example-preformatted">{
   &quot;ok&quot;: true,
-  &quot;memory_id&quot;: 123,
-  &quot;last_confirmed_at&quot;: &quot;2026-05-17T14:00:00Z&quot;
+  &quot;memory&quot;: {
+    &quot;id&quot;: 123,
+    &quot;text&quot;: &quot;...&quot;,
+    &quot;tags&quot;: [&quot;family&quot;],
+    &quot;importance&quot;: 0.5,
+    &quot;created_at&quot;: &quot;2026-05-05T12:00:00Z&quot;,
+    &quot;updated_at&quot;: &quot;2026-05-05T12:00:00Z&quot;,
+    &quot;deleted_at&quot;: null,
+    &quot;forget_reason&quot;: null,
+    &quot;replaced_by_id&quot;: null,
+    &quot;last_confirmed_at&quot;: &quot;2026-05-05T12:00:00Z&quot;,
+    &quot;expires_at&quot;: null,
+    &quot;source_provider&quot;: &quot;openai&quot;
+  }
 }
 </pre></div>
 
 </div>
-<div class="subsection-level-extent" id="Errors-7">
-<h4 class="subsection"><span>5.10.3 Errors<a class="copiable-link" href="#Errors-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Errors-12">
+<h4 class="subsection"><span>5.15.3 Errors<a class="copiable-link" href="#Errors-12"> &para;</a></span></h4>
 
-<p><code class="code">INVALID_INPUT</code>, <code class="code">NOT_FOUND</code>.
+<p><code class="code">INVALID_INPUT</code>, <code class="code">NOT_FOUND</code>, <code class="code">DATABASE_ERROR</code>.
 </p>
 </div>
 </div>

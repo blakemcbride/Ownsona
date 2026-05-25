@@ -27,7 +27,7 @@ in the source distribution for the full text. -->
 <link href="Index.html" rel="index" title="Index">
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="MCP-Tools.html" rel="up" title="MCP Tools">
-<link href="The-text_005fsearch-tool.html" rel="next" title="The text_search tool">
+<link href="The-forget_005fbatch-tool.html" rel="next" title="The forget_batch tool">
 <link href="The-confirm-tool.html" rel="prev" title="The confirm tool">
 <style type="text/css">
 <!--
@@ -156,10 +156,10 @@ dl dd {
 <div class="section-level-extent" id="The-forget-tool">
 <div class="nav-panel">
 <p>
-Next: <a href="The-text_005fsearch-tool.html" accesskey="n" rel="next">The <code class="code">text_search</code> tool</a>, Previous: <a href="The-confirm-tool.html" accesskey="p" rel="prev">The <code class="code">confirm</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="The-forget_005fbatch-tool.html" accesskey="n" rel="next">The <code class="code">forget_batch</code> tool</a>, Previous: <a href="The-confirm-tool.html" accesskey="p" rel="prev">The <code class="code">confirm</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="The-forget-tool-1"><span>5.9 The <code class="code">forget</code> tool<a class="copiable-link" href="#The-forget-tool-1"> &para;</a></span></h3>
+<h3 class="section" id="The-forget-tool-1"><span>5.11 The <code class="code">forget</code> tool<a class="copiable-link" href="#The-forget-tool-1"> &para;</a></span></h3>
 <a class="index-entry-id" id="index-forget"></a>
 <a class="index-entry-id" id="index-soft-delete"></a>
 <a class="index-entry-id" id="index-tombstone"></a>
@@ -170,12 +170,12 @@ becomes a tombstone that the dedup-on-write check consults).  Pass
 <code class="code">hard_delete=true</code> to drop the row entirely.
 </p>
 <ul class="mini-toc">
-<li><a href="#Inputs-7" accesskey="1">Inputs</a></li>
-<li><a href="#Output-7" accesskey="2">Output</a></li>
-<li><a href="#Errors-7" accesskey="3">Errors</a></li>
+<li><a href="#Inputs-8" accesskey="1">Inputs</a></li>
+<li><a href="#Output-8" accesskey="2">Output</a></li>
+<li><a href="#Errors-8" accesskey="3">Errors</a></li>
 </ul>
-<div class="subsection-level-extent" id="Inputs-7">
-<h4 class="subsection"><span>5.9.1 Inputs<a class="copiable-link" href="#Inputs-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Inputs-8">
+<h4 class="subsection"><span>5.11.1 Inputs<a class="copiable-link" href="#Inputs-8"> &para;</a></span></h4>
 
 <dl class="table">
 <dt><code class="code">id</code></dt>
@@ -196,28 +196,48 @@ delete has no row to attach the reason to).
 <dt><code class="code">replaced_by_id</code></dt>
 <dd><p>Integer.  Optional.  Id of the memory that supersedes this one.  Same
 restriction as <code class="code">reason</code>: not allowed with <code class="code">hard_delete</code>.
+</p>
+</dd>
+<dt><code class="code">dry_run</code></dt>
+<dd><p>Boolean.  Optional, default false.  When true, validate the request
+and report what would happen, but make no changes.  The response
+still reports <code class="code">already_deleted</code> so the caller can preview the
+outcome.
 </p></dd>
 </dl>
 
 </div>
-<div class="subsection-level-extent" id="Output-7">
-<h4 class="subsection"><span>5.9.2 Output<a class="copiable-link" href="#Output-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Output-8">
+<h4 class="subsection"><span>5.11.2 Output<a class="copiable-link" href="#Output-8"> &para;</a></span></h4>
 
 <div class="example">
 <pre class="example-preformatted">{
   &quot;ok&quot;: true,
   &quot;memory_id&quot;: 123,
+  &quot;dry_run&quot;: false,
+  &quot;already_deleted&quot;: false,
   &quot;message&quot;: &quot;Forgotten&quot;
 }
 </pre></div>
 
+<p><code class="code">already_deleted</code> is true when the row was already
+soft-deleted before this call (the tombstone metadata is updated in
+that case).  On a dry-run <code class="code">message</code> reads <code class="code">&quot;Would
+soft-delete&quot;</code> / <code class="code">&quot;Would hard-delete&quot;</code> / <code class="code">&quot;Would update
+tombstone (already soft-deleted)&quot;</code>.
+</p>
 </div>
-<div class="subsection-level-extent" id="Errors-7">
-<h4 class="subsection"><span>5.9.3 Errors<a class="copiable-link" href="#Errors-7"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Errors-8">
+<h4 class="subsection"><span>5.11.3 Errors<a class="copiable-link" href="#Errors-8"> &para;</a></span></h4>
 
 <p><code class="code">INVALID_INPUT</code>, <code class="code">NOT_FOUND</code>, <code class="code">DATABASE_ERROR</code>.
 </p>
 </div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="The-forget_005fbatch-tool.html">The <code class="code">forget_batch</code> tool</a>, Previous: <a href="The-confirm-tool.html">The <code class="code">confirm</code> tool</a>, Up: <a href="MCP-Tools.html">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

@@ -64,12 +64,21 @@ MCP-capable client can be pointed at it.
 |---|---|
 | `remember` | Store a fact, with optional tags and importance score |
 | `remember_batch` | Bulk import (up to 200 items) in a single embedding round-trip |
-| `recall` | Vector-similarity search by natural-language query |
+| `recall` / `search_memory` | Vector-similarity search by natural-language query |
 | `build_context_prompt` | Pack relevant memories into a prompt envelope |
-| `list_memories` | Paginated listing for review/audit |
-| `update_memory` | Edit text + re-embed |
-| `forget` | Soft delete (default) or hard delete |
+| `list_memories` | Paginated listing with cleanup filters (untagged-only, char-length bounds, not-confirmed-since) |
+| `update_memory` | Edit any subset of fields; re-embeds only when `text` is supplied |
+| `update_memory_batch` | Bulk update (up to 200 items) in one call |
+| `confirm` | Refresh `last_confirmed_at` without rebuilding the embedding |
+| `forget` | Soft delete (default) or hard delete; `dry_run` supported |
+| `forget_batch` | Bulk soft-delete (up to 200 ids) in one call |
+| `find_near_duplicates` | Cluster active memories by cosine similarity (cleanup diagnostic) |
 | `text_search` | Trigram text match for known phrases |
+| `get_memory` | Fetch a single memory by id (including tombstones) |
+| `count_memories` | Cheap `COUNT(*)` with the same cleanup filters as `list_memories` |
+| `memory_stats` | Aggregate counts, top tags, per-provider breakdown |
+| `list_tags` | Distinct tags with their row counts |
+| `export_memories` | Full JSON dump for backup or migration |
 
 Every tool requires an OAuth 2.1 access token (the server bundles its
 own authorization server, so no external IdP is required); secret-shaped

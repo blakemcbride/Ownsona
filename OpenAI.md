@@ -470,10 +470,11 @@ The older `chat.completions` endpoint does **not** support MCP tools
 natively. You have two options there:
 
 1. Switch to the Responses API (recommended).
-2. Define the seven Ownsona tools as standard OpenAI function-calling
-   tools, parse `tool_calls` yourself, and forward each to Ownsona by
+2. Define each Ownsona tool as a standard OpenAI function-calling
+   tool, parse `tool_calls` yourself, and forward each to Ownsona by
    POSTing the JSON-RPC envelope. Workable but pure plumbing — not
-   recommended unless you are stuck on the older endpoint.
+   recommended unless you are stuck on the older endpoint. The full
+   tool catalog is in `OWNSONA_SPEC.md` (section 8).
 
 ---
 

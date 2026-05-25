@@ -27,8 +27,12 @@ The sources live under [`cli/`](cli/).
 
 ## What it does
 
-Talks to the OwnSona MCP server over HTTPS using JSON-RPC.  Maps each
-of the server's MCP tools to a subcommand:
+Talks to the OwnSona MCP server over HTTPS using JSON-RPC.  Maps a
+curated subset of the server's MCP tools to subcommands (the rest
+are read-mostly diagnostics like `count_memories` or `memory_stats`,
+and the cleanup-batch tools like `forget_batch` /
+`update_memory_batch` / `find_near_duplicates` which are aimed at
+LLM-driven cleanup workflows rather than terminal use):
 
 | Subcommand | MCP tool | Purpose |
 |---|---|---|
