@@ -207,6 +207,81 @@ class MemoryServiceHelpersTest {
     }
 
     // -------------------------------------------------------------------
+    // validateFilter (list_memories / count_memories cleanup filters)
+    // -------------------------------------------------------------------
+
+    @Test
+    void filterNullReturnsNull() {
+        assertNull(MemoryService.validateFilter(null));
+    }
+
+    @Test
+    void filterAllUnsetTreatedAsNull() {
+        final MemoryFilter empty = new MemoryFilter();
+        assertNull(MemoryService.validateFilter(empty));
+    }
+
+    @Test
+    void filterUntaggedOnlyAcceptedAlone() {
+        final MemoryFilter f = new MemoryFilter();
+        f.untaggedOnly = true;
+        assertNotNull(MemoryService.validateFilter(f));
+    }
+
+    @Test
+    void filterMinCharsNegativeRejected() {
+        final MemoryFilter f = new MemoryFilter();
+        f.minChars = -1;
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateFilter(f));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
+
+    @Test
+    void filterMaxCharsNegativeRejected() {
+        final MemoryFilter f = new MemoryFilter();
+        f.maxChars = -10;
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateFilter(f));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
+
+    @Test
+    void filterMinGreaterThanMaxRejected() {
+        final MemoryFilter f = new MemoryFilter();
+        f.minChars = 100;
+        f.maxChars = 50;
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateFilter(f));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
+
+    @Test
+    void filterMinEqualToMaxAccepted() {
+        final MemoryFilter f = new MemoryFilter();
+        f.minChars = 50;
+        f.maxChars = 50;
+        assertNotNull(MemoryService.validateFilter(f));
+    }
+
+    @Test
+    void filterNotConfirmedSinceFutureRejected() {
+        final MemoryFilter f = new MemoryFilter();
+        // 10 minutes in the future --- past the clock-skew tolerance.
+        f.notConfirmedSince = new java.util.Date(System.currentTimeMillis() + 10L * 60_000L);
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateFilter(f));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
+
+    @Test
+    void filterNotConfirmedSincePastAccepted() {
+        final MemoryFilter f = new MemoryFilter();
+        f.notConfirmedSince = new java.util.Date(System.currentTimeMillis() - 24L * 3600_000L);
+        assertNotNull(MemoryService.validateFilter(f));
+    }
+
+    // -------------------------------------------------------------------
     // selectFactsByCharBudget (Phase 1C)
     // -------------------------------------------------------------------
 

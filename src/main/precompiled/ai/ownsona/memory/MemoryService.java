@@ -387,12 +387,17 @@ public final class MemoryService {
     // ====================================================================================
 
     public List<MemoryRow> list(Integer limit, Integer offset, boolean includeDeleted) {
+        return list(limit, offset, includeDeleted, null);
+    }
+
+    public List<MemoryRow> list(Integer limit, Integer offset, boolean includeDeleted, MemoryFilter rawFilter) {
         final int n = clampLimit(limit, 20);
         final int off = (offset == null || offset < 0) ? 0 : offset;
+        final MemoryFilter filter = validateFilter(rawFilter);
         final Connection db = MainServlet.openNewConnection();
         boolean success = false;
         try {
-            final List<MemoryRow> rows = repo.listRecent(db, userId, n, off, includeDeleted);
+            final List<MemoryRow> rows = repo.listRecent(db, userId, n, off, includeDeleted, filter);
             success = true;
             return rows;
         } catch (Exception e) {
@@ -1017,15 +1022,20 @@ public final class MemoryService {
     // ====================================================================================
 
     public long count(boolean includeDeleted, String[] rawTags, String sourceProvider) {
+        return count(includeDeleted, rawTags, sourceProvider, null);
+    }
+
+    public long count(boolean includeDeleted, String[] rawTags, String sourceProvider, MemoryFilter rawFilter) {
         // cleanTags trims/normalizes/dedupes; null → empty array.  An empty
         // tag filter means "no tag restriction"; the repo treats it that way.
         final String[] tags = cleanTags(rawTags);
         final String provider = (sourceProvider == null || sourceProvider.trim().isEmpty())
                 ? null : sourceProvider.trim();
+        final MemoryFilter filter = validateFilter(rawFilter);
         final Connection db = MainServlet.openNewConnection();
         boolean success = false;
         try {
-            final long n = repo.count(db, userId, includeDeleted, tags, provider);
+            final long n = repo.count(db, userId, includeDeleted, tags, provider, filter);
             success = true;
             return n;
         } catch (Exception e) {
@@ -1482,6 +1492,39 @@ public final class MemoryService {
         if (raw <= 0)
             throw new ServiceException(ServiceException.INVALID_INPUT,
                     "max_chars must be > 0 (got " + raw + ").");
+        return raw;
+    }
+
+    /**
+     * Validate a {@link MemoryFilter} for the list_memories / count_memories
+     * cleanup paths.  Returns the same filter on success; rejects nonsense
+     * combinations (negative char bounds, min greater than max, future
+     * not_confirmed_since).
+     *
+     * <p>Returns {@code null} for null / empty input so the repo skips the
+     * filter clauses entirely.
+     *
+     * <p>Package-private for unit tests.
+     */
+    static MemoryFilter validateFilter(MemoryFilter raw) {
+        if (raw == null || raw.isEmpty())
+            return null;
+        if (raw.minChars != null && raw.minChars < 0)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "min_chars must be >= 0 (got " + raw.minChars + ").");
+        if (raw.maxChars != null && raw.maxChars < 0)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "max_chars must be >= 0 (got " + raw.maxChars + ").");
+        if (raw.minChars != null && raw.maxChars != null && raw.minChars > raw.maxChars)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "min_chars (" + raw.minChars + ") must be <= max_chars (" + raw.maxChars + ").");
+        if (raw.notConfirmedSince != null) {
+            final long now = System.currentTimeMillis();
+            // Mild tolerance for clock skew, matching validateLastConfirmedAt.
+            if (raw.notConfirmedSince.getTime() > now + LAST_CONFIRMED_AT_FUTURE_TOLERANCE_MS)
+                throw new ServiceException(ServiceException.INVALID_INPUT,
+                        "not_confirmed_since cannot be in the future.");
+        }
         return raw;
     }
 

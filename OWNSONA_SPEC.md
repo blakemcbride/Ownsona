@@ -443,7 +443,7 @@ Use this tool only when the client needs a fully constructed prompt instead of s
 
 ### 8.4 `list_memories`
 
-Lists recent memories.
+Lists recent memories, most recent first. Optional cleanup-discovery filters narrow the result to untagged rows, very-short or very-long rows, or rows that haven't been confirmed since a given timestamp.
 
 #### Input Schema
 
@@ -451,18 +451,17 @@ Lists recent memories.
 {
   "type": "object",
   "properties": {
-    "limit": {
-      "type": "integer",
-      "default": 20
-    },
-    "offset": {
-      "type": "integer",
-      "default": 0
-    },
-    "include_deleted": {
-      "type": "boolean",
-      "default": false
-    }
+    "limit":           { "type": "integer", "default": 20 },
+    "offset":          { "type": "integer", "default": 0 },
+    "include_deleted": { "type": "boolean", "default": false },
+    "untagged_only":   { "type": "boolean", "default": false,
+                         "description": "Only rows with no tags." },
+    "min_chars":       { "type": "integer",
+                         "description": "Only rows whose text length is at least this many characters." },
+    "max_chars":       { "type": "integer",
+                         "description": "Only rows whose text length is at most this many characters." },
+    "not_confirmed_since": { "type": "string",
+                             "description": "ISO 8601. Only rows with last_confirmed_at IS NULL or older than this." }
   }
 }
 ```
@@ -767,7 +766,7 @@ Returns the number of stored memories, optionally filtered.
 
 #### Description for MCP Client
 
-Use this tool to answer "how many memories do I have?" or as a cheap sanity check before bulk operations. Supports tag and source-provider filters.
+Use this tool to answer "how many memories do I have?" or as a cheap sanity check before bulk operations. Supports tag, source-provider, untagged-only, text-length, and not-confirmed-since filters.
 
 #### Input Schema
 
@@ -788,6 +787,23 @@ Use this tool to answer "how many memories do I have?" or as a cheap sanity chec
     "source_provider": {
       "type": "string",
       "description": "Optional exact-match filter on source_provider."
+    },
+    "untagged_only": {
+      "type": "boolean",
+      "default": false,
+      "description": "Only count rows with no tags."
+    },
+    "min_chars": {
+      "type": "integer",
+      "description": "Only count rows whose text length is at least this many characters."
+    },
+    "max_chars": {
+      "type": "integer",
+      "description": "Only count rows whose text length is at most this many characters."
+    },
+    "not_confirmed_since": {
+      "type": "string",
+      "description": "ISO 8601. Only count rows with last_confirmed_at IS NULL or older than this."
     }
   }
 }

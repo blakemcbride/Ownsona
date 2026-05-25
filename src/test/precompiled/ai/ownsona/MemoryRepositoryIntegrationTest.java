@@ -979,6 +979,122 @@ class MemoryRepositoryIntegrationTest {
         assertEquals(1.0, first, 1e-3);
     }
 
+    // ====================================================================================
+    // MemoryFilter: cleanup-discovery filters on listRecent + count
+    // ====================================================================================
+
+    @Test
+    void filterUntaggedOnlyExcludesTaggedRows() throws Exception {
+        insert("tagged row.",   new String[]{"a"});
+        insert("untagged row.", new String[]{});
+
+        final ai.ownsona.memory.MemoryFilter f = new ai.ownsona.memory.MemoryFilter();
+        f.untaggedOnly = true;
+
+        final List<MemoryRow> rows = repo.listRecent(db, USER_ID, 10, 0, false, f);
+        assertEquals(1, rows.size());
+        assertEquals("untagged row.", rows.get(0).text);
+
+        assertEquals(1L, repo.count(db, USER_ID, false, null, null, f));
+    }
+
+    @Test
+    void filterMinCharsRespectsBoundary() throws Exception {
+        insert("12345",      new String[]{});   // exactly 5
+        insert("1234567890", new String[]{});   // 10
+
+        final ai.ownsona.memory.MemoryFilter f = new ai.ownsona.memory.MemoryFilter();
+        f.minChars = 6;
+
+        final List<MemoryRow> rows = repo.listRecent(db, USER_ID, 10, 0, false, f);
+        assertEquals(1, rows.size());
+        assertEquals("1234567890", rows.get(0).text);
+    }
+
+    @Test
+    void filterMaxCharsRespectsBoundary() throws Exception {
+        insert("short.",                new String[]{});   // 6 chars
+        insert("a longer text content.",new String[]{});   // 22 chars
+
+        final ai.ownsona.memory.MemoryFilter f = new ai.ownsona.memory.MemoryFilter();
+        f.maxChars = 10;
+
+        final List<MemoryRow> rows = repo.listRecent(db, USER_ID, 10, 0, false, f);
+        assertEquals(1, rows.size());
+        assertEquals("short.", rows.get(0).text);
+    }
+
+    @Test
+    void filterMinAndMaxCombineAsRange() throws Exception {
+        insert("aaa",      new String[]{});         // 3
+        insert("aaaaaaaa", new String[]{});         // 8
+        insert("aaaaaaaaaaaaaaa", new String[]{});  // 15
+
+        final ai.ownsona.memory.MemoryFilter f = new ai.ownsona.memory.MemoryFilter();
+        f.minChars = 5;
+        f.maxChars = 10;
+
+        final List<MemoryRow> rows = repo.listRecent(db, USER_ID, 10, 0, false, f);
+        assertEquals(1, rows.size());
+        assertEquals("aaaaaaaa", rows.get(0).text);
+    }
+
+    @Test
+    void filterNotConfirmedSinceIncludesNullsAndOlderRows() throws Exception {
+        // Row 1: never confirmed.
+        final long neverId = insert("never confirmed.", new String[]{});
+
+        // Row 2: confirmed in the past (older than the threshold).
+        final long oldId = insert("confirmed long ago.", new String[]{});
+        db.execute("UPDATE memories SET last_confirmed_at = now() - interval '30 days' WHERE id = ?", oldId);
+
+        // Row 3: confirmed recently (within threshold).
+        final long freshId = insert("confirmed recently.", new String[]{});
+        db.execute("UPDATE memories SET last_confirmed_at = now() WHERE id = ?", freshId);
+
+        // Threshold: rows not confirmed since 7 days ago.
+        final ai.ownsona.memory.MemoryFilter f = new ai.ownsona.memory.MemoryFilter();
+        f.notConfirmedSince = new java.util.Date(System.currentTimeMillis() - 7L * 24L * 3600_000L);
+
+        final List<MemoryRow> rows = repo.listRecent(db, USER_ID, 10, 0, false, f);
+        assertEquals(2, rows.size(), "should include the never-confirmed row AND the old-confirmed row");
+        final java.util.Set<Long> got = new java.util.HashSet<>();
+        for (MemoryRow r : rows)
+            got.add(r.id);
+        assertTrue(got.contains(neverId));
+        assertTrue(got.contains(oldId));
+        assertFalse(got.contains(freshId));
+
+        assertEquals(2L, repo.count(db, USER_ID, false, null, null, f));
+    }
+
+    @Test
+    void filterCombinesUntaggedAndMaxChars() throws Exception {
+        insert("a long untagged sentence that exceeds the cap.", new String[]{});
+        insert("frag.",                                          new String[]{});  // untagged, 5 chars
+        insert("short tagged.",                                  new String[]{"a"});
+
+        final ai.ownsona.memory.MemoryFilter f = new ai.ownsona.memory.MemoryFilter();
+        f.untaggedOnly = true;
+        f.maxChars     = 10;
+
+        final List<MemoryRow> rows = repo.listRecent(db, USER_ID, 10, 0, false, f);
+        assertEquals(1, rows.size());
+        assertEquals("frag.", rows.get(0).text);
+    }
+
+    @Test
+    void filterNullSameAsNoFilter() throws Exception {
+        insert("a", new String[]{"x"});
+        insert("b", new String[]{});
+
+        final long withFilter    = repo.count(db, USER_ID, false, null, null, null);
+        final long withoutFilter = repo.count(db, USER_ID, false, null, null);
+        assertEquals(2L, withoutFilter);
+        assertEquals(withoutFilter, withFilter,
+                "passing null filter must match the no-filter overload");
+    }
+
     private long insertWithEmbedding(String text, float[] embedding) throws Exception {
         return insertWithEmbeddingForUser(text, embedding, USER_ID);
     }

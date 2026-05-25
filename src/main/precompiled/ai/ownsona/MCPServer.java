@@ -9,6 +9,7 @@ import ai.ownsona.memory.BatchRememberResult;
 import ai.ownsona.memory.BatchUpdateItem;
 import ai.ownsona.memory.BatchUpdateResult;
 import ai.ownsona.memory.ForgetResult;
+import ai.ownsona.memory.MemoryFilter;
 import ai.ownsona.memory.MemoryRepository;
 import ai.ownsona.memory.MemoryRow;
 import ai.ownsona.memory.MemoryService;
@@ -375,10 +376,21 @@ public class MCPServer extends MCPServerBase {
                 "Optional tags to filter by.  A memory is counted if it has at least one of these tags."));
         props.put("source_provider", scalarProp("string",
                 "Optional exact-match filter on source_provider."));
+        props.put("untagged_only", scalarProp("boolean",
+                "If true, count only rows with no tags.  Useful for finding rows to tag during cleanup."));
+        props.put("min_chars", scalarProp("integer",
+                "If set, count only rows whose text length is at least this many characters."));
+        props.put("max_chars", scalarProp("integer",
+                "If set, count only rows whose text length is at most this many characters. " +
+                "Useful for finding fragments (e.g. max_chars=20)."));
+        props.put("not_confirmed_since", scalarProp("string",
+                "ISO 8601 timestamp.  If set, count rows that have NOT been confirmed since this " +
+                "instant (last_confirmed_at IS NULL OR last_confirmed_at < this).  Useful for " +
+                "finding stale memories."));
         return tool("count_memories",
                 "Return the number of stored memories, optionally filtered by tag, source " +
-                "provider, or whether to include deleted rows.  Cheap; use freely as a sanity " +
-                "check before bulk operations.",
+                "provider, text length, last_confirmed_at, or whether to include deleted rows.  " +
+                "Cheap; use freely as a sanity check before bulk operations.",
                 props, new String[]{});
     }
 
@@ -424,9 +436,21 @@ public class MCPServer extends MCPServerBase {
                 "Number of memories to skip from the most recent. Default 0."));
         props.put("include_deleted", scalarProp("boolean",
                 "Whether to include soft-deleted memories. Default false."));
+        props.put("untagged_only", scalarProp("boolean",
+                "If true, return only rows with no tags.  Useful for finding rows to tag during cleanup."));
+        props.put("min_chars", scalarProp("integer",
+                "If set, return only rows whose text length is at least this many characters."));
+        props.put("max_chars", scalarProp("integer",
+                "If set, return only rows whose text length is at most this many characters. " +
+                "Useful for finding fragments (e.g. max_chars=20)."));
+        props.put("not_confirmed_since", scalarProp("string",
+                "ISO 8601 timestamp.  If set, return rows that have NOT been confirmed since this " +
+                "instant (last_confirmed_at IS NULL OR last_confirmed_at < this).  Useful for " +
+                "finding stale memories."));
         return tool("list_memories",
-                "Lists recent memories most-recent-first. Useful when the user asks what is " +
-                "currently remembered.",
+                "Lists recent memories most-recent-first.  Useful when the user asks what is " +
+                "currently remembered, or for cleanup workflows that want to scan for untagged, " +
+                "very-short, very-long, or stale rows.",
                 props, new String[]{});
     }
 
@@ -823,8 +847,9 @@ public class MCPServer extends MCPServerBase {
         final Integer limit          = args.has("limit") ? args.getInt("limit") : null;
         final Integer offset         = args.has("offset") ? args.getInt("offset") : null;
         final boolean includeDeleted = args.has("include_deleted") && Boolean.TRUE.equals(args.opt("include_deleted"));
+        final MemoryFilter filter    = parseMemoryFilter(args);
 
-        final List<MemoryRow> rows = SERVICE.list(limit, offset, includeDeleted);
+        final List<MemoryRow> rows = SERVICE.list(limit, offset, includeDeleted, filter);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);
@@ -833,6 +858,26 @@ public class MCPServer extends MCPServerBase {
             arr.put(memoryToListJson(m));
         out.put("memories", arr);
         return successResult(out);
+    }
+
+    /**
+     * Pull the cleanup-style filter params off the request envelope.
+     * Returns null when none are set so the service treats the call as
+     * "no extra filters."
+     */
+    private static MemoryFilter parseMemoryFilter(JSONObject args) {
+        final boolean hasAny = args.has("untagged_only")
+                || args.has("min_chars")
+                || args.has("max_chars")
+                || args.has("not_confirmed_since");
+        if (!hasAny)
+            return null;
+        final MemoryFilter f = new MemoryFilter();
+        f.untaggedOnly      = args.has("untagged_only") && Boolean.TRUE.equals(args.opt("untagged_only"));
+        f.minChars          = args.has("min_chars") ? args.getInt("min_chars") : null;
+        f.maxChars          = args.has("max_chars") ? args.getInt("max_chars") : null;
+        f.notConfirmedSince = parseIso(args.getString("not_confirmed_since", null));
+        return f;
     }
 
     private static JSONObject doUpdateMemory(JSONObject args) {
@@ -1082,8 +1127,9 @@ public class MCPServer extends MCPServerBase {
         final boolean includeDeleted = args.has("include_deleted") && Boolean.TRUE.equals(args.opt("include_deleted"));
         final String[] tags          = optStringArray(args, "tags");
         final String   provider      = args.getString("source_provider", null);
+        final MemoryFilter filter    = parseMemoryFilter(args);
 
-        final long n = SERVICE.count(includeDeleted, tags, provider);
+        final long n = SERVICE.count(includeDeleted, tags, provider, filter);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);

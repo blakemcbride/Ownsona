@@ -116,24 +116,55 @@ public final class MemoryRepository {
      * soft-deleted rows are included.
      */
     public List<MemoryRow> listRecent(Connection db, String userId, int limit, int offset, boolean includeDeleted) throws Exception {
-        final String sql;
-        final List<Record> rows;
-        if (includeDeleted) {
-            sql = "SELECT " + SELECT_COLUMNS + " FROM memories " +
-                  "WHERE user_id = ? " +
-                  "ORDER BY created_at DESC LIMIT ? OFFSET ?";
-            rows = db.fetchAll(sql, userId, limit, offset);
-        } else {
-            sql = "SELECT " + SELECT_COLUMNS + " FROM memories " +
-                  "WHERE user_id = ? AND " + ACTIVE_AND_FRESH + " " +
-                  "ORDER BY created_at DESC LIMIT ? OFFSET ?";
-            rows = db.fetchAll(sql, userId, limit, offset);
-        }
+        return listRecent(db, userId, limit, offset, includeDeleted, null);
+    }
 
+    /**
+     * Same as {@link #listRecent(Connection, String, int, int, boolean)} but
+     * with optional cleanup-style filters.  Pass {@code null} for the
+     * filter when none apply (or use the simpler overload).
+     */
+    public List<MemoryRow> listRecent(Connection db, String userId, int limit, int offset,
+                                      boolean includeDeleted, MemoryFilter filter) throws Exception {
+        final StringBuilder sb = new StringBuilder("SELECT ").append(SELECT_COLUMNS)
+                .append(" FROM memories WHERE user_id = ?");
+        final List<Object> args = new ArrayList<>();
+        args.add(userId);
+        if (!includeDeleted)
+            sb.append(" AND ").append(ACTIVE_AND_FRESH);
+        appendFilterClauses(sb, args, filter);
+        sb.append(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
+        args.add(limit);
+        args.add(offset);
+        final List<Record> rows = db.fetchAll(sb.toString(), args.toArray());
         final List<MemoryRow> out = new ArrayList<>(rows.size());
         for (Record r : rows)
             out.add(toRow(r, 0.0));
         return out;
+    }
+
+    /**
+     * Appends WHERE-clause fragments for the optional cleanup filters and
+     * pushes their bind parameters onto {@code args}.  No-op when
+     * {@code filter} is null or empty.
+     */
+    private static void appendFilterClauses(StringBuilder sb, List<Object> args, MemoryFilter filter) {
+        if (filter == null || filter.isEmpty())
+            return;
+        if (filter.untaggedOnly)
+            sb.append(" AND (tags IS NULL OR cardinality(tags) = 0)");
+        if (filter.minChars != null) {
+            sb.append(" AND char_length(text) >= ?");
+            args.add(filter.minChars);
+        }
+        if (filter.maxChars != null) {
+            sb.append(" AND char_length(text) <= ?");
+            args.add(filter.maxChars);
+        }
+        if (filter.notConfirmedSince != null) {
+            sb.append(" AND (last_confirmed_at IS NULL OR last_confirmed_at < ?)");
+            args.add(filter.notConfirmedSince);
+        }
     }
 
     /**
@@ -538,6 +569,16 @@ public final class MemoryRepository {
      */
     public long count(Connection db, String userId, boolean includeDeleted,
                       String[] tagFilter, String sourceProvider) throws Exception {
+        return count(db, userId, includeDeleted, tagFilter, sourceProvider, null);
+    }
+
+    /**
+     * Same as the simpler {@link #count} overload but with optional
+     * cleanup-style filters bundled into {@link MemoryFilter}.  Pass
+     * {@code null} when none apply.
+     */
+    public long count(Connection db, String userId, boolean includeDeleted,
+                      String[] tagFilter, String sourceProvider, MemoryFilter filter) throws Exception {
         final boolean hasTags     = tagFilter != null && tagFilter.length > 0;
         final boolean hasProvider = sourceProvider != null && !sourceProvider.isEmpty();
 
@@ -554,6 +595,7 @@ public final class MemoryRepository {
             sb.append(" AND source_provider = ?");
             args.add(sourceProvider);
         }
+        appendFilterClauses(sb, args, filter);
         final Record r = db.fetchOne(sb.toString(), args.toArray());
         if (r == null)
             return 0L;
