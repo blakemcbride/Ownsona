@@ -199,6 +199,58 @@ public final class MemoryRepository {
     }
 
     /**
+     * Find near-duplicate pairs among the user's active memories.
+     *
+     * <p>For each active row this queries its top-{@code topK} nearest
+     * neighbors via pgvector's cosine operator (which uses the HNSW index
+     * when available) and keeps the pairs whose cosine similarity is at
+     * least {@code threshold}.  Pairs are canonicalized so the returned
+     * id_a is always less than id_b --- the (a, b) / (b, a) duplicates
+     * the lateral join produces collapse to a single row at this stage.
+     *
+     * <p>The query may return up to {@code N * topK} raw pairs (before
+     * canonicalization) on a store with N active rows; for the typical
+     * cleanup-tool use case ({@code threshold >= 0.90}, single-user store
+     * of a few thousand rows or less) this is well under a second.
+     *
+     * @return list of {@code Object[]{Long idA, Long idB, Double similarity}},
+     *         with {@code idA < idB}, sorted by similarity descending.
+     *         Empty when no pairs meet the threshold.
+     */
+    public List<Object[]> findNearDuplicatePairs(Connection db, String userId,
+                                                 double threshold, int topK) throws Exception {
+        final List<Record> rows = db.fetchAll(
+                "SELECT DISTINCT " +
+                "  LEAST(a.id, n.id) AS id_a, GREATEST(a.id, n.id) AS id_b, " +
+                "  1 - (a.embedding <=> n.embedding) AS similarity " +
+                "FROM memories a " +
+                "CROSS JOIN LATERAL ( " +
+                "  SELECT b.id, b.embedding FROM memories b " +
+                "  WHERE b.user_id = ? AND b.deleted_at IS NULL " +
+                "    AND (b.expires_at IS NULL OR b.expires_at > now()) " +
+                "    AND b.id <> a.id " +
+                "  ORDER BY a.embedding <=> b.embedding " +
+                "  LIMIT ? " +
+                ") n " +
+                "WHERE a.user_id = ? AND a.deleted_at IS NULL " +
+                "  AND (a.expires_at IS NULL OR a.expires_at > now()) " +
+                "  AND 1 - (a.embedding <=> n.embedding) >= ? " +
+                "ORDER BY similarity DESC",
+                userId, topK, userId, threshold);
+
+        final List<Object[]> out = new ArrayList<>(rows.size());
+        for (Record r : rows) {
+            final Long   idA = r.getLong("id_a");
+            final Long   idB = r.getLong("id_b");
+            final Double sim = r.getDouble("similarity");
+            if (idA == null || idB == null || sim == null)
+                continue;
+            out.add(new Object[]{ idA, idB, sim });
+        }
+        return out;
+    }
+
+    /**
      * Fetch up to {@code limit} memory ids whose record_version is below
      * {@code targetVersion}, with id > {@code lastId} for pagination
      * (caller passes {@code -1} for the first page).  Used by
@@ -324,44 +376,86 @@ public final class MemoryRepository {
     }
 
     /**
-     * Replace text + embedding + optional tags/importance/freshness fields
-     * for an existing memory.  Returns true if a row was updated.  Does
-     * not resurrect a soft-deleted row.
+     * Replace any subset of text / embedding / tags / importance /
+     * freshness fields for an existing memory.  Returns true if a row was
+     * updated.  Does not resurrect a soft-deleted row.
      *
      * <p>Each optional parameter follows "null = leave the column
-     * unchanged" semantics.  Use the dedicated {@link #confirm} method
-     * to refresh {@code last_confirmed_at} without rebuilding the
-     * embedding.
+     * unchanged" semantics.  When {@code text} is null the text /
+     * normalized_text / embedding / embedding_provider / embedding_model
+     * columns are all left alone --- callers doing a tags-only or
+     * importance-only bulk update don't have to fetch and re-embed
+     * unchanged text.  When {@code text} is non-null the caller MUST
+     * also pass {@code normalizedText}, {@code embedding},
+     * {@code embeddingProvider}, and {@code embeddingModel}; partial
+     * combinations are rejected up front.
+     *
+     * <p>If every optional parameter is null this is a no-op: it
+     * returns true if the row exists and is non-deleted, without
+     * issuing any UPDATE.  This keeps batch callers from having to
+     * special-case "empty item" rows.
+     *
+     * <p>Use the dedicated {@link #confirm} method to refresh
+     * {@code last_confirmed_at} without rebuilding the embedding.
      */
     public boolean update(Connection db, long id, String text, String normalizedText,
                           float[] embedding, String[] tags, Double importance,
                           String embeddingProvider, String embeddingModel,
                           java.util.Date expiresAt, java.util.Date lastConfirmedAt) throws Exception {
-        final StringBuilder sb = new StringBuilder();
-        sb.append("UPDATE memories SET text = ?, normalized_text = ?, embedding = ?::vector, " +
-                  "embedding_provider = ?, embedding_model = ?");
-        final List<Object> args = new ArrayList<>();
-        args.add(text);
-        args.add(normalizedText);
-        args.add(VectorFormat.toLiteral(embedding));
-        args.add(embeddingProvider);
-        args.add(embeddingModel);
+        // Either every text-related field is supplied or none of them are;
+        // partial combinations would leave the embedding out of sync with
+        // the stored text.
+        final boolean textProvided = text != null;
+        if (textProvided && (normalizedText == null || embedding == null
+                || embeddingProvider == null || embeddingModel == null))
+            throw new IllegalArgumentException(
+                    "update: text requires normalizedText, embedding, embeddingProvider, embeddingModel");
 
+        final StringBuilder sb = new StringBuilder("UPDATE memories SET ");
+        final List<Object> args = new ArrayList<>();
+        boolean first = true;
+
+        if (textProvided) {
+            sb.append("text = ?, normalized_text = ?, embedding = ?::vector, " +
+                      "embedding_provider = ?, embedding_model = ?");
+            args.add(text);
+            args.add(normalizedText);
+            args.add(VectorFormat.toLiteral(embedding));
+            args.add(embeddingProvider);
+            args.add(embeddingModel);
+            first = false;
+        }
         if (tags != null) {
-            sb.append(", tags = ?::text[]");
+            if (!first) sb.append(", ");
+            sb.append("tags = ?::text[]");
             args.add(VectorFormat.toPgArrayLiteral(tags));
+            first = false;
         }
         if (importance != null) {
-            sb.append(", importance = ?");
+            if (!first) sb.append(", ");
+            sb.append("importance = ?");
             args.add(importance);
+            first = false;
         }
         if (expiresAt != null) {
-            sb.append(", expires_at = ?");
+            if (!first) sb.append(", ");
+            sb.append("expires_at = ?");
             args.add(expiresAt);
+            first = false;
         }
         if (lastConfirmedAt != null) {
-            sb.append(", last_confirmed_at = ?");
+            if (!first) sb.append(", ");
+            sb.append("last_confirmed_at = ?");
             args.add(lastConfirmedAt);
+            first = false;
+        }
+
+        if (first) {
+            // No fields to change: skip the UPDATE entirely.  Just report
+            // whether the row exists and is active so the caller sees the
+            // same NOT_FOUND signal it would on a real update.
+            final MemoryRow row = findById(db, id);
+            return row != null && row.deletedAt == null;
         }
 
         sb.append(" WHERE id = ? AND deleted_at IS NULL");

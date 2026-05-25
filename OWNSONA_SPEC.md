@@ -471,7 +471,7 @@ Lists recent memories.
 
 ### 8.5 `update_memory`
 
-Updates a memory by ID.
+Updates a memory by id. Each field except `id` is optional and follows "omit to leave unchanged" semantics. At least one of `text`, `tags`, `importance`, `expires_at`, or `last_confirmed_at` must be supplied. When `text` is supplied the embedding is regenerated; when it is omitted the embedding is left alone, which makes the tool cheap for tag-only or importance-only corrections.
 
 #### Input Schema
 
@@ -479,31 +479,105 @@ Updates a memory by ID.
 {
   "type": "object",
   "properties": {
-    "id": {
-      "type": "integer"
-    },
+    "id":   { "type": "integer" },
     "text": {
-      "type": "string"
+      "type": "string",
+      "description": "New text. Omit to leave text and embedding unchanged."
     },
-    "tags": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "importance": {
-      "type": "number"
-    }
+    "tags":             { "type": "array", "items": { "type": "string" } },
+    "importance":       { "type": "number" },
+    "expires_at":       { "type": "string", "description": "ISO 8601 timestamp." },
+    "last_confirmed_at":{ "type": "string", "description": "ISO 8601 timestamp." },
+    "dry_run":          { "type": "boolean", "default": false }
   },
-  "required": ["id", "text"]
+  "required": ["id"]
 }
 ```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "memory_id": 123,
+  "dry_run": false,
+  "changed_fields": ["tags", "importance"],
+  "message": "Ok"
+}
+```
+
+`changed_fields` lists the field names the caller asked to change (the same set the live call would write); `message` is `"Would update"` on a dry-run.
+
+---
+
+### 8.5b `update_memory_batch`
+
+Updates multiple memories in a single call. Each item is a partial `update_memory` payload with at least one field to change. The embedding provider is invoked once per batch for items that supply new `text`; items that change only metadata don't call the embedder at all.
+
+#### Description for MCP Client
+
+Strongly prefer this over calling `update_memory` repeatedly when normalizing tags, re-importance-ing, or correcting several memories at once. Maximum 200 items per call.
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "description": "List of update items. Maximum 200 per call.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id":   { "type": "integer" },
+          "text": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "importance":        { "type": "number" },
+          "expires_at":        { "type": "string" },
+          "last_confirmed_at": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    "dry_run": { "type": "boolean", "default": false }
+  },
+  "required": ["items"]
+}
+```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "dry_run": false,
+  "results": [
+    {
+      "input_index": 0,
+      "id": 41,
+      "ok": true,
+      "changed_fields": ["tags"],
+      "message": "Ok"
+    },
+    {
+      "input_index": 1,
+      "id": 42,
+      "ok": false,
+      "error": { "code": "NOT_FOUND", "message": "Memory 42 not found." }
+    }
+  ],
+  "summary": { "total": 2, "updated": 1, "errors": 1 }
+}
+```
+
+Per-item failures (null id, unknown id, secret rejected, embedding failure on a single text) do not fail the rest of the batch. Whole-batch failures (empty list, over the 200-item cap) return a single error and no `results` array.
 
 ---
 
 ### 8.6 `forget`
 
-Soft-deletes a memory.
+Soft-deletes a memory by default; can hard-delete on demand.
 
 #### Input Schema
 
@@ -516,12 +590,107 @@ Soft-deletes a memory.
     },
     "hard_delete": {
       "type": "boolean",
-      "default": false
+      "default": false,
+      "description": "If true, permanently delete the row instead of soft-deleting."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Optional explanation stored as tombstone metadata on the soft-deleted row. Rejected when hard_delete is true."
+    },
+    "replaced_by_id": {
+      "type": "integer",
+      "description": "Optional id of the memory that supersedes this one. Stored on the soft-deleted row to link the correction trail. Rejected when hard_delete is true."
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, validate the request and report what would happen but make no changes."
     }
   },
   "required": ["id"]
 }
 ```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "memory_id": 123,
+  "dry_run": false,
+  "already_deleted": false,
+  "message": "Forgotten"
+}
+```
+
+`message` reflects the outcome: `"Forgotten"` / `"Hard deleted"` for live calls, `"Would soft-delete"` / `"Would hard-delete"` / `"Would update tombstone (already soft-deleted)"` for dry-runs.
+
+---
+
+### 8.6b `forget_batch`
+
+Soft-deletes multiple memories in a single call. Soft-delete only --- a bulk hard delete has no tombstone trail and is intentionally not exposed; use `forget` with `hard_delete=true` for individual rows that need to be erased completely.
+
+#### Description for MCP Client
+
+Strongly prefer this over calling `forget` repeatedly when cleaning up several memories at once. One batch call is one round-trip instead of N, and a single tool call carrying a list of integer ids is also less likely to be misclassified by an LLM client's safety filter than repeated single-id forgets whose context contains the per-row memory text.
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "ids": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "description": "List of memory ids to forget. Maximum 200 per call."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Optional shared explanation recorded as tombstone metadata on every soft-deleted row in this batch."
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, validate the request and report what would happen but make no changes."
+    }
+  },
+  "required": ["ids"]
+}
+```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "dry_run": false,
+  "results": [
+    {
+      "input_index": 0,
+      "id": 144,
+      "ok": true,
+      "already_deleted": false,
+      "message": "Forgotten"
+    },
+    {
+      "input_index": 1,
+      "id": 999999,
+      "ok": false,
+      "error": { "code": "NOT_FOUND", "message": "Memory 999999 not found." }
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "deleted": 1,
+    "already_deleted": 0,
+    "errors": 1
+  }
+}
+```
+
+Per-item failures (`null` id, unknown id, transient DB error) appear as `{ ok: false, error: { code, message } }` entries and do not fail the rest of the batch. Whole-batch failures (empty list, over the 200-item cap, invalid `reason`) return a single error and no `results` array.
 
 ---
 
@@ -767,6 +936,57 @@ Use this tool to produce a human-readable backup or to migrate memory text to an
 ```
 
 Each entry uses the same shape as `recall` / `get_memory` results (minus the embedding vector). Returns `LIMIT_EXCEEDED` if the store contains more than the server-side export cap; in that case, contact the operator for an out-of-band dump.
+
+---
+
+### 8.13 `find_near_duplicates`
+
+Read-only diagnostic for memory cleanup. Returns clusters of active memories whose embeddings are at least `threshold` similar to each other.
+
+#### Description for MCP Client
+
+Use this when the user asks to find duplicate, redundant, or overlapping memories. Clusters are formed by union-find over qualifying pairs (so transitively similar rows a~b~c land in the same group) and sorted strongest-first by the max pair-similarity within each cluster. Soft-deleted and expired rows are excluded. This tool does not modify any memory.
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "threshold": {
+      "type": "number",
+      "description": "Cosine similarity cutoff in [0.5, 1.0]. Default 0.92."
+    },
+    "max_groups": {
+      "type": "integer",
+      "description": "Maximum groups to return. Default 50. Hard cap 500."
+    }
+  }
+}
+```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "threshold": 0.92,
+  "groups": [
+    {
+      "ids": [4, 5],
+      "max_similarity": 0.984,
+      "pair_count": 1,
+      "memories": [
+        { "id": 4, "text": "...", "tags": ["family"], ... },
+        { "id": 5, "text": "...", "tags": ["family"], ... }
+      ]
+    }
+  ],
+  "summary": { "groups": 5, "pairs": 8 }
+}
+```
+
+`pair_count` is the number of qualifying pairs inside that cluster (≥ 1; higher means the cluster is denser). `pairs` in the summary is the total raw pair count across all clusters returned. Pair candidates are looked up via pgvector's HNSW index using a fixed top-10 per row, which is more than enough at the cutoffs typical for cleanup (`threshold >= 0.85`).
 
 ---
 

@@ -3,14 +3,21 @@ package ai.ownsona;
 import ai.ownsona.embeddings.OpenAIEmbeddingProvider;
 import ai.ownsona.embeddings.ReembedJob;
 import ai.ownsona.migrations.DbMigrator;
+import ai.ownsona.memory.BatchForgetResult;
 import ai.ownsona.memory.BatchRememberItem;
 import ai.ownsona.memory.BatchRememberResult;
+import ai.ownsona.memory.BatchUpdateItem;
+import ai.ownsona.memory.BatchUpdateResult;
+import ai.ownsona.memory.ForgetResult;
 import ai.ownsona.memory.MemoryRepository;
 import ai.ownsona.memory.MemoryRow;
 import ai.ownsona.memory.MemoryService;
+import ai.ownsona.memory.NearDuplicateGroup;
+import ai.ownsona.memory.NearDuplicatesResult;
 import ai.ownsona.memory.RecordMigrator;
 import ai.ownsona.memory.RememberResult;
 import ai.ownsona.memory.ServiceException;
+import ai.ownsona.memory.UpdateResult;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,9 +45,12 @@ import java.util.List;
  *   <li>{@code recall} -- vector-similarity search</li>
  *   <li>{@code build_context_prompt} -- pre-formatted facts + prompt envelope</li>
  *   <li>{@code list_memories} -- chronological listing</li>
- *   <li>{@code update_memory} -- correct an existing fact</li>
+ *   <li>{@code update_memory} -- correct an existing fact; supports dry_run</li>
+ *   <li>{@code update_memory_batch} -- correct many facts in one call; supports dry_run</li>
  *   <li>{@code confirm} -- refresh last_confirmed_at without rebuilding embedding</li>
- *   <li>{@code forget} -- soft (default) or hard delete</li>
+ *   <li>{@code forget} -- soft (default) or hard delete; supports dry_run</li>
+ *   <li>{@code forget_batch} -- soft-delete many memories in one call; supports dry_run</li>
+ *   <li>{@code find_near_duplicates} -- diagnostic: cluster active memories by cosine similarity</li>
  *   <li>{@code text_search} -- substring search</li>
  *   <li>{@code get_memory} -- fetch a single memory by id</li>
  *   <li>{@code count_memories} -- COUNT(*) with optional tag / provider filters</li>
@@ -156,8 +166,11 @@ public class MCPServer extends MCPServerBase {
         tools.put(buildContextPromptDescriptor());
         tools.put(listMemoriesDescriptor());
         tools.put(updateMemoryDescriptor());
+        tools.put(updateMemoryBatchDescriptor());
         tools.put(confirmDescriptor());
         tools.put(forgetDescriptor());
+        tools.put(forgetBatchDescriptor());
+        tools.put(findNearDuplicatesDescriptor());
         tools.put(textSearchDescriptor());
         tools.put(getMemoryDescriptor());
         tools.put(countMemoriesDescriptor());
@@ -420,7 +433,10 @@ public class MCPServer extends MCPServerBase {
     private static JSONObject updateMemoryDescriptor() {
         final JSONObject props = new JSONObject();
         props.put("id", scalarProp("integer", "Identifier of the memory to update."));
-        props.put("text", scalarProp("string", "New text replacing the existing memory."));
+        props.put("text", scalarProp("string",
+                "New text replacing the existing memory. Omit to leave text and embedding unchanged " +
+                "(useful for tag or importance updates without re-embedding). At least one of text, " +
+                "tags, importance, expires_at, or last_confirmed_at must be supplied."));
         props.put("tags", arrayProp("string", "Optional replacement tags."));
         props.put("importance", scalarProp("number", "Optional importance from 0 to 1."));
         props.put("expires_at", scalarProp("string",
@@ -429,10 +445,70 @@ public class MCPServer extends MCPServerBase {
                 "Optional ISO 8601 timestamp.  Null/omitted leaves the existing value unchanged. " +
                 "To just mark this fact as still-true without rebuilding the embedding, use the " +
                 "'confirm' tool instead."));
+        props.put("dry_run", scalarProp("boolean",
+                "If true, validate the request and report which fields would change but make no " +
+                "changes. Default false."));
         return tool("update_memory",
                 "Use this tool when the user wants to correct or extend an existing memory. " +
-                "Regenerates the embedding from the new text.",
-                props, new String[]{"id", "text"});
+                "When text is supplied the embedding is regenerated from it; otherwise only the " +
+                "specified metadata fields are updated.",
+                props, new String[]{"id"});
+    }
+
+    private static JSONObject updateMemoryBatchDescriptor() {
+        // Inner schema describing one item.
+        final JSONObject itemProps = new JSONObject();
+        itemProps.put("id", scalarProp("integer", "Identifier of the memory to update."));
+        itemProps.put("text", scalarProp("string",
+                "Optional new text replacing the existing memory. When supplied the embedding " +
+                "is regenerated; when omitted the existing text and embedding are left alone."));
+        itemProps.put("tags", arrayProp("string", "Optional replacement tags."));
+        itemProps.put("importance", scalarProp("number", "Optional importance from 0 to 1."));
+        itemProps.put("expires_at", scalarProp("string",
+                "Optional ISO 8601 timestamp. Null/omitted leaves the existing value unchanged."));
+        itemProps.put("last_confirmed_at", scalarProp("string",
+                "Optional ISO 8601 timestamp. Null/omitted leaves the existing value unchanged."));
+        final JSONObject itemSchema = new JSONObject();
+        itemSchema.put("type", "object");
+        itemSchema.put("properties", itemProps);
+        final JSONArray itemRequired = new JSONArray();
+        itemRequired.put("id");
+        itemSchema.put("required", itemRequired);
+
+        final JSONObject itemsProp = new JSONObject();
+        itemsProp.put("type", "array");
+        itemsProp.put("description",
+                "List of update items. Each must have an id and at least one field to change. " +
+                "Maximum 200 items per call.");
+        itemsProp.put("items", itemSchema);
+
+        final JSONObject props = new JSONObject();
+        props.put("items", itemsProp);
+        props.put("dry_run", scalarProp("boolean",
+                "If true, validate every item and report which fields would change but make no " +
+                "changes. Default false."));
+
+        final JSONObject schema = new JSONObject();
+        schema.put("type", "object");
+        schema.put("properties", props);
+        final JSONArray req = new JSONArray();
+        req.put("items");
+        schema.put("required", req);
+
+        final JSONObject t = new JSONObject();
+        t.put("name", "update_memory_batch");
+        t.put("description",
+                "Updates multiple memories in a single call. STRONGLY PREFER this over calling " +
+                "the 'update_memory' tool repeatedly when normalizing tags, re-importance-ing, " +
+                "or correcting several memories at once. The embedding provider is invoked once " +
+                "per batch for items that supply new text; items that change only metadata (tags, " +
+                "importance, freshness) don't call the embedder at all. Maximum 200 items per " +
+                "call. Each item must change at least one field. Per-item failures (null id, " +
+                "unknown id, secret rejected, embedding failure on a single text) appear as " +
+                "{ ok: false, error: ... } entries; successful items appear as { ok: true, id, " +
+                "changed_fields } entries.");
+        t.put("inputSchema", schema);
+        return t;
     }
 
     private static JSONObject confirmDescriptor() {
@@ -459,12 +535,81 @@ public class MCPServer extends MCPServerBase {
         props.put("replaced_by_id", scalarProp("integer",
                 "Optional id of the memory that supersedes this one. Stored on the soft-deleted " +
                 "row to link the correction trail. Ignored (rejected) when hard_delete is true."));
+        props.put("dry_run", scalarProp("boolean",
+                "If true, validate the request and report what would happen but make no changes. " +
+                "The response includes already_deleted so callers can preview the outcome before " +
+                "committing. Default false."));
         return tool("forget",
                 "Use this tool when the user explicitly asks to forget, remove, or delete a " +
                 "previously stored memory. By default the row is soft-deleted (excluded from " +
                 "recall but retained as a tombstone so subsequent dedup-on-write checks can " +
                 "flag a re-introduction).",
                 props, new String[]{"id"});
+    }
+
+    private static JSONObject forgetBatchDescriptor() {
+        final JSONObject idsProp = new JSONObject();
+        idsProp.put("type", "array");
+        idsProp.put("description",
+                "List of memory ids to forget in a single call. Maximum 200 per call.");
+        final JSONObject idsItems = new JSONObject();
+        idsItems.put("type", "integer");
+        idsProp.put("items", idsItems);
+
+        final JSONObject props = new JSONObject();
+        props.put("ids", idsProp);
+        props.put("reason", scalarProp("string",
+                "Optional shared explanation recorded as tombstone metadata on every soft-deleted " +
+                "row in this batch. Bounded in length the same way as forget's reason."));
+        props.put("dry_run", scalarProp("boolean",
+                "If true, validate the request and report what would happen but make no changes. " +
+                "Each result still reports already_deleted reflecting current state. Default false."));
+
+        final JSONObject schema = new JSONObject();
+        schema.put("type", "object");
+        schema.put("properties", props);
+        final JSONArray req = new JSONArray();
+        req.put("ids");
+        schema.put("required", req);
+
+        final JSONObject t = new JSONObject();
+        t.put("name", "forget_batch");
+        t.put("description",
+                "Soft-deletes multiple memories in a single call. STRONGLY PREFER this over " +
+                "calling the 'forget' tool repeatedly when cleaning up several memories at once " +
+                "--- one batch call is one round-trip instead of N, and a single tool call with " +
+                "a list of integer ids is also less likely to be misclassified by an LLM " +
+                "client's safety filter than repeated single-id forgets whose context contains " +
+                "the per-row memory text. Soft-delete only: a bulk hard delete has no tombstone " +
+                "trail and is intentionally not exposed here --- use 'forget' with " +
+                "hard_delete=true for individual rows that need to be erased completely. " +
+                "Maximum 200 items per call. If a row was already soft-deleted, the tombstone " +
+                "metadata is updated (reason rewritten if supplied) and already_deleted is " +
+                "reported true. Per-item failures (null id, unknown id, transient DB error) " +
+                "appear as { ok: false, error: ... } entries in the results array; successful " +
+                "items appear as { ok: true, id, already_deleted } entries.");
+        t.put("inputSchema", schema);
+        return t;
+    }
+
+    private static JSONObject findNearDuplicatesDescriptor() {
+        final JSONObject props = new JSONObject();
+        props.put("threshold", scalarProp("number",
+                "Cosine similarity cutoff in [0.5, 1.0]. Pairs at or above this are reported as " +
+                "near-duplicates. Default 0.92. Lower values surface more candidates but also " +
+                "more false positives; 0.95+ is typical for 'effectively identical' rows."));
+        props.put("max_groups", scalarProp("integer",
+                "Maximum number of groups to return. Default 50. Hard cap 500."));
+        return tool("find_near_duplicates",
+                "Diagnostic for memory cleanup: returns clusters of active memories whose " +
+                "embeddings are at least 'threshold' similar to each other. Groups are formed " +
+                "by union-find over qualifying pairs (a~b, b~c -> {a, b, c}) and sorted by the " +
+                "strongest pair within each cluster. Soft-deleted and expired rows are excluded. " +
+                "Read-only --- this tool does not modify any memory. Pair candidates are looked " +
+                "up via pgvector's HNSW index using a fixed top-10 per row; pathological cases " +
+                "with very dense clusters at very low thresholds may miss the longest tails, but " +
+                "for the cleanup-tool use case (threshold >= 0.85) this is more than enough.",
+                props, new String[]{});
     }
 
     private static JSONObject textSearchDescriptor() {
@@ -494,8 +639,11 @@ public class MCPServer extends MCPServerBase {
                 case "build_context_prompt": return doBuildContextPrompt(arguments);
                 case "list_memories":        return doListMemories(arguments);
                 case "update_memory":        return doUpdateMemory(arguments);
+                case "update_memory_batch":  return doUpdateMemoryBatch(arguments);
                 case "confirm":              return doConfirm(arguments);
                 case "forget":               return doForget(arguments);
+                case "forget_batch":         return doForgetBatch(arguments);
+                case "find_near_duplicates": return doFindNearDuplicates(arguments);
                 case "text_search":          return doTextSearch(arguments);
                 case "get_memory":           return doGetMemory(arguments);
                 case "count_memories":       return doCountMemories(arguments);
@@ -696,13 +844,83 @@ public class MCPServer extends MCPServerBase {
         final Double   imp             = args.has("importance") ? args.getDouble("importance") : null;
         final Date     expiresAt       = parseIso(args.getString("expires_at", null));
         final Date     lastConfirmedAt = parseIso(args.getString("last_confirmed_at", null));
+        final boolean  dryRun          = args.has("dry_run") && Boolean.TRUE.equals(args.opt("dry_run"));
 
-        final MemoryRow updated = SERVICE.update(id, text, tags, imp, expiresAt, lastConfirmedAt);
+        final UpdateResult res = SERVICE.update(id, text, tags, imp, expiresAt, lastConfirmedAt, dryRun);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);
-        out.put("memory_id", updated.id);
-        out.put("message", "Ok");
+        out.put("memory_id", res.row.id);
+        out.put("dry_run", dryRun);
+        final JSONArray cf = new JSONArray();
+        for (String f : res.changedFields)
+            cf.put(f);
+        out.put("changed_fields", cf);
+        out.put("message", dryRun ? "Would update" : "Ok");
+        return successResult(out);
+    }
+
+    private static JSONObject doUpdateMemoryBatch(JSONObject args) {
+        if (!args.has("items"))
+            throw new ServiceException(ServiceException.INVALID_INPUT, "items is required.");
+        final JSONArray itemsArr = args.getJSONArray("items", false);
+        if (itemsArr == null)
+            throw new ServiceException(ServiceException.INVALID_INPUT, "items must be a JSON array.");
+
+        final boolean dryRun = args.has("dry_run") && Boolean.TRUE.equals(args.opt("dry_run"));
+
+        final List<BatchUpdateItem> items = new ArrayList<>(itemsArr.length());
+        for (int i = 0; i < itemsArr.length(); i++) {
+            final JSONObject obj = itemsArr.getJSONObject(i);
+            final BatchUpdateItem item = new BatchUpdateItem();
+            if (obj != null) {
+                item.id              = obj.has("id") ? obj.getLong("id") : null;
+                item.text            = obj.getString("text", null);
+                item.tags            = obj.has("tags") ? optStringArray(obj, "tags") : null;
+                item.importance      = obj.has("importance") ? obj.getDouble("importance") : null;
+                item.expiresAt       = parseIso(obj.getString("expires_at", null));
+                item.lastConfirmedAt = parseIso(obj.getString("last_confirmed_at", null));
+            }
+            items.add(item);
+        }
+
+        final List<BatchUpdateResult> results = SERVICE.updateBatch(items, dryRun);
+
+        final JSONArray resultsJson = new JSONArray();
+        int updated = 0, errs = 0;
+        for (BatchUpdateResult r : results) {
+            final JSONObject rj = new JSONObject();
+            rj.put("input_index", r.inputIndex);
+            rj.put("ok", r.ok);
+            if (r.id != null)
+                rj.put("id", r.id.longValue());
+            if (r.ok) {
+                final JSONArray cf = new JSONArray();
+                for (String f : r.changedFields)
+                    cf.put(f);
+                rj.put("changed_fields", cf);
+                rj.put("message", r.dryRun ? "Would update" : "Ok");
+                updated++;
+            } else {
+                final JSONObject err = new JSONObject();
+                err.put("code", r.errorCode);
+                err.put("message", r.errorMessage);
+                rj.put("error", err);
+                errs++;
+            }
+            resultsJson.put(rj);
+        }
+
+        final JSONObject summary = new JSONObject();
+        summary.put("total",   results.size());
+        summary.put("updated", updated);
+        summary.put("errors",  errs);
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("dry_run", dryRun);
+        out.put("results", resultsJson);
+        out.put("summary", summary);
         return successResult(out);
     }
 
@@ -729,13 +947,121 @@ public class MCPServer extends MCPServerBase {
         final boolean hard         = args.has("hard_delete") && Boolean.TRUE.equals(args.opt("hard_delete"));
         final String  reason       = args.getString("reason", null);
         final Long    replacedById = args.has("replaced_by_id") ? args.getLong("replaced_by_id") : null;
+        final boolean dryRun       = args.has("dry_run") && Boolean.TRUE.equals(args.opt("dry_run"));
 
-        SERVICE.forget(id, hard, reason, replacedById);
+        final ForgetResult res = SERVICE.forget(id, hard, reason, replacedById, dryRun);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);
         out.put("memory_id", id);
-        out.put("message", hard ? "Hard deleted" : "Forgotten");
+        out.put("dry_run", dryRun);
+        out.put("already_deleted", res.alreadyDeleted);
+        final String message;
+        if (dryRun)
+            message = hard
+                    ? "Would hard-delete"
+                    : (res.alreadyDeleted ? "Would update tombstone (already soft-deleted)" : "Would soft-delete");
+        else
+            message = hard ? "Hard deleted" : "Forgotten";
+        out.put("message", message);
+        return successResult(out);
+    }
+
+    private static JSONObject doForgetBatch(JSONObject args) {
+        if (!args.has("ids"))
+            throw new ServiceException(ServiceException.INVALID_INPUT, "ids is required.");
+        final JSONArray idsArr = args.getJSONArray("ids", false);
+        if (idsArr == null)
+            throw new ServiceException(ServiceException.INVALID_INPUT, "ids must be a JSON array.");
+
+        final List<Long> ids = new ArrayList<>(idsArr.length());
+        for (int i = 0; i < idsArr.length(); i++) {
+            // getLong() returns null for a JSON null element; non-numeric
+            // elements throw JSONException which the dispatcher turns into
+            // an INVALID_INPUT error.
+            ids.add(idsArr.getLong(i));
+        }
+
+        final String  reason = args.getString("reason", null);
+        final boolean dryRun = args.has("dry_run") && Boolean.TRUE.equals(args.opt("dry_run"));
+
+        final List<BatchForgetResult> results = SERVICE.forgetBatch(ids, reason, dryRun);
+
+        final JSONArray resultsJson = new JSONArray();
+        int deleted = 0, alreadyDel = 0, errs = 0;
+        for (BatchForgetResult r : results) {
+            final JSONObject rj = new JSONObject();
+            rj.put("input_index", r.inputIndex);
+            rj.put("ok", r.ok);
+            if (r.id != null)
+                rj.put("id", r.id.longValue());
+            if (r.ok) {
+                rj.put("already_deleted", r.alreadyDeleted);
+                final String message;
+                if (dryRun)
+                    message = r.alreadyDeleted
+                            ? "Would update tombstone (already soft-deleted)"
+                            : "Would soft-delete";
+                else
+                    message = r.alreadyDeleted ? "Already soft-deleted (tombstone updated)" : "Forgotten";
+                rj.put("message", message);
+                if (r.alreadyDeleted) alreadyDel++;
+                else deleted++;
+            } else {
+                final JSONObject err = new JSONObject();
+                err.put("code", r.errorCode);
+                err.put("message", r.errorMessage);
+                rj.put("error", err);
+                errs++;
+            }
+            resultsJson.put(rj);
+        }
+
+        final JSONObject summary = new JSONObject();
+        summary.put("total",           results.size());
+        summary.put("deleted",         deleted);
+        summary.put("already_deleted", alreadyDel);
+        summary.put("errors",          errs);
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("dry_run", dryRun);
+        out.put("results", resultsJson);
+        out.put("summary", summary);
+        return successResult(out);
+    }
+
+    private static JSONObject doFindNearDuplicates(JSONObject args) {
+        final Double  threshold = args.has("threshold") ? args.getDouble("threshold") : null;
+        final Integer maxGroups = args.has("max_groups") ? args.getInt("max_groups") : null;
+
+        final NearDuplicatesResult res = SERVICE.findNearDuplicates(threshold, maxGroups);
+
+        final JSONArray groupsJson = new JSONArray();
+        for (NearDuplicateGroup g : res.groups) {
+            final JSONObject gj = new JSONObject();
+            final JSONArray ids = new JSONArray();
+            for (MemoryRow m : g.memories)
+                ids.put(m.id);
+            gj.put("ids", ids);
+            gj.put("max_similarity", g.maxSimilarity);
+            gj.put("pair_count", g.pairCount);
+            final JSONArray rows = new JSONArray();
+            for (MemoryRow m : g.memories)
+                rows.put(memoryToMatchJson(m));
+            gj.put("memories", rows);
+            groupsJson.put(gj);
+        }
+
+        final JSONObject summary = new JSONObject();
+        summary.put("groups", res.groups.size());
+        summary.put("pairs",  res.pairsAboveThreshold);
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("threshold", res.threshold);
+        out.put("groups", groupsJson);
+        out.put("summary", summary);
         return successResult(out);
     }
 

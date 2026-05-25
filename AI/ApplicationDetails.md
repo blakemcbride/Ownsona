@@ -275,6 +275,16 @@ phase (not in the migration class).
   delete drops the row entirely, so there's nowhere to record the
   tombstone metadata.  The combination is treated as `INVALID_INPUT`
   so callers don't think they recorded a reason when they didn't.
+- **`forget_batch` is soft-delete only by design.** A bulk hard
+  delete has no tombstone trail, so the batch tool intentionally
+  exposes no `hard_delete` flag.  Callers that need to erase a
+  single row completely fall back to the single-row `forget` with
+  `hard_delete=true`.  The other reason batching matters: cleanup
+  workflows that issue N single `forget` calls have been observed
+  to trip LLM-client safety filters that react to the *context* of
+  short technical fragments (paths, jar names, exit codes) sitting
+  in scope; a single `forget_batch` carrying a list of integers in
+  its payload doesn't give the filter anything per-row to react to.
 
 ---
 

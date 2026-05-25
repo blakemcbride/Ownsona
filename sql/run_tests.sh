@@ -38,7 +38,7 @@ COMPILE_CP="work/exploded/WEB-INF/classes"
 COMPILE_CP+=":libs/junit-jupiter-api-5.11.0.jar"
 COMPILE_CP+=":libs/junit-jupiter-params-5.11.0.jar"
 COMPILE_CP+=":libs/apiguardian-api-1.1.2.jar"
-COMPILE_CP+=":libs/postgresql-42.7.8.jar"
+COMPILE_CP+=":libs/postgresql-42.7.11.jar"
 COMPILE_CP+=":libs/c3p0-0.12.0.jar"
 
 echo "==> compiling tests"
@@ -53,7 +53,7 @@ rm -f /tmp/ownsona-test-srcs.txt
 # Runtime classpath: same plus engine, log4j, console launcher
 RUN_CP="$TEST_OUT:work/exploded/WEB-INF/classes"
 RUN_CP+=":libs/junit-platform-console-standalone-1.11.0.jar"
-RUN_CP+=":libs/postgresql-42.7.8.jar"
+RUN_CP+=":libs/postgresql-42.7.11.jar"
 RUN_CP+=":libs/c3p0-0.12.0.jar"
 RUN_CP+=":libs/log4j-api-2.25.4.jar"
 RUN_CP+=":libs/log4j-core-2.25.4.jar"

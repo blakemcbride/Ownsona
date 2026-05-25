@@ -142,6 +142,71 @@ class MemoryServiceHelpersTest {
     }
 
     // -------------------------------------------------------------------
+    // validateThreshold (find_near_duplicates)
+    // -------------------------------------------------------------------
+
+    @Test
+    void thresholdNullDefaultsTo092() {
+        assertEquals(0.92, MemoryService.validateThreshold(null), 1e-9);
+    }
+
+    @Test
+    void thresholdBoundariesAccepted() {
+        assertEquals(0.5, MemoryService.validateThreshold(0.5), 1e-9);
+        assertEquals(1.0, MemoryService.validateThreshold(1.0), 1e-9);
+    }
+
+    @Test
+    void thresholdBelowMinRejected() {
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateThreshold(0.49));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
+
+    @Test
+    void thresholdAboveOneRejected() {
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateThreshold(1.01));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
+
+    @Test
+    void thresholdNaNRejected() {
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateThreshold(Double.NaN));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
+
+    // -------------------------------------------------------------------
+    // validateMaxGroups (find_near_duplicates)
+    // -------------------------------------------------------------------
+
+    @Test
+    void maxGroupsNullDefaultsTo50() {
+        assertEquals(50, MemoryService.validateMaxGroups(null));
+    }
+
+    @Test
+    void maxGroupsBoundariesAccepted() {
+        assertEquals(1, MemoryService.validateMaxGroups(1));
+        assertEquals(500, MemoryService.validateMaxGroups(500));
+    }
+
+    @Test
+    void maxGroupsZeroRejected() {
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateMaxGroups(0));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
+
+    @Test
+    void maxGroupsAboveCapRejected() {
+        final ServiceException e = assertThrows(ServiceException.class,
+                () -> MemoryService.validateMaxGroups(501));
+        assertEquals(ServiceException.INVALID_INPUT, e.getCode());
+    }
+
+    // -------------------------------------------------------------------
     // selectFactsByCharBudget (Phase 1C)
     // -------------------------------------------------------------------
 

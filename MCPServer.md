@@ -21,11 +21,11 @@ place.
 | Spec section | State |
 |---|---|
 | Core spec tools: `remember`, `recall`, `build_context_prompt`, `list_memories`, `update_memory`, `forget`, `text_search` | done |
-| Post-spec extensions: `remember_batch`, `confirm`, `get_memory`, `count_memories`, `memory_stats`, `list_tags`, `export_memories` | done |
+| Post-spec extensions: `remember_batch`, `update_memory_batch`, `forget_batch`, `find_near_duplicates`, `confirm`, `get_memory`, `count_memories`, `memory_stats`, `list_tags`, `export_memories` | done |
 | OAuth 2.1 (RFC 6750 RS + RFC 7591/8414 AS) on every request | done |
 | Secret rejection (OpenAI/AWS/GitHub/Slack/JWT/PEM) | done |
 | Duplicate detection by normalized text + unique partial index | done |
-| Soft delete by default; `hard_delete: true` opt-in | done |
+| Soft delete by default; `hard_delete: true` opt-in; `dry_run` preview on `forget` / `forget_batch` | done |
 | pgvector cosine similarity search | done |
 | Embedding-provider abstraction (OpenAI + mock) | done |
 | Per-user `user_id` plumbing | done |

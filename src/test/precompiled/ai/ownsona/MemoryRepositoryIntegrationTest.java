@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -646,10 +647,11 @@ class MemoryRepositoryIntegrationTest {
         assertEquals(2L, s.active);
         assertEquals(1L, s.softDeleted);
         assertEquals(1L, s.expired);
-        // avg_importance restricted to non-deleted rows (active + expired).
-        // 3 rows at 0.5 + 1 row at 0.7 -> avg = 0.55.
+        // avg_importance is averaged over rows with deleted_at IS NULL ---
+        // so the 2 active rows (0.5, 0.5) and the 1 expired-but-undeleted row
+        // (0.7), excluding the soft-deleted row.  (0.5 + 0.5 + 0.7) / 3.
         assertNotNull(s.avgImportance);
-        assertEquals(0.55, s.avgImportance, 1e-9);
+        assertEquals((0.5 + 0.5 + 0.7) / 3.0, s.avgImportance, 1e-9);
         assertNotNull(s.oldestCreatedAt);
         assertNotNull(s.newestCreatedAt);
         assertTrue(s.newestCreatedAt.getTime() >= s.oldestCreatedAt.getTime());
@@ -712,13 +714,20 @@ class MemoryRepositoryIntegrationTest {
 
         final List<MemoryRepository.ProviderCount> by = repo.countsByProvider(db, USER_ID);
         assertEquals(3, by.size());
-        // claude=2 first, then gemini=1 / (none)=1 alphabetically among the ties.
+        // claude=2 is the top by count and must come first.  The order
+        // between the two ties (gemini=1 vs (none)=1) is locale-dependent
+        // --- some PostgreSQL collations (en_US.UTF-8) treat parentheses as
+        // ignorable and sort '(none)' AFTER 'gemini'; others sort by raw
+        // codepoint and put '(none)' first.  Assert membership for the
+        // tied entries instead of locking in either order.
         assertEquals("claude", by.get(0).provider);
         assertEquals(2L,       by.get(0).count);
-        assertEquals("(none)", by.get(1).provider);
-        assertEquals(1L,       by.get(1).count);
-        assertEquals("gemini", by.get(2).provider);
-        assertEquals(1L,       by.get(2).count);
+        final java.util.Set<String> tied = new java.util.HashSet<>();
+        tied.add(by.get(1).provider);
+        tied.add(by.get(2).provider);
+        assertEquals(1L, by.get(1).count);
+        assertEquals(1L, by.get(2).count);
+        assertEquals(new java.util.HashSet<>(java.util.Arrays.asList("gemini", "(none)")), tied);
     }
 
     @Test
@@ -751,6 +760,256 @@ class MemoryRepositoryIntegrationTest {
         assertEquals(b, all.get(1).id);
         assertNotNull(all.get(1).deletedAt);
         assertEquals(c, all.get(2).id);
+    }
+
+    // ====================================================================================
+    // update with null text (partial-update path added for update_memory_batch)
+    // ====================================================================================
+
+    @Test
+    void updateTagsOnlyLeavesTextAndEmbeddingUntouched() throws Exception {
+        final long id = insert("Original.", new String[]{"old"});
+        final MemoryRow before = repo.findById(db, id);
+
+        final boolean ok = repo.update(db, id, null, null, null,
+                new String[]{"new"}, null, null, null, null, null);
+        assertTrue(ok);
+
+        final MemoryRow after = repo.findById(db, id);
+        assertEquals("Original.", after.text);
+        assertArrayEquals(new String[]{"new"}, after.tags);
+        assertEquals(before.embeddingProvider, after.embeddingProvider);
+        assertEquals(before.embeddingModel,    after.embeddingModel);
+    }
+
+    @Test
+    void updateImportanceOnlyChangesOnlyImportance() throws Exception {
+        final long id = insert("Quiet update.", new String[]{"tag-a"});
+        final MemoryRow before = repo.findById(db, id);
+
+        final boolean ok = repo.update(db, id, null, null, null,
+                null, 0.99, null, null, null, null);
+        assertTrue(ok);
+
+        final MemoryRow after = repo.findById(db, id);
+        assertEquals("Quiet update.", after.text);
+        assertArrayEquals(new String[]{"tag-a"}, after.tags);
+        assertEquals(0.99, after.importance, 1e-9);
+        assertEquals(before.embeddingProvider, after.embeddingProvider);
+    }
+
+    @Test
+    void updateLastConfirmedOnlySetsThatColumn() throws Exception {
+        final long id = insert("Refresh me.", new String[]{});
+        final java.util.Date stamp = new java.util.Date();
+
+        final boolean ok = repo.update(db, id, null, null, null,
+                null, null, null, null, null, stamp);
+        assertTrue(ok);
+
+        final MemoryRow after = repo.findById(db, id);
+        assertNotNull(after.lastConfirmedAt);
+        assertEquals("Refresh me.", after.text);
+    }
+
+    @Test
+    void updateAllNullParamsIsNoOpButReportsTrueWhenActive() throws Exception {
+        final long id = insert("Untouched.", new String[]{"keep"});
+        final MemoryRow before = repo.findById(db, id);
+
+        final boolean ok = repo.update(db, id, null, null, null,
+                null, null, null, null, null, null);
+        assertTrue(ok, "no-op update on an active row reports true");
+
+        final MemoryRow after = repo.findById(db, id);
+        // No UPDATE was issued so the BEFORE UPDATE trigger didn't fire;
+        // updated_at must stay exactly as it was.
+        assertEquals(before.updatedAt.getTime(), after.updatedAt.getTime(),
+                "no-op update must not bump updated_at");
+        assertEquals(before.text, after.text);
+        assertArrayEquals(before.tags, after.tags);
+    }
+
+    @Test
+    void updateAllNullParamsOnDeletedRowReturnsFalse() throws Exception {
+        final long id = insert("Will be deleted.", new String[]{});
+        repo.softDelete(db, id, null, null);
+
+        final boolean ok = repo.update(db, id, null, null, null,
+                null, null, null, null, null, null);
+        assertFalse(ok, "no-op update on a soft-deleted row must report false");
+    }
+
+    @Test
+    void updateAllNullParamsOnMissingRowReturnsFalse() throws Exception {
+        final boolean ok = repo.update(db, 999_999L, null, null, null,
+                null, null, null, null, null, null);
+        assertFalse(ok);
+    }
+
+    @Test
+    void updateWithTextButMissingEmbeddingParamsThrows() throws Exception {
+        final long id = insert("With text.", new String[]{});
+        assertThrows(IllegalArgumentException.class,
+                () -> repo.update(db, id, "new text", "new text", null,
+                        null, null, "mock", "mock-sha256", null, null));
+    }
+
+    @Test
+    void updateTagsOnlyOnDeletedRowDoesNotResurrect() throws Exception {
+        final long id = insert("Tags-only resurrection probe.", new String[]{"old"});
+        repo.softDelete(db, id, null, null);
+
+        final boolean ok = repo.update(db, id, null, null, null,
+                new String[]{"new"}, null, null, null, null, null);
+        assertFalse(ok, "tags-only update on a soft-deleted row must report false");
+
+        // The row's tags should not have changed; the WHERE deleted_at IS NULL
+        // guard filters it out of the actual UPDATE.
+        final MemoryRow row = repo.findById(db, id);
+        assertArrayEquals(new String[]{"old"}, row.tags);
+    }
+
+    // ====================================================================================
+    // findNearDuplicatePairs
+    // ====================================================================================
+
+    @Test
+    void findNearDuplicatesEmptyOnEmptyDb() throws Exception {
+        final List<Object[]> pairs = repo.findNearDuplicatePairs(db, USER_ID, 0.9, 10);
+        assertEquals(0, pairs.size());
+    }
+
+    @Test
+    void findNearDuplicatesReturnsOnePairForIdenticalEmbeddings() throws Exception {
+        final float[] vec = embedder.embed("seed");
+        final long a = insertWithEmbedding("First row.",  vec);
+        final long b = insertWithEmbedding("Second row.", vec);
+
+        final List<Object[]> pairs = repo.findNearDuplicatePairs(db, USER_ID, 0.9, 10);
+        assertEquals(1, pairs.size());
+        final long idA = ((Long) pairs.get(0)[0]).longValue();
+        final long idB = ((Long) pairs.get(0)[1]).longValue();
+        assertEquals(Math.min(a, b), idA);
+        assertEquals(Math.max(a, b), idB);
+        assertTrue(idA < idB, "pairs are canonicalized");
+        assertEquals(1.0, ((Double) pairs.get(0)[2]).doubleValue(), 1e-3);
+    }
+
+    @Test
+    void findNearDuplicatesAllSimilarYieldsAllPairs() throws Exception {
+        final float[] vec = embedder.embed("shared");
+        insertWithEmbedding("First.",  vec);
+        insertWithEmbedding("Second.", vec);
+        insertWithEmbedding("Third.",  vec);
+
+        final List<Object[]> pairs = repo.findNearDuplicatePairs(db, USER_ID, 0.9, 10);
+        // 3 rows -> 3 unordered pairs (1-2, 1-3, 2-3).
+        assertEquals(3, pairs.size());
+        for (Object[] p : pairs)
+            assertEquals(1.0, ((Double) p[2]).doubleValue(), 1e-3);
+    }
+
+    @Test
+    void findNearDuplicatesUncorrelatedEmbeddingsBelowThresholdReturnNothing() throws Exception {
+        // The mock embedder makes different strings produce uncorrelated vectors
+        // (cosine ~0); at threshold 0.9 they must not pair.
+        insert("totally different alpha", new String[]{});
+        insert("totally different bravo", new String[]{});
+
+        final List<Object[]> pairs = repo.findNearDuplicatePairs(db, USER_ID, 0.9, 10);
+        assertEquals(0, pairs.size());
+    }
+
+    @Test
+    void findNearDuplicatesExcludesSoftDeletedRows() throws Exception {
+        final float[] vec = embedder.embed("seed");
+        final long a = insertWithEmbedding("Alpha.", vec);
+        insertWithEmbedding("Bravo.", vec);
+        repo.softDelete(db, a, null, null);
+
+        final List<Object[]> pairs = repo.findNearDuplicatePairs(db, USER_ID, 0.9, 10);
+        assertEquals(0, pairs.size(), "soft-deleted rows must not appear in either side of the pair");
+    }
+
+    @Test
+    void findNearDuplicatesExcludesExpiredRows() throws Exception {
+        final float[] vec = embedder.embed("seed");
+        final long a = insertWithEmbedding("Alpha.", vec);
+        insertWithEmbedding("Bravo.", vec);
+        db.execute("UPDATE memories SET expires_at = now() - interval '1 day' WHERE id = ?", a);
+
+        final List<Object[]> pairs = repo.findNearDuplicatePairs(db, USER_ID, 0.9, 10);
+        assertEquals(0, pairs.size(), "expired rows must not pair");
+    }
+
+    @Test
+    void findNearDuplicatesScopesByUser() throws Exception {
+        // Two duplicates belong to USER_ID; a third (with the same embedding)
+        // belongs to a different user and must not appear in the result.
+        final float[] vec = embedder.embed("seed");
+        insertWithEmbedding("Mine A.", vec);
+        insertWithEmbedding("Mine B.", vec);
+        insertWithEmbeddingForUser("Other's.", vec, "different-user");
+
+        final List<Object[]> pairs = repo.findNearDuplicatePairs(db, USER_ID, 0.9, 10);
+        assertEquals(1, pairs.size(), "cross-user rows must not pair");
+    }
+
+    @Test
+    void findNearDuplicatesOrdersBySimilarityDescending() throws Exception {
+        // Two pairs at different similarity levels: identical-vector pair
+        // is similarity 1.0; partially-shared-vector pair is somewhere in
+        // between.  Build the partial-shared pair by mixing two seed
+        // vectors so the cosine of the mix with the seed is well above
+        // threshold but below 1.0.
+        final float[] seed = embedder.embed("seed");
+        final float[] mix  = mixVectors(seed, embedder.embed("partner"), 0.85f);
+
+        final long a = insertWithEmbedding("First identical.",  seed);
+        final long b = insertWithEmbedding("Second identical.", seed);
+        final long c = insertWithEmbedding("Mixed seed.",       mix);
+
+        final List<Object[]> pairs = repo.findNearDuplicatePairs(db, USER_ID, 0.5, 10);
+        assertTrue(pairs.size() >= 2);
+        // First (highest-sim) pair must be the {a, b} identical-vector pair.
+        final double first  = ((Double) pairs.get(0)[2]).doubleValue();
+        final double second = ((Double) pairs.get(1)[2]).doubleValue();
+        assertTrue(first >= second, "results are sorted by similarity descending");
+        assertEquals(1.0, first, 1e-3);
+    }
+
+    private long insertWithEmbedding(String text, float[] embedding) throws Exception {
+        return insertWithEmbeddingForUser(text, embedding, USER_ID);
+    }
+
+    private long insertWithEmbeddingForUser(String text, float[] embedding, String userId) throws Exception {
+        final MemoryInsert m = new MemoryInsert();
+        m.userId            = userId;
+        m.text              = text;
+        m.normalizedText    = TextNormalizer.normalize(text);
+        m.embedding         = embedding;
+        m.tags              = new String[]{};
+        m.importance        = 0.5;
+        m.embeddingProvider = "mock";
+        m.embeddingModel    = embedder.modelName();
+        return repo.insert(db, m);
+    }
+
+    private static float[] mixVectors(float[] a, float[] b, float wA) throws Exception {
+        if (a.length != b.length)
+            throw new IllegalArgumentException("vector length mismatch");
+        final float[] out = new float[a.length];
+        double sumSq = 0;
+        for (int i = 0; i < a.length; i++) {
+            out[i] = wA * a[i] + (1 - wA) * b[i];
+            sumSq += out[i] * out[i];
+        }
+        final double norm = Math.sqrt(sumSq);
+        if (norm > 0)
+            for (int i = 0; i < a.length; i++)
+                out[i] = (float) (out[i] / norm);
+        return out;
     }
 
     private long insertWithSource(String text, String provider) throws Exception {

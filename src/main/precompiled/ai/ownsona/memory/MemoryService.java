@@ -406,17 +406,42 @@ public final class MemoryService {
     // update_memory
     // ====================================================================================
 
-    public MemoryRow update(long id, String rawText, String[] rawTags, Double importance,
-                            java.util.Date rawExpiresAt, java.util.Date rawLastConfirmedAt) {
-        final String text = requireText(rawText);
-        final String secret = SecretScanner.detect(text);
-        if (secret != null)
-            throw new ServiceException(ServiceException.SECRET_REJECTED, secret);
-
-        final String normalized = TextNormalizer.normalize(text);
+    public UpdateResult update(long id, String rawText, String[] rawTags, Double importance,
+                               java.util.Date rawExpiresAt, java.util.Date rawLastConfirmedAt,
+                               boolean dryRun) {
+        // Validate caller-supplied values up front so a dry-run reports
+        // the same INVALID_INPUT / SECRET_REJECTED a live run would.
+        final String text;
+        final String normalized;
+        if (rawText != null) {
+            text = requireText(rawText);
+            final String secret = SecretScanner.detect(text);
+            if (secret != null)
+                throw new ServiceException(ServiceException.SECRET_REJECTED, secret);
+            normalized = TextNormalizer.normalize(text);
+        } else {
+            text       = null;
+            normalized = null;
+        }
         final String[] tags = (rawTags == null) ? null : cleanTags(rawTags);
-        final java.util.Date expiresAt = validateExpiresAt(rawExpiresAt);
+        final java.util.Date expiresAt       = validateExpiresAt(rawExpiresAt);
         final java.util.Date lastConfirmedAt = validateLastConfirmedAt(rawLastConfirmedAt);
+
+        // At least one field must be supplied --- a no-op update is almost
+        // always a caller bug, and silently succeeding would mask it.
+        if (text == null && tags == null && importance == null
+                && expiresAt == null && lastConfirmedAt == null)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "update_memory requires at least one of: text, tags, importance, " +
+                    "expires_at, last_confirmed_at.");
+
+        final List<String> changed = new ArrayList<>(5);
+        if (text != null)            changed.add("text");
+        if (tags != null)            changed.add("tags");
+        if (importance != null)      changed.add("importance");
+        if (expiresAt != null)       changed.add("expires_at");
+        if (lastConfirmedAt != null) changed.add("last_confirmed_at");
+        final String[] changedFields = changed.toArray(new String[0]);
 
         final Connection db = MainServlet.openNewConnection();
         boolean success = false;
@@ -425,17 +450,27 @@ public final class MemoryService {
             if (existing == null || existing.deletedAt != null)
                 throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
 
-            final float[] vec = embed(text);
+            if (dryRun) {
+                logger.info("update: dry-run id={} changed_fields={}", id, changed);
+                success = true;
+                return new UpdateResult(true, true, existing, changedFields);
+            }
+
+            // Only call the embedder when text changed; otherwise leave
+            // the stored embedding (and its provider/model) alone.
+            final float[] vec = (text != null) ? embed(text) : null;
+            final String embProvider = (text != null) ? Config.EMBEDDING_PROVIDER : null;
+            final String embModel    = (text != null) ? embedder.modelName()       : null;
             final boolean ok = repo.update(db, id, text, normalized, vec, tags, importance,
-                    Config.EMBEDDING_PROVIDER, embedder.modelName(),
-                    expiresAt, lastConfirmedAt);
+                    embProvider, embModel, expiresAt, lastConfirmedAt);
             if (!ok)
                 throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
 
             final MemoryRow updated = repo.findById(db, id);
-            logger.info("update: id={} chars={}", id, text.length());
+            logger.info("update: id={} changed_fields={} chars={}", id, changed,
+                    text == null ? -1 : text.length());
             success = true;
-            return updated;
+            return new UpdateResult(true, false, updated, changedFields);
         } catch (ServiceException e) {
             throw e;
         } catch (Exception e) {
@@ -443,6 +478,200 @@ public final class MemoryService {
         } finally {
             MainServlet.closeConnection(db, success);
         }
+    }
+
+    // ====================================================================================
+    // update_memory_batch
+    // ====================================================================================
+
+    /**
+     * Update many memories in a single call.  Per-item failures (null id,
+     * unknown id, secret rejected, embedding error on a single text) are
+     * recorded as {@code ok=false} entries and do NOT fail the rest of
+     * the batch.  Whole-batch failures (empty list, over the size cap)
+     * throw {@link ServiceException} before any work is done.
+     *
+     * <p>The embedding provider is invoked once per batch for all items
+     * that supplied a new {@code text}.  Items that change only metadata
+     * (tags, importance, freshness) don't call the embedder at all.
+     *
+     * <p>{@code dryRun=true} validates every item but performs no writes;
+     * each result still reports its {@code changedFields} so the caller
+     * can preview.
+     */
+    public List<BatchUpdateResult> updateBatch(List<BatchUpdateItem> items, boolean dryRun) {
+        if (items == null || items.isEmpty())
+            throw new ServiceException(ServiceException.INVALID_INPUT, "items is required and must be non-empty.");
+        if (items.size() > Config.MAX_BATCH_SIZE)
+            throw new ServiceException(ServiceException.LIMIT_EXCEEDED,
+                    "batch too large: " + items.size() + " > " + Config.MAX_BATCH_SIZE);
+
+        final List<BatchUpdateResult> results = new ArrayList<>(Collections.nCopies(items.size(), null));
+
+        // Phase 1: validate. Failures fill in the per-input result and
+        // exclude the item from further phases.
+        final List<Integer>          validIdx       = new ArrayList<>();
+        final List<Long>             validId        = new ArrayList<>();
+        final List<String>           validText      = new ArrayList<>();
+        final List<String>           validNorm      = new ArrayList<>();
+        final List<String[]>         validTags      = new ArrayList<>();
+        final List<Double>           validImp       = new ArrayList<>();
+        final List<java.util.Date>   validExp       = new ArrayList<>();
+        final List<java.util.Date>   validConfirmed = new ArrayList<>();
+        final List<String[]>         validChanged   = new ArrayList<>();
+
+        // Subset of valid items that need a new embedding (text != null).
+        // embedSlot[k] is the position in validIdx of the k'th text-changing
+        // item, so the returned vectors can be slotted back in.
+        final List<Integer> embedSlot  = new ArrayList<>();
+        final List<String>  embedTexts = new ArrayList<>();
+
+        for (int i = 0; i < items.size(); i++) {
+            final BatchUpdateItem item = items.get(i);
+            try {
+                if (item == null)
+                    throw new ServiceException(ServiceException.INVALID_INPUT, "items[" + i + "] is null");
+                if (item.id == null)
+                    throw new ServiceException(ServiceException.INVALID_INPUT, "items[" + i + "].id is required");
+
+                String text = null;
+                String normalized = null;
+                if (item.text != null) {
+                    text = requireText(item.text);
+                    final String secret = SecretScanner.detect(text);
+                    if (secret != null)
+                        throw new ServiceException(ServiceException.SECRET_REJECTED, secret);
+                    normalized = TextNormalizer.normalize(text);
+                }
+                final String[] tags = (item.tags == null) ? null : cleanTags(item.tags);
+                final java.util.Date expiresAt       = validateExpiresAt(item.expiresAt);
+                final java.util.Date lastConfirmedAt = validateLastConfirmedAt(item.lastConfirmedAt);
+
+                if (text == null && tags == null && item.importance == null
+                        && expiresAt == null && lastConfirmedAt == null)
+                    throw new ServiceException(ServiceException.INVALID_INPUT,
+                            "items[" + i + "] supplied no changes (need at least one of: " +
+                            "text, tags, importance, expires_at, last_confirmed_at).");
+
+                final List<String> changed = new ArrayList<>(5);
+                if (text != null)            changed.add("text");
+                if (tags != null)            changed.add("tags");
+                if (item.importance != null) changed.add("importance");
+                if (expiresAt != null)       changed.add("expires_at");
+                if (lastConfirmedAt != null) changed.add("last_confirmed_at");
+
+                validIdx.add(i);
+                validId.add(item.id);
+                validText.add(text);
+                validNorm.add(normalized);
+                validTags.add(tags);
+                validImp.add(item.importance);
+                validExp.add(expiresAt);
+                validConfirmed.add(lastConfirmedAt);
+                validChanged.add(changed.toArray(new String[0]));
+
+                if (text != null) {
+                    embedSlot.add(validIdx.size() - 1);
+                    embedTexts.add(text);
+                }
+            } catch (ServiceException e) {
+                final Long id = (item == null) ? null : item.id;
+                results.set(i, BatchUpdateResult.failure(i, id, e.getCode(), e.getMessage()));
+            }
+        }
+
+        if (validIdx.isEmpty()) {
+            logger.info("updateBatch: total={} all-invalid (no embedding call made)", items.size());
+            return results;
+        }
+
+        // Phase 2: one embedding call for items that supplied new text.
+        // A failure here marks only the text-changing items as failed;
+        // items that change only metadata can still proceed.
+        final float[][] vectorBySlot = new float[validIdx.size()][];
+        boolean embeddingFailed = false;
+        String embeddingFailMsg = null;
+        if (!embedTexts.isEmpty()) {
+            try {
+                final List<float[]> vectors = embedder.embedBatch(embedTexts);
+                if (vectors.size() != embedTexts.size())
+                    throw new ServiceException(ServiceException.EMBEDDING_ERROR,
+                            "embedder returned " + vectors.size() + " vectors for " +
+                            embedTexts.size() + " inputs");
+                for (int k = 0; k < embedSlot.size(); k++)
+                    vectorBySlot[embedSlot.get(k)] = vectors.get(k);
+            } catch (ServiceException e) {
+                throw e;
+            } catch (Exception e) {
+                embeddingFailed = true;
+                embeddingFailMsg = e.getMessage();
+            }
+        }
+
+        // Phase 3: per-item update on a single connection.
+        final Connection db = MainServlet.openNewConnection();
+        if (db == null) {
+            for (int v = 0; v < validIdx.size(); v++) {
+                final int origIdx = validIdx.get(v);
+                if (results.get(origIdx) == null)
+                    results.set(origIdx, BatchUpdateResult.failure(origIdx, validId.get(v),
+                            ServiceException.DATABASE_ERROR, "pool acquire failed"));
+            }
+            return results;
+        }
+
+        boolean success = false;
+        try {
+            for (int v = 0; v < validIdx.size(); v++) {
+                final int origIdx = validIdx.get(v);
+                if (results.get(origIdx) != null)
+                    continue;
+                final Long id = validId.get(v);
+                try {
+                    if (embeddingFailed && validText.get(v) != null)
+                        throw new ServiceException(ServiceException.EMBEDDING_ERROR,
+                                "embedding provider call failed: " + embeddingFailMsg);
+
+                    final MemoryRow existing = repo.findById(db, id);
+                    if (existing == null || existing.deletedAt != null)
+                        throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
+
+                    if (dryRun) {
+                        results.set(origIdx, BatchUpdateResult.success(origIdx, id, true, validChanged.get(v)));
+                        continue;
+                    }
+
+                    final String text = validText.get(v);
+                    final float[] vec = vectorBySlot[v];
+                    final String embProvider = (text != null) ? Config.EMBEDDING_PROVIDER : null;
+                    final String embModel    = (text != null) ? embedder.modelName()       : null;
+                    final boolean ok = repo.update(db, id, text, validNorm.get(v), vec,
+                            validTags.get(v), validImp.get(v), embProvider, embModel,
+                            validExp.get(v), validConfirmed.get(v));
+                    if (!ok)
+                        throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
+                    results.set(origIdx, BatchUpdateResult.success(origIdx, id, false, validChanged.get(v)));
+                } catch (ServiceException e) {
+                    results.set(origIdx, BatchUpdateResult.failure(origIdx, id, e.getCode(), e.getMessage()));
+                } catch (Exception e) {
+                    results.set(origIdx, BatchUpdateResult.failure(origIdx, id,
+                            ServiceException.DATABASE_ERROR, e.getMessage()));
+                }
+            }
+            success = true;
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+
+        int updated = 0, errs = 0;
+        for (BatchUpdateResult r : results) {
+            if (r == null) continue;
+            if (r.ok) updated++;
+            else errs++;
+        }
+        logger.info("updateBatch: total={} updated={} errors={} dry_run={}",
+                items.size(), updated, errs, dryRun);
+        return results;
     }
 
     // ====================================================================================
@@ -483,7 +712,7 @@ public final class MemoryService {
     // forget
     // ====================================================================================
 
-    public boolean forget(long id, boolean hardDelete, String rawReason, Long replacedById) {
+    public ForgetResult forget(long id, boolean hardDelete, String rawReason, Long replacedById, boolean dryRun) {
         final String reason = validateForgetReason(rawReason);
         // A hard delete drops the row entirely --- there's nowhere to store
         // the tombstone metadata.  Reject the combination so the caller
@@ -497,22 +726,33 @@ public final class MemoryService {
         final Connection db = MainServlet.openNewConnection();
         boolean success = false;
         try {
-            if (hardDelete) {
-                final boolean ok = repo.hardDelete(db, id);
-                if (!ok)
-                    throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
-                logger.info("forget: hard-deleted id={}", id);
-                success = true;
-                return true;
-            }
             final MemoryRow existing = repo.findById(db, id);
             if (existing == null)
                 throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
+            final boolean alreadyDeleted = existing.deletedAt != null;
+
+            if (dryRun) {
+                logger.info("forget: dry-run id={} hard={} already_deleted={}", id, hardDelete, alreadyDeleted);
+                success = true;
+                return new ForgetResult(true, true, alreadyDeleted, hardDelete);
+            }
+
+            if (hardDelete) {
+                final boolean ok = repo.hardDelete(db, id);
+                // findById succeeded above so the row exists; treat a 0-row
+                // hardDelete as a transient race rather than a NOT_FOUND.
+                if (!ok)
+                    throw new ServiceException(ServiceException.DATABASE_ERROR,
+                            "hard delete affected 0 rows for id " + id);
+                logger.info("forget: hard-deleted id={}", id);
+                success = true;
+                return new ForgetResult(true, false, alreadyDeleted, true);
+            }
             final boolean ok = repo.softDelete(db, id, reason, replacedById);
-            logger.info("forget: soft-deleted id={} ok={} reason={} replaced_by={}",
-                    id, ok, reason != null, replacedById);
+            logger.info("forget: soft-deleted id={} ok={} already_deleted={} reason={} replaced_by={}",
+                    id, ok, alreadyDeleted, reason != null, replacedById);
             success = true;
-            return ok;
+            return new ForgetResult(ok, false, alreadyDeleted, false);
         } catch (ServiceException e) {
             throw e;
         } catch (Exception e) {
@@ -520,6 +760,229 @@ public final class MemoryService {
         } finally {
             MainServlet.closeConnection(db, success);
         }
+    }
+
+    // ====================================================================================
+    // forget_batch
+    // ====================================================================================
+
+    /**
+     * Soft-delete a list of memories in a single call.  The same shared
+     * {@code reason} is recorded as tombstone metadata on every successful
+     * row.  Soft-delete only --- a batch hard delete has no tombstone
+     * trail and is intentionally not supported; use the single-row
+     * {@link #forget} for that.
+     *
+     * <p>Per-item failures (null id, unknown id, DB error on a single row)
+     * are recorded as {@code ok=false} entries and do NOT fail the rest of
+     * the batch.  Whole-batch failures (invalid {@code reason}, empty list,
+     * over the size cap) throw {@link ServiceException} before any work is
+     * done.
+     *
+     * <p>{@code dryRun=true} validates ids exist but performs no writes.
+     * The {@code alreadyDeleted} flag still reflects the current state of
+     * each row.
+     */
+    public List<BatchForgetResult> forgetBatch(List<Long> ids, String rawReason, boolean dryRun) {
+        if (ids == null || ids.isEmpty())
+            throw new ServiceException(ServiceException.INVALID_INPUT, "ids is required and must be non-empty.");
+        if (ids.size() > Config.MAX_BATCH_SIZE)
+            throw new ServiceException(ServiceException.LIMIT_EXCEEDED,
+                    "batch too large: " + ids.size() + " > " + Config.MAX_BATCH_SIZE);
+
+        final String reason = validateForgetReason(rawReason);
+
+        final List<BatchForgetResult> results = new ArrayList<>(Collections.nCopies(ids.size(), null));
+
+        final Connection db = MainServlet.openNewConnection();
+        if (db == null) {
+            for (int i = 0; i < ids.size(); i++)
+                results.set(i, BatchForgetResult.failure(i, ids.get(i),
+                        ServiceException.DATABASE_ERROR, "pool acquire failed"));
+            return results;
+        }
+
+        boolean success = false;
+        try {
+            for (int i = 0; i < ids.size(); i++) {
+                final Long id = ids.get(i);
+                try {
+                    if (id == null)
+                        throw new ServiceException(ServiceException.INVALID_INPUT,
+                                "ids[" + i + "] is null");
+                    final MemoryRow existing = repo.findById(db, id);
+                    if (existing == null)
+                        throw new ServiceException(ServiceException.NOT_FOUND,
+                                "Memory " + id + " not found.");
+                    final boolean alreadyDeleted = existing.deletedAt != null;
+                    if (!dryRun)
+                        repo.softDelete(db, id, reason, null);
+                    results.set(i, BatchForgetResult.success(i, id, alreadyDeleted));
+                } catch (ServiceException e) {
+                    results.set(i, BatchForgetResult.failure(i, id, e.getCode(), e.getMessage()));
+                } catch (Exception e) {
+                    results.set(i, BatchForgetResult.failure(i, id,
+                            ServiceException.DATABASE_ERROR, e.getMessage()));
+                }
+            }
+            success = true;
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+
+        int deleted = 0, alreadyDel = 0, errs = 0;
+        for (BatchForgetResult r : results) {
+            if (r == null) continue;
+            if (r.ok) {
+                if (r.alreadyDeleted) alreadyDel++;
+                else deleted++;
+            } else {
+                errs++;
+            }
+        }
+        logger.info("forgetBatch: total={} deleted={} already_deleted={} errors={} dry_run={}",
+                ids.size(), deleted, alreadyDel, errs, dryRun);
+        return results;
+    }
+
+    // ====================================================================================
+    // find_near_duplicates
+    // ====================================================================================
+
+    /** Default cosine-similarity cutoff for {@link #findNearDuplicates} when the caller doesn't specify. */
+    static final double DEFAULT_NEAR_DUP_THRESHOLD = 0.92;
+
+    /** Lower bound on {@code threshold}: anything below this returns too much noise to be useful. */
+    static final double MIN_NEAR_DUP_THRESHOLD = 0.50;
+
+    /** Default cap on returned groups when the caller doesn't specify. */
+    static final int DEFAULT_NEAR_DUP_MAX_GROUPS = 50;
+
+    /** Hard cap on {@code max_groups} so a misconfigured client can't OOM the response. */
+    static final int MAX_NEAR_DUP_MAX_GROUPS = 500;
+
+    /** Per-row top-K neighbors queried via pgvector.  Fixed: more than enough at any reasonable threshold. */
+    private static final int NEAR_DUP_TOP_K = 10;
+
+    /**
+     * Find clusters of semantically near-duplicate active memories.
+     *
+     * <p>Pairs whose cosine similarity meets {@code threshold} are grouped
+     * by union-find, so transitively similar rows (a~b, b~c) end up in
+     * the same cluster.  Groups are returned strongest-cluster-first
+     * (by max pair similarity within the cluster) and capped at
+     * {@code maxGroups}.  Singletons --- rows with no qualifying
+     * neighbor --- never appear in the output by definition.
+     *
+     * <p>Soft-deleted and expired rows are excluded.  This is a read-only
+     * diagnostic for cleanup workflows; it does not modify any state.
+     */
+    public NearDuplicatesResult findNearDuplicates(Double rawThreshold, Integer rawMaxGroups) {
+        final double threshold = validateThreshold(rawThreshold);
+        final int    maxGroups = validateMaxGroups(rawMaxGroups);
+
+        final Connection db = MainServlet.openNewConnection();
+        boolean success = false;
+        try {
+            final List<Object[]> pairs = repo.findNearDuplicatePairs(db, userId, threshold, NEAR_DUP_TOP_K);
+
+            // Union-find over the pair ids.  parent[x] = x for a root;
+            // parent[x] = y means y is x's representative one step up.
+            final java.util.Map<Long, Long> parent = new java.util.HashMap<>();
+            for (Object[] p : pairs) {
+                final long a = ((Long) p[0]).longValue();
+                final long b = ((Long) p[1]).longValue();
+                parent.putIfAbsent(a, a);
+                parent.putIfAbsent(b, b);
+                final long ra = findRoot(parent, a);
+                final long rb = findRoot(parent, b);
+                if (ra != rb)
+                    parent.put(ra, rb);
+            }
+
+            // Re-walk pairs to attribute each to its (now stable) cluster
+            // and accumulate per-cluster max similarity + pair count.
+            final java.util.Map<Long, java.util.Set<Long>> idsByCluster = new java.util.HashMap<>();
+            final java.util.Map<Long, Double>              maxSimByCluster = new java.util.HashMap<>();
+            final java.util.Map<Long, Integer>             pairCountByCluster = new java.util.HashMap<>();
+            for (Object[] p : pairs) {
+                final long a = ((Long) p[0]).longValue();
+                final long b = ((Long) p[1]).longValue();
+                final double sim = ((Double) p[2]).doubleValue();
+                final long root = findRoot(parent, a);
+
+                final java.util.Set<Long> ids = idsByCluster.computeIfAbsent(root, k -> new java.util.LinkedHashSet<>());
+                ids.add(a);
+                ids.add(b);
+                maxSimByCluster.merge(root, sim, Math::max);
+                pairCountByCluster.merge(root, 1, Integer::sum);
+            }
+
+            // Materialize groups, sort strongest-first, cap to maxGroups,
+            // and only then fetch full MemoryRow data --- avoids loading
+            // rows for clusters that won't be returned.
+            final List<Long> roots = new ArrayList<>(idsByCluster.keySet());
+            roots.sort((r1, r2) -> Double.compare(
+                    maxSimByCluster.getOrDefault(r2, 0.0),
+                    maxSimByCluster.getOrDefault(r1, 0.0)));
+            final int kept = Math.min(roots.size(), maxGroups);
+            final List<NearDuplicateGroup> groups = new ArrayList<>(kept);
+            for (int i = 0; i < kept; i++) {
+                final long root = roots.get(i);
+                final List<Long> sortedIds = new ArrayList<>(idsByCluster.get(root));
+                Collections.sort(sortedIds);
+                final List<MemoryRow> rows = new ArrayList<>(sortedIds.size());
+                for (long id : sortedIds) {
+                    final MemoryRow row = repo.findById(db, id);
+                    if (row != null)
+                        rows.add(row);
+                }
+                groups.add(new NearDuplicateGroup(rows, maxSimByCluster.get(root), pairCountByCluster.get(root)));
+            }
+
+            logger.info("findNearDuplicates: threshold={} pairs={} clusters={} returned={}",
+                    threshold, pairs.size(), idsByCluster.size(), kept);
+            success = true;
+            return new NearDuplicatesResult(groups, threshold, pairs.size());
+        } catch (ServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap(e, "findNearDuplicates failed");
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+    }
+
+    private static long findRoot(java.util.Map<Long, Long> parent, long x) {
+        long cur = x;
+        while (true) {
+            final Long up = parent.get(cur);
+            if (up == null || up == cur)
+                return cur;
+            cur = up;
+        }
+    }
+
+    /** Package-private for unit tests. */
+    static double validateThreshold(Double raw) {
+        if (raw == null)
+            return DEFAULT_NEAR_DUP_THRESHOLD;
+        final double t = raw.doubleValue();
+        if (Double.isNaN(t) || t < MIN_NEAR_DUP_THRESHOLD || t > 1.0)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "threshold must be between " + MIN_NEAR_DUP_THRESHOLD + " and 1.0 (got " + t + ")");
+        return t;
+    }
+
+    /** Package-private for unit tests. */
+    static int validateMaxGroups(Integer raw) {
+        if (raw == null)
+            return DEFAULT_NEAR_DUP_MAX_GROUPS;
+        final int n = raw.intValue();
+        if (n < 1 || n > MAX_NEAR_DUP_MAX_GROUPS)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "max_groups must be between 1 and " + MAX_NEAR_DUP_MAX_GROUPS + " (got " + n + ")");
+        return n;
     }
 
     // ====================================================================================
