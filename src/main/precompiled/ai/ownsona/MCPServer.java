@@ -152,6 +152,7 @@ public class MCPServer extends MCPServerBase {
         tools.put(rememberDescriptor());
         tools.put(rememberBatchDescriptor());
         tools.put(recallDescriptor());
+        tools.put(searchMemoryDescriptor());
         tools.put(buildContextPromptDescriptor());
         tools.put(listMemoriesDescriptor());
         tools.put(updateMemoryDescriptor());
@@ -273,6 +274,24 @@ public class MCPServer extends MCPServerBase {
     }
 
     private static JSONObject recallDescriptor() {
+        return buildRecallDescriptor("recall");
+    }
+
+    /**
+     * Alias of {@code recall} under a more verb-led name.  Some MCP
+     * client harnesses (notably Claude's deferred-tool-loading
+     * keyword ranker) fail to surface a tool named {@code recall} from
+     * a generic search query and pick the wrong fallback.  Registering
+     * an identical tool under {@code search_memory} gives those
+     * harnesses a second, more discoverable name; both dispatch to the
+     * same handler so behavior is identical regardless of which name
+     * the client picks.
+     */
+    private static JSONObject searchMemoryDescriptor() {
+        return buildRecallDescriptor("search_memory");
+    }
+
+    private static JSONObject buildRecallDescriptor(String toolName) {
         final JSONObject props = new JSONObject();
         props.put("query", scalarProp("string",
                 "The user's question or topic to search memory for."));
@@ -282,7 +301,7 @@ public class MCPServer extends MCPServerBase {
                 "Optional minimum similarity score threshold (0..1)."));
         props.put("tags", arrayProp("string",
                 "Optional tags to filter by. A memory matches if it has at least one of these tags."));
-        return tool("recall",
+        return tool(toolName,
                 "Search memory and look up stored facts. Use this tool before answering " +
                 "questions that may depend on the user's remembered facts, preferences, family, " +
                 "projects, software systems, writing, work history, personal context, or prior " +
@@ -293,7 +312,10 @@ public class MCPServer extends MCPServerBase {
                 "working on), prefer the one most recently confirmed: compare each match's " +
                 "last_confirmed_at first, then updated_at, then created_at, and treat the most " +
                 "recent as authoritative unless the user's question is explicitly about history " +
-                "or change over time.",
+                "or change over time. " +
+                "This tool is registered under two identical names --- `recall` and " +
+                "`search_memory` --- because some MCP clients surface one more reliably than " +
+                "the other.  Both dispatch to the same handler.",
                 props, new String[]{"query"});
     }
 
@@ -468,6 +490,7 @@ public class MCPServer extends MCPServerBase {
                 case "remember":             return doRemember(arguments);
                 case "remember_batch":       return doRememberBatch(arguments);
                 case "recall":               return doRecall(arguments);
+                case "search_memory":        return doRecall(arguments);  // alias of recall; see searchMemoryDescriptor()
                 case "build_context_prompt": return doBuildContextPrompt(arguments);
                 case "list_memories":        return doListMemories(arguments);
                 case "update_memory":        return doUpdateMemory(arguments);
