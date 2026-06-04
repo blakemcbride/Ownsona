@@ -112,6 +112,8 @@ ownsona change <id> "<text>"      # replace one memory's text
 ownsona delete <ids>              # hard-delete the selected memories
 ownsona add    "<text>"           # remember (aliases: remember, new)
 ownsona stats                     # store overview: counts, keep breakdown, tags
+ownsona dump   [file]             # write all memories as JSON (file or stdout)
+ownsona restore <file>            # re-insert memories from a dump file
 
 # Thin tool wrappers
 ownsona query  "<question>"       # recall

@@ -269,6 +269,8 @@ ownsona change <id> "<new text>"           replace one memory's text
 ownsona delete <ids>                       hard-delete selected memories
 ownsona add "<text>"                       store a memory (alias: remember, new)
 ownsona stats                              store overview: counts, keep breakdown, tags
+ownsona dump [file]                        write all memories as JSON (file or stdout)
+ownsona restore <file>                     re-insert memories from a dump file
 
 Other:
 ownsona query "<question>"                 semantic recall
@@ -309,6 +311,31 @@ protected memory, `r` it first.
 
 `add` and `change` add a trailing period to the text if missing and stamp
 `source_provider=ownsona` / `source_client=cli`.
+
+#### Backup & restore (`dump` / `restore`)
+
+```bash
+ownsona dump backup.json          # full JSON snapshot (or: ownsona dump > backup.json)
+ownsona restore backup.json       # re-insert into the store
+ownsona restore backup.json --dry-run   # preview without writing
+```
+
+`dump` writes the server's `export_memories` snapshot — every memory as
+JSON, soft-deleted rows included (use `--active-only` to exclude them).
+Embedding vectors are *not* included; they're re-derived from text on
+restore.
+
+`restore` re-inserts the active rows via `remember_batch`, preserving
+text, tags, `source_provider`, importance, `capture_mode`, `session_id`,
+`expires_at`, and `last_confirmed_at`, and re-applies the `keep` flag for
+`Y`/`N` rows (needs `admin_secret`). It is **content-level, not
+byte-faithful**: the MCP tool surface can't preserve original ids or
+`created_at` timestamps (the server assigns new ones), and soft-deleted
+rows are skipped. It's meant for restoring into an **empty** store —
+against a populated one the default `insert` policy creates duplicates
+(use `--dedup skip_if_near` to merge). *(`importance` is preserved only
+when the dump was produced by a server that includes it in the export
+output.)*
 
 ### Common flags across subcommands
 

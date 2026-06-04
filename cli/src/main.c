@@ -226,6 +226,8 @@ static const char USAGE_TOP[] =
 "  delete     hard-delete the selected memories\n"
 "  add        store a new memory  (aliases: remember, new)\n"
 "  stats      store overview: counts, keep breakdown, tags, sources\n"
+"  dump       write all memories as JSON (to a file or stdout)\n"
+"  restore    re-insert memories from a dump file\n"
 "\n"
 "Other commands:\n"
 "  query      find memories by semantic similarity (recall)\n"
@@ -286,6 +288,8 @@ static const cmd_entry_t COMMANDS[] = {
     { "delete",    cmd_delete    },
     { "enumerate", cmd_enumerate },
     { "stats",     cmd_stats     },
+    { "dump",      cmd_dump      },
+    { "restore",   cmd_restore   },
     { "update",    cmd_update    },
     { "confirm",   cmd_confirm   },
     { "forget",    cmd_forget    },

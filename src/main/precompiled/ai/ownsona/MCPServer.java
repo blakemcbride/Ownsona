@@ -1285,6 +1285,7 @@ public class MCPServer extends MCPServerBase {
         o.put("updated_at", iso(m.updatedAt));
         o.put("tags", new JSONArray(java.util.Arrays.asList(m.tags == null ? new String[0] : m.tags)));
         o.put("keep", m.keep == null ? "U" : m.keep);
+        o.put("importance", m.importance);
         if (m.sourceProvider != null)
             o.put("source_provider", m.sourceProvider);
         final String captureMode = captureModeOf(m);

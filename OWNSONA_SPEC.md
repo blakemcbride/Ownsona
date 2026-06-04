@@ -1045,6 +1045,10 @@ Response (on success):
 Every memory object returned by `recall`, `list_memories`, `get_memory`,
 `text_search`, and `export_memories` now carries a `keep` field (`Y`/`N`/`U`).
 
+The match/`export_memories` output also includes the memory's
+`importance` (a double), so a JSON dump is complete enough to restore the
+weighting on re-insert.
+
 ### `source_client` on writes
 
 `remember` and `update_memory` accept an optional `source_client` string

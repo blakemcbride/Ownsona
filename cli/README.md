@@ -43,6 +43,8 @@ ownsona enumerate -k U        # walk unspecified-keep memories and curate them
 ownsona change 12 "new text"  # replace one memory's text
 ownsona delete 5,7,9          # hard-delete selected memories
 ownsona stats                 # store overview: counts, keep breakdown, tags
+ownsona dump backup.json      # full JSON snapshot of all memories
+ownsona restore backup.json   # re-insert memories from a dump
 ownsona auth status           # check the cached credentials
 ```
 
