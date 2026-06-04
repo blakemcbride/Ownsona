@@ -58,6 +58,13 @@ OWNSONA_LOGIN_PASSWORD = <pick-a-strong-password>
 
 # --- Optional with sensible defaults. ---
 
+# Shared secret authorizing the CLI-only `set_keep` operation (the
+# per-memory `keep` protection flag).  The same value goes in the
+# `ownsona` CLI's config (admin_secret).  Leave unset to disable keep
+# changes entirely --- the server fails closed, so no client (CLI or
+# LLM) can change a memory's keep flag.  Invent a strong random value.
+# OwnsonaAdminSecret = <pick-a-strong-random-secret>
+
 # User-id stamped on every memory in single-user mode.
 OWNSONA_USER_ID = default
 
@@ -94,12 +101,13 @@ REEMBED_ON_STARTUP = false
 # Substitute your public hostname (the one your TLS cert covers and
 # that you'll point MCP clients at) for <your-host> below.
 
-# Issuer URL of the authorization server.  Required.  Everything else
-# is derived from this:
-#   * resource identifier ........ defaults to this URL (the 'aud' claim)
+# Issuer URL of the authorization server.  Required.  Derived from this:
 #   * AS issuer (in metadata) .... defaults to this URL
 #   * JWKS URI ................... auto-discovered via the RFC 8414
 #                                  metadata document the AS publishes
+# NOTE: the resource identifier (token 'aud') does NOT usefully default
+# from this for an MCP server --- set OAuthResourceIdentifier below to the
+# /mcp URL.  See that setting for why.
 OAuthAuthorizationServer = https://<your-host>
 
 # Master switch for the embedded authorization server.  When true the
@@ -107,17 +115,24 @@ OAuthAuthorizationServer = https://<your-host>
 # resource server can still validate tokens issued elsewhere).
 OAuthAsEnabled = true
 
+# Canonical identifier of THIS protected resource --- the value tokens
+# must carry as their 'aud' claim, and the RFC 8707 'resource' an MCP
+# client requests.  An MCP client derives it from the server URL it is
+# pointed at, i.e. https://<your-host>/mcp, so the AS stamps that into
+# 'aud' and the resource server must expect the SAME value.
+#
+# Set this to the /mcp URL.  Although it would otherwise default to
+# OAuthAuthorizationServer (the bare host), that default does NOT include
+# /mcp, so it would never match the audience MCP clients actually carry
+# --- every /mcp request would fail validation with 401.  Set explicitly:
+OAuthResourceIdentifier = https://<your-host>/mcp
+
 # --- Optional overrides (uncomment only when defaults don't fit). ---
 
 # Comma- or space-separated list of scopes every token must carry.
 # Empty / unset means "no scope requirement" --- any token validly
 # signed by the AS for the right audience is accepted.
 # OAuthRequiredScopes =
-
-# Override the resource identifier (the value tokens must carry as
-# 'aud').  Default = OAuthAuthorizationServer above.  Set this if you
-# want tokens bound to a more specific URL (e.g. https://<your-host>/mcp).
-# OAuthResourceIdentifier = https://<your-host>/mcp
 
 # Override the AS issuer URL announced in the metadata document.
 # Default = OAuthAuthorizationServer above.
