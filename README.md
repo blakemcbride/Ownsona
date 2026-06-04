@@ -111,6 +111,7 @@ ownsona enumerate [ids] [-k YNU]  # walk + act on each memory interactively
 ownsona change <id> "<text>"      # replace one memory's text
 ownsona delete <ids>              # hard-delete the selected memories
 ownsona add    "<text>"           # remember (aliases: remember, new)
+ownsona stats                     # store overview: counts, keep breakdown, tags
 
 # Thin tool wrappers
 ownsona query  "<question>"       # recall

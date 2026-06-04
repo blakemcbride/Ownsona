@@ -268,6 +268,7 @@ ownsona enumerate [ids] [-k <YNU>]         walk + act on each memory
 ownsona change <id> "<new text>"           replace one memory's text
 ownsona delete <ids>                       hard-delete selected memories
 ownsona add "<text>"                       store a memory (alias: remember, new)
+ownsona stats                              store overview: counts, keep breakdown, tags
 
 Other:
 ownsona query "<question>"                 semantic recall

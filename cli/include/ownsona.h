@@ -190,6 +190,7 @@ int cmd_display  (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_change   (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_delete   (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_enumerate(int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_stats    (int argc, char **argv, const ownsona_global_opts_t *gopt);
 
 /* ---------------------------------------------------------------------- */
 /* curation helpers (curate.c) --- id selectors, fetch, small utilities   */

@@ -225,6 +225,7 @@ static const char USAGE_TOP[] =
 "  change     replace the text of one memory\n"
 "  delete     hard-delete the selected memories\n"
 "  add        store a new memory  (aliases: remember, new)\n"
+"  stats      store overview: counts, keep breakdown, tags, sources\n"
 "\n"
 "Other commands:\n"
 "  query      find memories by semantic similarity (recall)\n"
@@ -284,6 +285,7 @@ static const cmd_entry_t COMMANDS[] = {
     { "change",    cmd_change    },
     { "delete",    cmd_delete    },
     { "enumerate", cmd_enumerate },
+    { "stats",     cmd_stats     },
     { "update",    cmd_update    },
     { "confirm",   cmd_confirm   },
     { "forget",    cmd_forget    },

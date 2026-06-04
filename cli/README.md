@@ -42,6 +42,7 @@ ownsona display 5-9,12        # show id, keep, text for selected memories
 ownsona enumerate -k U        # walk unspecified-keep memories and curate them
 ownsona change 12 "new text"  # replace one memory's text
 ownsona delete 5,7,9          # hard-delete selected memories
+ownsona stats                 # store overview: counts, keep breakdown, tags
 ownsona auth status           # check the cached credentials
 ```
 
