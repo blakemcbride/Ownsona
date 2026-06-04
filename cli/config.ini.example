@@ -26,6 +26,13 @@ server_url = https://your.host/mcp
 # that issues long-lived tokens out of band.
 # token = REPLACE_ME
 
+# Shared secret that authorizes changing a memory's `keep` protection
+# flag (the `enumerate` k/r actions).  Must match the server's
+# OwnsonaAdminSecret.  Only the CLI sends it, and only on set_keep
+# calls; leave it unset if you never manage the keep flag.
+# Env override: OWNSONA_ADMIN_SECRET
+# admin_secret = REPLACE_ME
+
 # ---------------------------------------------------------------------
 # Settings below are used only by the `teach` subcommand (LLM-driven
 # fact extraction from prose).  Other subcommands ignore them.

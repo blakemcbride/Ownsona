@@ -219,8 +219,14 @@ void ownsona_print_human(cJSON *result) {
 static const char USAGE_TOP[] =
 "usage: ownsona [GLOBAL-OPTS] <command> [OPTIONS] [ARGS...]\n"
 "\n"
-"Commands:\n"
-"  add        store a new memory (remember)\n"
+"Curation commands:\n"
+"  display    show memories (id, keep, text) by id selector, in id order\n"
+"  enumerate  walk selected memories one at a time and act on each\n"
+"  change     replace the text of one memory\n"
+"  delete     hard-delete the selected memories\n"
+"  add        store a new memory  (aliases: remember, new)\n"
+"\n"
+"Other commands:\n"
 "  query      find memories by semantic similarity (recall)\n"
 "  search     plain substring search over stored text\n"
 "  list       list recent memories\n"
@@ -232,6 +238,10 @@ static const char USAGE_TOP[] =
 "  teach      extract facts from prose via an LLM and load them in bulk\n"
 "  auth       manage OAuth credentials (login, status)\n"
 "\n"
+"id selectors (display, delete, enumerate):\n"
+"  An id (5), a range (5-9), a list (5,7,9), or any combination separated\n"
+"  by commas (5-9,12,20-$).  '$' means the last id.  Omit to select all.\n"
+"\n"
 "Global options:\n"
 "  --config PATH    use this config file (default is OS-specific:\n"
 "                     Linux/BSD: ~/.config/ownsona/config.ini\n"
@@ -240,10 +250,17 @@ static const char USAGE_TOP[] =
 "  --server URL     override server URL from config\n"
 "  --token  TOKEN   override bearer token from config\n"
 "  --json           emit raw JSON output instead of human-readable\n"
-"  -h, --help       show this message\n"
-"  -V, --version    print version and exit\n"
+"  -h, --help, -?   show this message\n"
+"  -v, -V, --version  print version and exit\n"
 "\n"
 "Run 'ownsona <command> --help' for command-specific help.\n";
+
+/* One-line banner shown when ownsona is run with no command. */
+static const char BANNER[] =
+"ownsona --- command-line administration for a remote OwnSona MCP memory server.\n"
+"Browse, edit, protect, and delete your stored memories.\n"
+"\n"
+"Run 'ownsona -h' for help.\n";
 
 /* ===================================================================== */
 /* dispatch                                                              */
@@ -257,18 +274,24 @@ typedef struct {
 } cmd_entry_t;
 
 static const cmd_entry_t COMMANDS[] = {
-    { "add",     cmd_add     },
-    { "query",   cmd_query   },
-    { "search",  cmd_search  },
-    { "list",    cmd_list    },
-    { "update",  cmd_update  },
-    { "confirm", cmd_confirm },
-    { "forget",  cmd_forget  },
-    { "prompt",  cmd_prompt  },
-    { "import",  cmd_import  },
-    { "teach",   cmd_teach   },
-    { "auth",    cmd_auth    },
-    { NULL,      NULL        }
+    { "add",       cmd_add       },
+    { "remember",  cmd_add       },   /* alias of add */
+    { "new",       cmd_add       },   /* alias of add */
+    { "query",     cmd_query     },
+    { "search",    cmd_search    },
+    { "list",      cmd_list      },
+    { "display",   cmd_display   },
+    { "change",    cmd_change    },
+    { "delete",    cmd_delete    },
+    { "enumerate", cmd_enumerate },
+    { "update",    cmd_update    },
+    { "confirm",   cmd_confirm   },
+    { "forget",    cmd_forget    },
+    { "prompt",    cmd_prompt    },
+    { "import",    cmd_import    },
+    { "teach",     cmd_teach     },
+    { "auth",      cmd_auth      },
+    { NULL,        NULL          }
 };
 
 static cmd_fn_t lookup_command(const char *name) {
@@ -301,11 +324,12 @@ int main(int argc, char **argv) {
             gopt.token_override = a + 8;
         } else if (strcmp(a, "--json") == 0) {
             gopt.json_output = true;
-        } else if (strcmp(a, "-h") == 0 || strcmp(a, "--help") == 0) {
+        } else if (strcmp(a, "-h") == 0 || strcmp(a, "--help") == 0 || strcmp(a, "-?") == 0) {
             fputs(USAGE_TOP, stdout);
             return 0;
-        } else if (strcmp(a, "-V") == 0 || strcmp(a, "--version") == 0) {
-            printf("ownsona %s\n", OWNSONA_VERSION);
+        } else if (strcmp(a, "-V") == 0 || strcmp(a, "-v") == 0 || strcmp(a, "--version") == 0) {
+            printf("ownsona %s --- command-line admin for a remote OwnSona MCP server\n",
+                   OWNSONA_VERSION);
             return 0;
         } else if (strcmp(a, "--") == 0) {
             i++;
@@ -320,8 +344,9 @@ int main(int argc, char **argv) {
     }
 
     if (i >= argc) {
-        fputs(USAGE_TOP, stderr);
-        return 2;
+        /* No command: introduce the tool and point at -h. */
+        fputs(BANNER, stdout);
+        return 0;
     }
 
     const char *cmd_name = argv[i++];

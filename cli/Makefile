@@ -117,7 +117,7 @@ OBJS := $(SRCS:.c=.o)
 # -----------------------------------------------------------------------
 # Targets
 # -----------------------------------------------------------------------
-.PHONY: all clean test install help
+.PHONY: all clean test test-units install help
 
 all: $(BIN)
 
@@ -133,9 +133,15 @@ clean:
 	rm -f $(OBJS) ownsona ownsona.exe
 
 # Quick "does it run" sanity check that doesn't need the server.
-test: $(BIN)
+test: $(BIN) test-units
 	./$(BIN) --version
 	./$(BIN) --help >/dev/null
+
+# Unit tests for the pure helpers (id selectors, text tidy).  No server.
+test-units:
+	$(CC) $(CFLAGS) -o test_curate tests/test_curate.c src/curate.c src/cJSON.c
+	./test_curate
+	rm -f test_curate
 
 install: $(BIN)
 	@if [ -z "$$PREFIX" ]; then \

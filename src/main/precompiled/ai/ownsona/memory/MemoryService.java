@@ -86,7 +86,8 @@ public final class MemoryService {
     public RememberResult remember(String rawText, String[] rawTags, String sourceProvider, Double importance,
                                    String rawCaptureMode, String rawSessionId,
                                    String rawDedupPolicy,
-                                   java.util.Date rawExpiresAt, java.util.Date rawLastConfirmedAt) {
+                                   java.util.Date rawExpiresAt, java.util.Date rawLastConfirmedAt,
+                                   String sourceClient) {
         final String text = requireText(rawText);
         final String secret = SecretScanner.detect(text);
         if (secret != null)
@@ -142,6 +143,7 @@ public final class MemoryService {
             ins.tags                 = tags;
             ins.importance           = imp;
             ins.sourceProvider       = sourceProvider;
+            ins.sourceClient         = sourceClient;
             ins.sourceConversationId = sessionId;
             ins.embeddingProvider    = Config.EMBEDDING_PROVIDER;
             ins.embeddingModel       = embedder.modelName();
@@ -413,6 +415,7 @@ public final class MemoryService {
 
     public UpdateResult update(long id, String rawText, String[] rawTags, Double importance,
                                java.util.Date rawExpiresAt, java.util.Date rawLastConfirmedAt,
+                               String sourceProvider, String sourceClient,
                                boolean dryRun) {
         // Validate caller-supplied values up front so a dry-run reports
         // the same INVALID_INPUT / SECRET_REJECTED a live run would.
@@ -454,6 +457,7 @@ public final class MemoryService {
             final MemoryRow existing = repo.findById(db, id);
             if (existing == null || existing.deletedAt != null)
                 throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
+            requireNotProtected(existing);
 
             if (dryRun) {
                 logger.info("update: dry-run id={} changed_fields={}", id, changed);
@@ -467,7 +471,7 @@ public final class MemoryService {
             final String embProvider = (text != null) ? Config.EMBEDDING_PROVIDER : null;
             final String embModel    = (text != null) ? embedder.modelName()       : null;
             final boolean ok = repo.update(db, id, text, normalized, vec, tags, importance,
-                    embProvider, embModel, expiresAt, lastConfirmedAt);
+                    embProvider, embModel, expiresAt, lastConfirmedAt, sourceProvider, sourceClient);
             if (!ok)
                 throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
 
@@ -640,6 +644,7 @@ public final class MemoryService {
                     final MemoryRow existing = repo.findById(db, id);
                     if (existing == null || existing.deletedAt != null)
                         throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
+                    requireNotProtected(existing);
 
                     if (dryRun) {
                         results.set(origIdx, BatchUpdateResult.success(origIdx, id, true, validChanged.get(v)));
@@ -652,7 +657,7 @@ public final class MemoryService {
                     final String embModel    = (text != null) ? embedder.modelName()       : null;
                     final boolean ok = repo.update(db, id, text, validNorm.get(v), vec,
                             validTags.get(v), validImp.get(v), embProvider, embModel,
-                            validExp.get(v), validConfirmed.get(v));
+                            validExp.get(v), validConfirmed.get(v), null, null);
                     if (!ok)
                         throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
                     results.set(origIdx, BatchUpdateResult.success(origIdx, id, false, validChanged.get(v)));
@@ -734,6 +739,7 @@ public final class MemoryService {
             final MemoryRow existing = repo.findById(db, id);
             if (existing == null)
                 throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
+            requireNotProtected(existing);
             final boolean alreadyDeleted = existing.deletedAt != null;
 
             if (dryRun) {
@@ -819,6 +825,7 @@ public final class MemoryService {
                     if (existing == null)
                         throw new ServiceException(ServiceException.NOT_FOUND,
                                 "Memory " + id + " not found.");
+                    requireNotProtected(existing);
                     final boolean alreadyDeleted = existing.deletedAt != null;
                     if (!dryRun)
                         repo.softDelete(db, id, reason, null);
@@ -848,6 +855,64 @@ public final class MemoryService {
         logger.info("forgetBatch: total={} deleted={} already_deleted={} errors={} dry_run={}",
                 ids.size(), deleted, alreadyDel, errs, dryRun);
         return results;
+    }
+
+    // ====================================================================================
+    // set_keep  (CLI-only --- the MCP layer gates this on the admin secret)
+    // ====================================================================================
+
+    /**
+     * Set the {@code keep} protection flag on a memory.  This is the ONLY
+     * operation that may change {@code keep}, and it is deliberately exempt
+     * from the keep='Y' lock so a protected memory can be un-protected
+     * (the no-permanent-lockout rule).  Access is restricted to the
+     * ownsona CLI at the MCP layer; the service just validates and writes.
+     *
+     * @param keep one of Y, N, U (case-insensitive; stored uppercased)
+     * @return the refreshed row
+     */
+    public MemoryRow setKeep(long id, String keep) {
+        final String k = validateKeep(keep);
+        final Connection db = MainServlet.openNewConnection();
+        boolean success = false;
+        try {
+            final boolean ok = repo.setKeep(db, id, k);
+            if (!ok)
+                throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
+            final MemoryRow updated = repo.findById(db, id);
+            logger.info("setKeep: id={} keep={}", id, k);
+            success = true;
+            return updated;
+        } catch (ServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap(e, "setKeep failed");
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+    }
+
+    /**
+     * Throw {@link ServiceException#PROTECTED} when a row is
+     * {@code keep='Y'}.  Called by every content-mutating and deleting
+     * path so the lock holds for all clients (LLMs included).
+     */
+    private static void requireNotProtected(MemoryRow row) {
+        if (row != null && "Y".equals(row.keep))
+            throw new ServiceException(ServiceException.PROTECTED,
+                    "Memory " + row.id + " is protected (keep=Y) and cannot be changed or deleted.");
+    }
+
+    /** Validate and normalize a keep flag to one of Y/N/U (uppercased). */
+    private static String validateKeep(String keep) {
+        if (keep == null)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "keep is required (one of Y, N, U).");
+        final String k = keep.trim().toUpperCase();
+        if (!k.equals("Y") && !k.equals("N") && !k.equals("U"))
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "keep must be one of Y, N, U (got \"" + keep + "\").");
+        return k;
     }
 
     // ====================================================================================

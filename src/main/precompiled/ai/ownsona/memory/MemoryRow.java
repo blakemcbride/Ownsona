@@ -43,4 +43,9 @@ public final class MemoryRow {
     // fact doesn't re-enter the store.
     public String   forgetReason;
     public Long     replacedById;
+
+    // Protection flag: 'Y' (protected --- immutable/undeletable by any
+    // client), 'N' (explicitly not protected), or 'U' (unspecified, the
+    // default).  Only the ownsona CLI may change this value.
+    public String   keep;
 }

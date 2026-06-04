@@ -65,6 +65,14 @@ public final class Config {
     /** Maximum items per {@code remember_batch} call. */
     public static final int MAX_BATCH_SIZE;
 
+    /**
+     * Shared secret that authorizes the CLI-only {@code set_keep}
+     * operation.  Optional: when unset (null/empty) the keep flag cannot
+     * be changed by anyone --- {@code set_keep} fails closed.  The same
+     * value lives in the CLI's config file ({@code admin_secret}).
+     */
+    public static final String ADMIN_SECRET;
+
     static {
         EMBEDDING_API_KEY        = required("EMBEDDING_API_KEY");
         OWNSONA_LOGIN_USERNAME = required("OWNSONA_LOGIN_USERNAME");
@@ -78,6 +86,7 @@ public final class Config {
         MAX_RECALL_LIMIT      = parseInt("MAX_RECALL_LIMIT",     50);
         MAX_TEXT_CHARS        = parseInt("MAX_TEXT_CHARS",       16_000);
         MAX_BATCH_SIZE        = parseInt("MAX_BATCH_SIZE",       200);
+        ADMIN_SECRET          = optional("OwnsonaAdminSecret",   null);
     }
 
     private static String required(String name) {

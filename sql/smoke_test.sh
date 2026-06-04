@@ -28,6 +28,7 @@ set -euo pipefail
 
 BASE_URL="${1:-}"
 TOKEN="${OWNSONA_ACCESS_TOKEN:-}"
+ADMIN_SECRET="${OWNSONA_ADMIN_SECRET:-}"
 
 if [[ -z "$BASE_URL" ]]; then
     echo "Usage: OWNSONA_ACCESS_TOKEN=<jwt> $0 <base-url>" >&2
@@ -83,6 +84,24 @@ call '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"text_searc
 echo "==> find_near_duplicates (diagnostic)"
 call '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"find_near_duplicates","arguments":{"threshold":0.85,"max_groups":5}}}'
 
+# --- keep protection -------------------------------------------------
+# 1. tools/list (above) must NOT contain "set_keep" --- it is CLI-only
+#    and deliberately unadvertised.  Eyeball the id:2 output.
+# 2. list_memories / recall results now carry a "keep" field (Y/N/U).
+# 3. set_keep without the admin secret must fail closed.  An LLM client
+#    has no secret, so it can never change a memory's keep flag.
+echo "==> set_keep WITHOUT admin_secret (must be rejected: \"Unknown tool: set_keep\")"
+call '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"set_keep","arguments":{"id":1,"keep":"Y"}}}'
+
+if [[ -n "$ADMIN_SECRET" ]]; then
+    echo "==> set_keep WITH a wrong admin_secret (must also be rejected)"
+    call '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"set_keep","arguments":{"id":1,"keep":"Y","admin_secret":"definitely-not-the-secret"}}}'
+    echo "    (a correct-secret set_keep is id-specific --- use the manual hint below"
+    echo "     with a real id from list_memories to actually protect a row.)"
+else
+    echo "    (set OWNSONA_ADMIN_SECRET to also exercise the wrong-secret rejection.)"
+fi
+
 echo
 echo "Manual cleanup: forget the smoke-test memory and fixtures by id from the list_memories / text_search output."
 echo "  Single forget with dry_run:"
@@ -95,3 +114,6 @@ echo "  forget (hard delete a single row):"
 echo '       -d '"'"'{"jsonrpc":"2.0","id":100,"method":"tools/call","params":{"name":"forget","arguments":{"id":<ID>,"hard_delete":true}}}'"'"
 echo "  update_memory_batch with dry_run (preview tag normalization):"
 echo '       -d '"'"'{"jsonrpc":"2.0","id":101,"method":"tools/call","params":{"name":"update_memory_batch","arguments":{"items":[{"id":<ID1>,"tags":["testing"]},{"id":<ID2>,"tags":["testing"]}],"dry_run":true}}}'"'"
+echo "  set_keep WITH the real admin secret (protect a row; CLI-only tool):"
+echo '       -d '"'"'{"jsonrpc":"2.0","id":102,"method":"tools/call","params":{"name":"set_keep","arguments":{"id":<ID>,"keep":"Y","admin_secret":"<OwnsonaAdminSecret>"}}}'"'"
+echo "  Then confirm update_memory / forget on that <ID> are rejected with code PROTECTED."

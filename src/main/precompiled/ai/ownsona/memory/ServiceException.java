@@ -15,6 +15,8 @@ public final class ServiceException extends RuntimeException {
     public static final String EMBEDDING_ERROR   = "EMBEDDING_ERROR";
     public static final String DATABASE_ERROR    = "DATABASE_ERROR";
     public static final String LIMIT_EXCEEDED    = "LIMIT_EXCEEDED";
+    /** Memory is keep='Y' and may not be changed or deleted by any client. */
+    public static final String PROTECTED         = "PROTECTED";
 
     private final String code;
 

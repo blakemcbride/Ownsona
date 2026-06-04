@@ -100,12 +100,18 @@ int cmd_add(int argc, char **argv, const ownsona_global_opts_t *gopt) {
     if (ownsona_config_load(gopt->config_path, &cli_overrides, &cfg) != 0)
         return 1;
 
+    /* The CLI stores facts with a tidy trailing period and stamps its
+     * own provenance: source_provider defaults to "ownsona" (overridable
+     * with --provider) and source_client is always "cli". */
+    char *tidied = ownsona_ensure_trailing_period(text);
+
     cJSON *args = cJSON_CreateObject();
-    cJSON_AddStringToObject(args, "text", text);
+    cJSON_AddStringToObject(args, "text", tidied);
+    free(tidied);
     if (tags_csv != NULL)
         cJSON_AddItemToObject(args, "tags", split_tags(tags_csv));
-    if (provider != NULL)
-        cJSON_AddStringToObject(args, "source_provider", provider);
+    cJSON_AddStringToObject(args, "source_provider", provider != NULL ? provider : "ownsona");
+    cJSON_AddStringToObject(args, "source_client", "cli");
     if (importance != NULL)
         cJSON_AddNumberToObject(args, "importance", strtod(importance, NULL));
     if (capture_mode != NULL)

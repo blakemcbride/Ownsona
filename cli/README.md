@@ -36,10 +36,19 @@ After that:
 
 ```bash
 ownsona --help
-ownsona add "fact"            # store a memory
+ownsona add "fact"            # store a memory (alias: remember, new)
 ownsona query "question"      # semantic recall
+ownsona display 5-9,12        # show id, keep, text for selected memories
+ownsona enumerate -k U        # walk unspecified-keep memories and curate them
+ownsona change 12 "new text"  # replace one memory's text
+ownsona delete 5,7,9          # hard-delete selected memories
 ownsona auth status           # check the cached credentials
 ```
+
+The curation commands (`display`, `enumerate`, `change`, `delete`) and the
+per-memory `keep` protection flag are documented in
+[`../CLI.md`](../CLI.md).  Changing the `keep` flag requires `admin_secret`
+in the config (matching the server's `OwnsonaAdminSecret`).
 
 See [`../CLI.md`](../CLI.md) for the full subcommand reference and
 examples.

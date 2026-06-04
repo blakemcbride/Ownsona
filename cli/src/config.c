@@ -176,6 +176,9 @@ static int parse_file(const char *path, bool required, ownsona_config_t *cfg) {
         } else if (strcmp(key, "subject_name") == 0 || strcmp(key, "subject") == 0) {
             free(cfg->subject_name);
             cfg->subject_name = xstrdup(value);
+        } else if (strcmp(key, "admin_secret") == 0) {
+            free(cfg->admin_secret);
+            cfg->admin_secret = xstrdup(value);
         }
         /* Unknown keys are silently ignored --- forward-compat. */
     }
@@ -262,6 +265,11 @@ static int load_internal(const char *explicit_path,
         free(cfg->subject_name);
         cfg->subject_name = xstrdup(env_subject);
     }
+    const char *env_admin = getenv("OWNSONA_ADMIN_SECRET");
+    if (env_admin != NULL && *env_admin != '\0') {
+        free(cfg->admin_secret);
+        cfg->admin_secret = xstrdup(env_admin);
+    }
 
     /* 3) CLI overrides (highest priority) */
     if (cli != NULL) {
@@ -332,5 +340,6 @@ void ownsona_config_free(ownsona_config_t *cfg) {
     free(cfg->llm_model);
     free(cfg->llm_base_url);
     free(cfg->subject_name);
+    free(cfg->admin_secret);
     memset(cfg, 0, sizeof *cfg);
 }

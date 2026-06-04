@@ -65,6 +65,12 @@ typedef struct {
     /* How to refer to the subject in extracted facts ("Blake", "the
      * user", etc.).  Defaults to "the user". */
     char *subject_name;
+
+    /* Shared secret that authorizes the CLI-only `set_keep` operation
+     * (the `keep` protection flag).  Sent only with set_keep calls and
+     * must match the server's OwnsonaAdminSecret.  NULL when unset, in
+     * which case keep changes fail closed on the server. */
+    char *admin_secret;
 } ownsona_config_t;
 
 /*
@@ -167,17 +173,67 @@ typedef struct {
     bool json_output;            /* --json   */
 } ownsona_global_opts_t;
 
-int cmd_add    (int argc, char **argv, const ownsona_global_opts_t *gopt);
-int cmd_query  (int argc, char **argv, const ownsona_global_opts_t *gopt);
-int cmd_search (int argc, char **argv, const ownsona_global_opts_t *gopt);
-int cmd_list   (int argc, char **argv, const ownsona_global_opts_t *gopt);
-int cmd_update (int argc, char **argv, const ownsona_global_opts_t *gopt);
-int cmd_confirm(int argc, char **argv, const ownsona_global_opts_t *gopt);
-int cmd_forget (int argc, char **argv, const ownsona_global_opts_t *gopt);
-int cmd_prompt (int argc, char **argv, const ownsona_global_opts_t *gopt);
-int cmd_import (int argc, char **argv, const ownsona_global_opts_t *gopt);
-int cmd_teach  (int argc, char **argv, const ownsona_global_opts_t *gopt);
-int cmd_auth   (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_add      (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_query    (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_search   (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_list     (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_update   (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_confirm  (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_forget   (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_prompt   (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_import   (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_teach    (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_auth     (int argc, char **argv, const ownsona_global_opts_t *gopt);
+
+/* Curation subcommands (see curate.c for shared helpers). */
+int cmd_display  (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_change   (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_delete   (int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_enumerate(int argc, char **argv, const ownsona_global_opts_t *gopt);
+
+/* ---------------------------------------------------------------------- */
+/* curation helpers (curate.c) --- id selectors, fetch, small utilities   */
+/* ---------------------------------------------------------------------- */
+
+/* One memory as the curation commands care about it: id, keep flag, text. */
+typedef struct {
+    long  id;
+    char  keep;     /* 'Y', 'N', or 'U' */
+    char *text;     /* malloc'd, owned by the array                        */
+} ownsona_mem_t;
+
+/*
+ * Fetch every active (non-deleted) memory via the export_memories tool,
+ * sorted ascending by id.  On success returns 0, sets *out to a malloc'd
+ * array of *out_count rows (free with ownsona_mems_free).  On failure
+ * returns non-zero and sets *err (caller frees).
+ */
+int  ownsona_fetch_active(const ownsona_config_t *cfg,
+                          ownsona_mem_t **out, size_t *out_count, char **err);
+void ownsona_mems_free(ownsona_mem_t *mems, size_t count);
+
+/*
+ * Parse an id-selector string into a sorted, de-duplicated array of ids,
+ * keeping only ids that appear in known_ids (so '$', ranges, and the
+ * empty/all case all resolve against the memories that actually exist).
+ *
+ * Accepts: "5", "5-9", "5,7,9", "5-9,12,20-$", "$".  '$' resolves to the
+ * largest known id; "x-$" expands to x..max.  When spec is NULL or empty,
+ * ALL known ids are selected.
+ *
+ * Returns a malloc'd array (caller frees) and writes its length to
+ * *out_count.  On parse error returns NULL, sets *err (caller frees), and
+ * sets *out_count to 0.
+ */
+long *ownsona_parse_ids(const char *spec,
+                        const long *known_ids, size_t known_count,
+                        size_t *out_count, char **err);
+
+/*
+ * Return a malloc'd copy of `in` with a single trailing '.' appended
+ * unless the trimmed text already ends in '.'.  Caller frees.
+ */
+char *ownsona_ensure_trailing_period(const char *in);
 
 /* ---------------------------------------------------------------------- */
 /* oauth --- bootstrap (auth login) + per-request refresh                 */

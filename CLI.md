@@ -173,6 +173,10 @@ OAuth credentials.
 # --- MCP server (required for every subcommand) ---
 server_url = https://your.host/mcp
 
+# --- keep-flag administration (used only by enumerate k/r) ---
+# Must match the server's OwnsonaAdminSecret.  Env: OWNSONA_ADMIN_SECRET.
+# admin_secret = <shared-secret>
+
 # --- LLM (used only by `teach`) ---
 # Required only when running `teach`.
 llm_api_key  = sk-...
@@ -258,7 +262,14 @@ Run `ownsona --help` for the top-level help, and
 ### Quick reference
 
 ```
-ownsona add "<text>"                       store a memory
+Curation:
+ownsona display [ids] [-k <YNU>]           show id, keep, text (id order)
+ownsona enumerate [ids] [-k <YNU>]         walk + act on each memory
+ownsona change <id> "<new text>"           replace one memory's text
+ownsona delete <ids>                       hard-delete selected memories
+ownsona add "<text>"                       store a memory (alias: remember, new)
+
+Other:
 ownsona query "<question>"                 semantic recall
 ownsona search "<substring>"               substring search
 ownsona list                               recent memories
@@ -270,7 +281,33 @@ ownsona import FILE                        bulk-load JSON or one-per-line
 ownsona teach FILE                         extract facts from prose via LLM
 ownsona auth login                         OAuth bootstrap (run once)
 ownsona auth status                        show current credentials state
+
+ownsona -h | -?                            help
+ownsona -v | -V                            version
+ownsona                                     (no command) prints a short banner
 ```
+
+#### id selectors (`display`, `delete`, `enumerate`)
+
+`ids` is a single token: an id (`5`), a range (`5-9`), a list (`5,7,9`),
+or any combination separated by commas (`5-9,12,20-$`). `$` means the
+last id. Omit it to select all. Ids that don't exist are skipped.
+
+#### The `keep` protection flag
+
+Every memory has a `keep` flag: `Y` (protected — cannot be changed or
+deleted by anyone, including LLM clients), `N` (not protected), or `U`
+(unspecified, the default). `-k <YNU>` filters `display`/`enumerate` by
+flag, e.g. `-k NU` shows only the No and Unspecified rows.
+
+Only this CLI can change the flag, and only with `admin_secret` set in
+the config (matching the server's `OwnsonaAdminSecret`). In `enumerate`:
+`k` protects (Y), `r` un-protects (N), `d` hard-deletes, `c` changes the
+text, `?`/`h` lists commands, `<Enter>` skips, `q` quits. To delete a
+protected memory, `r` it first.
+
+`add` and `change` add a trailing period to the text if missing and stamp
+`source_provider=ownsona` / `source_client=cli`.
 
 ### Common flags across subcommands
 

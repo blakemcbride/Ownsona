@@ -1004,6 +1004,55 @@ Use this when the user asks to find duplicate, redundant, or overlapping memorie
 
 `pair_count` is the number of qualifying pairs inside that cluster (≥ 1; higher means the cluster is denser). `pairs` in the summary is the total raw pair count across all clusters returned. Pair candidates are looked up via pgvector's HNSW index using a fixed top-10 per row, which is more than enough at the cutoffs typical for cleanup (`threshold >= 0.85`).
 
+### 8.14 `set_keep` (CLI-only, unlisted)
+
+Sets the `keep` protection flag on one memory. **This tool is deliberately
+omitted from `tools/list`** and is intended only for the `ownsona`
+command-line administration tool — not for LLM clients.
+
+Arguments:
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | integer | yes | Memory to flag. |
+| `keep` | string | yes | One of `Y`, `N`, `U` (case-insensitive). |
+| `admin_secret` | string | yes | Must match the server's `OwnsonaAdminSecret`. |
+
+Access control: `admin_secret` is compared in constant time against
+`OwnsonaAdminSecret` from `application.ini`. If the secret is missing,
+empty, or wrong, the call is rejected with `INVALID_INPUT` and the message
+`Unknown tool: set_keep` — i.e. it is **indistinguishable from the tool not
+existing**, and it **fails closed** when no secret is configured. Because
+LLM clients neither see the tool nor hold the secret, they can never change
+a memory's `keep` flag.
+
+`set_keep` is **not** subject to the `keep='Y'` lock: a protected memory can
+always be un-protected (setting `keep` to `N` or `U`), so there is no
+permanent lockout.
+
+Response (on success):
+
+```json
+{
+  "ok": true,
+  "memory": { "id": 12, "keep": "Y", "text": "...", ... },
+  "message": "Ok"
+}
+```
+
+### The `keep` field on read outputs
+
+Every memory object returned by `recall`, `list_memories`, `get_memory`,
+`text_search`, and `export_memories` now carries a `keep` field (`Y`/`N`/`U`).
+
+### `source_client` on writes
+
+`remember` and `update_memory` accept an optional `source_client` string
+(and `update_memory` an optional `source_provider`) recorded as provenance.
+These are not advertised in the tool schemas; the `ownsona` CLI sets
+`source_provider="ownsona"` and `source_client="cli"` on the facts it
+writes and edits.
+
 ---
 
 ## 9. Database Requirements
@@ -1051,6 +1100,18 @@ CREATE TABLE memories (
     metadata JSONB NOT NULL DEFAULT '{}'
 );
 ```
+
+Later schema versions add columns via the auto-migrator (`record_version`,
+`expires_at`, `last_confirmed_at`, `forget_reason`, `replaced_by_id`, and
+`keep`). The `keep` column is a protection flag:
+
+```sql
+keep CHAR(1) NOT NULL DEFAULT 'U' CHECK (keep IN ('Y','N','U'))
+```
+
+`Y` = protected (the memory cannot be changed or deleted by any client),
+`N` = explicitly not protected, `U` = unspecified (the default). The flag
+itself can only be changed via the CLI-only `set_keep` tool (§8.14).
 
 ### 9.3 Indexes
 
@@ -1410,8 +1471,13 @@ EMBEDDING_ERROR
 NOT_FOUND
 LIMIT_EXCEEDED
 SECRET_REJECTED
+PROTECTED
 INTERNAL_ERROR
 ```
+
+`PROTECTED` is returned by `update_memory`, `update_memory_batch`,
+`forget`, and `forget_batch` when the target memory is `keep='Y'`
+(immutable/undeletable). Un-protect it first via the CLI's `set_keep`.
 
 Authentication failures do not appear here.  They are emitted as
 RFC 6750 `401 Unauthorized` responses outside the JSON-RPC envelope,

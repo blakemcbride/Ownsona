@@ -158,6 +158,28 @@ sql/
    `OWNSONA_LOGIN_USERNAME` / `OWNSONA_LOGIN_PASSWORD` in
    `application.ini`.
 
+9. **`keep='Y'` is an immutable/undeletable lock, enforced in the
+   service layer for every client.** `MemoryService.requireNotProtected`
+   gates `update`, `forget`, `updateBatch`, and `forgetBatch`; a
+   protected row throws `ServiceException.PROTECTED`. The lock covers
+   text/tags/importance edits and deletion. It does NOT cover the
+   freshness ping (`confirm`), internal re-embedding, or additive record
+   upgraders — none of which change user-visible content. The `keep`
+   flag itself is **always settable** (a protected row can be
+   un-protected — no permanent lockout), but only through the CLI-only
+   `set_keep` path. When adding a new mutation/deletion path, add the
+   `requireNotProtected` guard.
+
+10. **The `keep` flag changes only via `set_keep`, which is CLI-only.**
+    Two layers keep LLM clients out: `set_keep` is omitted from
+    `listTools()` (undiscoverable), and `doSetKeep` requires an
+    `admin_secret` matching `Config.ADMIN_SECRET` (`OwnsonaAdminSecret`
+    in `application.ini`), compared in constant time. It **fails closed**
+    — if no secret is configured, every `set_keep` is rejected as
+    "Unknown tool". Don't advertise `set_keep`, and don't drop the
+    secret check. The CLI holds the same secret as `admin_secret` in its
+    config.
+
 ---
 
 ## Operational model
@@ -285,6 +307,22 @@ phase (not in the migration class).
   short technical fragments (paths, jar names, exit codes) sitting
   in scope; a single `forget_batch` carrying a list of integers in
   its payload doesn't give the filter anything per-row to react to.
+
+- **`set_keep` fails closed and is unlisted.** It does not appear in
+  `tools/list`, and `doSetKeep` rejects every call whose `admin_secret`
+  doesn't match `Config.ADMIN_SECRET` — including the case where the
+  secret is unset (`OwnsonaAdminSecret` missing from `application.ini`).
+  Symptom of a forgotten secret: the CLI's `enumerate` k/r actions (and
+  any `set_keep` call) come back "Unknown tool: set_keep" even though
+  the tool is wired up. Fix is to set `OwnsonaAdminSecret` on the server
+  and the matching `admin_secret` in the CLI config — not to advertise
+  or un-gate the tool.
+
+- **`keep` is a `CHAR(1)` with a DB CHECK (`Y`/`N`/`U`).** `Record`
+  reads it back as a one-character `String` ("U"), not a `char`. Compare
+  with `"Y".equals(row.keep)`, and remember new rows default to `"U"`
+  via the column default — `MemoryInsert.keep` defaults to `"U"` to
+  match. The protection logic keys on the exact string `"Y"`.
 
 ---
 

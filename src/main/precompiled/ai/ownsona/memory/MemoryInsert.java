@@ -28,4 +28,8 @@ public final class MemoryInsert {
     // / never confirmed (the typical durable-memory case).
     public java.util.Date expiresAt;
     public java.util.Date lastConfirmedAt;
+
+    // Protection flag.  New rows start Unspecified; the column has a SQL
+    // default of 'U' as a safety net.  See MemoryRow.keep.
+    public String   keep = "U";
 }

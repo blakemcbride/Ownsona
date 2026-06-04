@@ -31,7 +31,7 @@ public final class MemoryRepository {
             "array_to_json(tags)::text AS tags_json, " +
             "metadata::text AS metadata_json, " +
             "record_version, expires_at, last_confirmed_at, " +
-            "forget_reason, replaced_by_id";
+            "forget_reason, replaced_by_id, keep";
 
     /**
      * SQL fragment that excludes soft-deleted AND expired rows.  Used by
@@ -63,8 +63,8 @@ public final class MemoryRepository {
                 " (user_id, text, normalized_text, embedding, tags, importance, " +
                 "  source_provider, source_client, source_conversation_id, " +
                 "  embedding_provider, embedding_model, metadata, record_version, " +
-                "  expires_at, last_confirmed_at) " +
-                "VALUES (?, ?, ?, ?::vector, ?::text[], ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)",
+                "  expires_at, last_confirmed_at, keep) " +
+                "VALUES (?, ?, ?, ?::vector, ?::text[], ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)",
                 m.userId,
                 m.text,
                 m.normalizedText,
@@ -79,7 +79,8 @@ public final class MemoryRepository {
                 metadata,
                 m.recordVersion,
                 m.expiresAt,
-                m.lastConfirmedAt);
+                m.lastConfirmedAt,
+                (m.keep == null || m.keep.isEmpty()) ? "U" : m.keep);
 
         final Record r = db.fetchOne("SELECT currval('memories_id_seq') AS id");
         if (r == null)
@@ -433,6 +434,20 @@ public final class MemoryRepository {
                           float[] embedding, String[] tags, Double importance,
                           String embeddingProvider, String embeddingModel,
                           java.util.Date expiresAt, java.util.Date lastConfirmedAt) throws Exception {
+        return update(db, id, text, normalizedText, embedding, tags, importance,
+                embeddingProvider, embeddingModel, expiresAt, lastConfirmedAt, null, null);
+    }
+
+    /**
+     * Same as the 11-arg overload but also stamps {@code source_provider}
+     * and/or {@code source_client} when non-null.  Used by the CLI's
+     * {@code change} command to record provenance on a hand edit.
+     */
+    public boolean update(Connection db, long id, String text, String normalizedText,
+                          float[] embedding, String[] tags, Double importance,
+                          String embeddingProvider, String embeddingModel,
+                          java.util.Date expiresAt, java.util.Date lastConfirmedAt,
+                          String sourceProvider, String sourceClient) throws Exception {
         // Either every text-related field is supplied or none of them are;
         // partial combinations would leave the embedding out of sync with
         // the stored text.
@@ -478,6 +493,18 @@ public final class MemoryRepository {
             if (!first) sb.append(", ");
             sb.append("last_confirmed_at = ?");
             args.add(lastConfirmedAt);
+            first = false;
+        }
+        if (sourceProvider != null) {
+            if (!first) sb.append(", ");
+            sb.append("source_provider = ?");
+            args.add(sourceProvider);
+            first = false;
+        }
+        if (sourceClient != null) {
+            if (!first) sb.append(", ");
+            sb.append("source_client = ?");
+            args.add(sourceClient);
             first = false;
         }
 
@@ -554,6 +581,25 @@ public final class MemoryRepository {
         if (r == null)
             return false;
         db.execute("DELETE FROM memories WHERE id = ?", id);
+        return true;
+    }
+
+    /**
+     * Set the {@code keep} protection flag on a row, regardless of its
+     * current value or deleted state.  Unlike {@link #update}, this is
+     * deliberately <em>not</em> blocked when the row is already
+     * {@code keep='Y'} --- the flag has to stay settable so a protected
+     * memory can be un-protected (the no-permanent-lockout rule).  The
+     * caller (service layer) is responsible for restricting this to the
+     * CLI; the repository just writes the value.
+     *
+     * @return true if a row with that id exists, false otherwise.
+     */
+    public boolean setKeep(Connection db, long id, String keep) throws Exception {
+        final Record r = db.fetchOne("SELECT id FROM memories WHERE id = ?", id);
+        if (r == null)
+            return false;
+        db.execute("UPDATE memories SET keep = ? WHERE id = ?", keep, id);
         return true;
     }
 
@@ -756,6 +802,7 @@ public final class MemoryRepository {
         m.lastConfirmedAt      = r.getDateTime("last_confirmed_at");
         m.forgetReason         = r.getString("forget_reason");
         m.replacedById         = r.getLong("replaced_by_id");
+        m.keep                 = r.getString("keep");
         return m;
     }
 

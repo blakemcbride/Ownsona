@@ -674,6 +674,10 @@ public class MCPServer extends MCPServerBase {
                 case "memory_stats":         return doMemoryStats(arguments);
                 case "list_tags":            return doListTags(arguments);
                 case "export_memories":      return doExportMemories(arguments);
+                // CLI-only.  Deliberately NOT advertised in listTools(), and
+                // gated on the admin secret inside doSetKeep --- LLM clients
+                // can neither discover it nor invoke it.
+                case "set_keep":             return doSetKeep(arguments);
                 default:
                     return errorResult(ServiceException.INVALID_INPUT, "Unknown tool: " + name);
             }
@@ -696,9 +700,10 @@ public class MCPServer extends MCPServerBase {
         final String   dedupPolicy     = args.getString("dedup_policy", null);
         final Date     expiresAt       = parseIso(args.getString("expires_at", null));
         final Date     lastConfirmedAt = parseIso(args.getString("last_confirmed_at", null));
+        final String   client          = args.getString("source_client", null);
 
         final RememberResult r = SERVICE.remember(text, tags, provider, imp, captureMode, sessionId,
-                dedupPolicy, expiresAt, lastConfirmedAt);
+                dedupPolicy, expiresAt, lastConfirmedAt, client);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);
@@ -889,9 +894,12 @@ public class MCPServer extends MCPServerBase {
         final Double   imp             = args.has("importance") ? args.getDouble("importance") : null;
         final Date     expiresAt       = parseIso(args.getString("expires_at", null));
         final Date     lastConfirmedAt = parseIso(args.getString("last_confirmed_at", null));
+        final String   provider        = args.getString("source_provider", null);
+        final String   client          = args.getString("source_client", null);
         final boolean  dryRun          = args.has("dry_run") && Boolean.TRUE.equals(args.opt("dry_run"));
 
-        final UpdateResult res = SERVICE.update(id, text, tags, imp, expiresAt, lastConfirmedAt, dryRun);
+        final UpdateResult res = SERVICE.update(id, text, tags, imp, expiresAt, lastConfirmedAt,
+                provider, client, dryRun);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);
@@ -1123,6 +1131,45 @@ public class MCPServer extends MCPServerBase {
         return successResult(out);
     }
 
+    /**
+     * CLI-only protection-flag setter.  Two layers keep LLM clients out:
+     * this tool is omitted from {@code listTools()} (undiscoverable), and
+     * every call must carry an {@code admin_secret} matching
+     * {@link Config#ADMIN_SECRET}.  Fails closed: when no secret is
+     * configured on the server, every call is rejected.
+     */
+    private static JSONObject doSetKeep(JSONObject args) {
+        final String configured = Config.ADMIN_SECRET;
+        final String supplied   = args.getString("admin_secret", null);
+        if (configured == null || configured.isEmpty() || !constantTimeEquals(configured, supplied))
+            throw new ServiceException(ServiceException.INVALID_INPUT, "Unknown tool: set_keep");
+
+        if (!args.has("id"))
+            throw new ServiceException(ServiceException.INVALID_INPUT, "id is required.");
+        final long   id   = args.getLong("id");
+        final String keep = args.getString("keep", null);
+
+        final MemoryRow row = SERVICE.setKeep(id, keep);
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("memory", memoryToMatchJson(row));
+        out.put("message", "Ok");
+        return successResult(out);
+    }
+
+    /**
+     * Length-stable equality check that avoids leaking the secret's length
+     * or matched-prefix length via timing.  Null {@code b} never matches.
+     */
+    private static boolean constantTimeEquals(String a, String b) {
+        if (a == null || b == null)
+            return false;
+        final byte[] ab = a.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        final byte[] bb = b.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        return java.security.MessageDigest.isEqual(ab, bb);
+    }
+
     private static JSONObject doCountMemories(JSONObject args) {
         final boolean includeDeleted = args.has("include_deleted") && Boolean.TRUE.equals(args.opt("include_deleted"));
         final String[] tags          = optStringArray(args, "tags");
@@ -1237,6 +1284,7 @@ public class MCPServer extends MCPServerBase {
         o.put("created_at", iso(m.createdAt));
         o.put("updated_at", iso(m.updatedAt));
         o.put("tags", new JSONArray(java.util.Arrays.asList(m.tags == null ? new String[0] : m.tags)));
+        o.put("keep", m.keep == null ? "U" : m.keep);
         if (m.sourceProvider != null)
             o.put("source_provider", m.sourceProvider);
         final String captureMode = captureModeOf(m);
@@ -1264,6 +1312,7 @@ public class MCPServer extends MCPServerBase {
         o.put("created_at", iso(m.createdAt));
         o.put("updated_at", iso(m.updatedAt));
         o.put("tags", new JSONArray(java.util.Arrays.asList(m.tags == null ? new String[0] : m.tags)));
+        o.put("keep", m.keep == null ? "U" : m.keep);
         if (m.deletedAt != null)
             o.put("deleted_at", iso(m.deletedAt));
         final String captureMode = captureModeOf(m);

@@ -414,6 +414,12 @@ EMBEDDING_DIMENSIONS   = 1536
 OWNSONA_LOGIN_USERNAME = <pick-any-username>
 OWNSONA_LOGIN_PASSWORD = <pick-a-strong-password>
 
+# Optional: shared secret that authorizes the ownsona CLI's keep-flag
+# changes (set_keep).  Put the same value in the CLI config as
+# admin_secret.  Leave unset to disable keep changes entirely (the
+# server then fails closed, so nothing can change a memory's keep flag).
+# OwnsonaAdminSecret = <pick-a-strong-random-secret>
+
 # OAuth 2.1 (resource server + embedded authorization server).
 # OAuthAuthorizationServer is the single URL that drives everything:
 # the resource identifier, the AS issuer, and the JWKS URI all derive

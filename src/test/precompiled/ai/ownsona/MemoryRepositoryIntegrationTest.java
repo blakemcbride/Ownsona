@@ -1159,6 +1159,54 @@ class MemoryRepositoryIntegrationTest {
 
     // -------------------------------------------------------------------------------
 
+    @Test
+    void newRowDefaultsKeepToUnspecified() throws Exception {
+        final long id = insert("Fresh row.", new String[]{});
+        final MemoryRow row = repo.findById(db, id);
+        assertEquals("U", row.keep, "new rows default keep to U");
+    }
+
+    @Test
+    void setKeepFlipsBetweenValues() throws Exception {
+        final long id = insert("Toggle me.", new String[]{});
+        assertTrue(repo.setKeep(db, id, "Y"));
+        assertEquals("Y", repo.findById(db, id).keep);
+        assertTrue(repo.setKeep(db, id, "N"));
+        assertEquals("N", repo.findById(db, id).keep);
+        assertTrue(repo.setKeep(db, id, "U"));
+        assertEquals("U", repo.findById(db, id).keep);
+    }
+
+    @Test
+    void setKeepStaysSettableOnProtectedRow() throws Exception {
+        // The flag itself is never locked --- a protected row can always be
+        // un-protected (no permanent lockout).
+        final long id = insert("Protected then freed.", new String[]{});
+        assertTrue(repo.setKeep(db, id, "Y"));
+        assertTrue(repo.setKeep(db, id, "N"), "keep flag must remain settable on a Y row");
+        assertEquals("N", repo.findById(db, id).keep);
+    }
+
+    @Test
+    void setKeepReturnsFalseForMissingId() throws Exception {
+        assertFalse(repo.setKeep(db, 999_999L, "Y"));
+    }
+
+    @Test
+    void insertHonorsExplicitKeep() throws Exception {
+        final MemoryInsert m = new MemoryInsert();
+        m.userId            = USER_ID;
+        m.text              = "Born protected.";
+        m.normalizedText    = TextNormalizer.normalize("Born protected.");
+        m.embedding         = embedder.embed("Born protected.");
+        m.tags              = new String[]{};
+        m.embeddingProvider = "mock";
+        m.embeddingModel    = embedder.modelName();
+        m.keep              = "Y";
+        final long id = repo.insert(db, m);
+        assertEquals("Y", repo.findById(db, id).keep);
+    }
+
     private long insert(String text, String[] tags) throws Exception {
         final MemoryInsert m = new MemoryInsert();
         m.userId               = USER_ID;
