@@ -309,6 +309,39 @@ the config (matching the server's `OwnsonaAdminSecret`). In `enumerate`:
 text, `?`/`h` lists commands, `<Enter>` skips, `q` quits. To delete a
 protected memory, `r` it first.
 
+##### Enabling `keep` management (the admin secret)
+
+Changing the flag is gated by a shared secret that must be set in **both**
+places, with the **same value**. Until it is, `set_keep` fails closed:
+the CLI reports *"admin_secret is not configured"*, and even with the CLI
+side set, the server rejects the call as *"Unknown tool: set_keep"*.
+
+1. **Pick a strong secret**, e.g.:
+
+   ```bash
+   openssl rand -hex 32
+   ```
+
+2. **Server** — set it in `application.ini` and restart so it's picked up
+   (it's read once at startup; no rebuild needed if you edit the deployed
+   copy, but also add it to the source-tree `application.ini` so future
+   WAR builds keep it):
+
+   ```ini
+   OwnsonaAdminSecret = <the secret>
+   ```
+
+3. **CLI** — set the same value in your config (`admin_secret`), or export
+   `OWNSONA_ADMIN_SECRET`:
+
+   ```ini
+   admin_secret = <the secret>
+   ```
+
+Leave the server's `OwnsonaAdminSecret` unset to disable `keep` changes
+entirely (fail closed). The CLI config holds a secret, so keep it locked
+down: `chmod 600 ~/.config/ownsona/config.ini`.
+
 `add` and `change` add a trailing period to the text if missing and stamp
 `source_provider=ownsona` / `source_client=cli`.
 

@@ -248,9 +248,16 @@ Do all of the following:
 4. **Leave the existing `EMBEDDING_*` keys alone.** They are still
    required and unchanged from the old build.
 
-5. **Leave the `Database*` keys alone.** Unchanged from the old build.
+5. **Optional: `OwnsonaAdminSecret`.** If you'll manage the per-memory
+   `keep` protection flag from the `ownsona` CLI, set
+   `OwnsonaAdminSecret = <a strong secret>` here and the same value as
+   `admin_secret` in the CLI config. Leave it unset to disable `keep`
+   changes (fail closed). See CLI.md ("Enabling `keep` management") and
+   INSTALL.md.
 
-6. **Save the file.** Confirm it is still mode `600`:
+6. **Leave the `Database*` keys alone.** Unchanged from the old build.
+
+7. **Save the file.** Confirm it is still mode `600`:
 
    ```bash
    ls -l src/main/backend/application.ini
