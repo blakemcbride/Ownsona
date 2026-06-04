@@ -213,8 +213,11 @@ the walker.  The walker then fills the now-resized column.
 
    import org.kissweb.database.Connection;
 
-   public final class Migration005ResizeEmbeddingTo3072 implements Migration {
-       @Override public int version() { return 5; }
+   // The version numbers in this example assume the next free version
+   // is 6 (v5 is taken by Migration005AddKeep).  Use whatever
+   // CURRENT_DB_VERSION + 1 is when you actually write this.
+   public final class Migration006ResizeEmbeddingTo3072 implements Migration {
+       @Override public int version() { return 6; }
        @Override public String name() { return "resize embedding to vector(3072)"; }
        @Override public void apply(Connection db) throws Exception {
            // Relax NOT NULL so we can null out via the type change.
@@ -255,9 +258,9 @@ the walker.  The walker then fills the now-resized column.
    `src/main/precompiled/ai/ownsona/migrations/MigrationRegistry.java`:
 
    ```java
-   public static final int CURRENT_DB_VERSION = 5;
+   public static final int CURRENT_DB_VERSION = 6;
    ...
-   m.add(new Migration005ResizeEmbeddingTo3072());
+   m.add(new Migration006ResizeEmbeddingTo3072());
    ```
 
 4. **Update `application.ini`** (source tree, and on the server) with
@@ -287,7 +290,7 @@ the walker.  The walker then fills the now-resized column.
          "CREATE INDEX memories_embedding_idx ON memories USING hnsw (embedding vector_cosine_ops);"
 
 9. **Optional cleanup: restore `NOT NULL`** on the embedding column
-   in a follow-up migration (`Migration006`).  Strictly optional — the
+   in a follow-up migration (`Migration007`).  Strictly optional — the
    server always sets `embedding` on insert / update.  If you do,
    ship it in a later commit, after you've confirmed every row has
    a non-NULL embedding.

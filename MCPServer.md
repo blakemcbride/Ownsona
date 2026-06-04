@@ -26,10 +26,11 @@ place.
 | Secret rejection (OpenAI/AWS/GitHub/Slack/JWT/PEM) | done |
 | Duplicate detection by normalized text + unique partial index | done |
 | Soft delete by default; `hard_delete: true` opt-in; `dry_run` preview on `forget` / `forget_batch` | done |
+| Per-memory `keep` protection flag (`Y`/`N`/`U`, default `U`); `keep='Y'` blocks update/forget for every client; flag changed only via the CLI-only, secret-gated, unadvertised `set_keep` tool (Migration005, `CURRENT_DB_VERSION = 5`) | done |
 | pgvector cosine similarity search | done |
 | Embedding-provider abstraction (OpenAI + mock) | done |
 | Per-user `user_id` plumbing | done |
-| Unit + integration tests | 47 tests, all passing (`sql/run_tests.sh`) |
+| Unit + integration tests | passing via `sql/run_tests.sh` (DB-gated integration tests skip without `OWNSONA_TEST_DATABASE_URL`) |
 | Connection pool | shared with Kiss (`MainServlet.openNewConnection`); Kiss owns lifecycle |
 | Vector index | done (HNSW, `vector_cosine_ops`); planner picks it once rows justify it |
 
@@ -100,8 +101,10 @@ Required keys:
 | `EMBEDDING_API_KEY`        | OpenAI key for the embeddings endpoint |
 | `OWNSONA_LOGIN_USERNAME` | Username the OAuth AS consent page accepts |
 | `OWNSONA_LOGIN_PASSWORD` | Password the OAuth AS consent page accepts (plaintext; file is chmod 600) |
-| `OAuthAuthorizationServer` | AS issuer URL (`https://<your-host>`); turns on the resource server. Resource identifier, AS issuer, and JWKS URI all default from this single value, so no other OAuth key is required for a standard embedded-AS deployment. |
+| `OAuthAuthorizationServer` | AS issuer URL (`https://<your-host>`); turns on the resource server. AS issuer and JWKS URI default from this value. |
+| `OAuthResourceIdentifier` | Canonical identifier of this protected resource — the `aud` MCP clients carry. **Set to the `/mcp` URL** (`https://<your-host>/mcp`). It does **not** usefully default from `OAuthAuthorizationServer`: the bare host wouldn't match the audience clients send (their RFC 8707 `resource` is the `/mcp` server URL), so every `/mcp` request would 401 on audience mismatch. |
 | `OAuthAsEnabled`           | `true` to enable the embedded authorization server |
+| `OAuthAsSqliteFile`        | Absolute path (outside the webapps tree) where the AS persists its state — signing key, clients, refresh tokens — across redeploys, e.g. `/home/<user>/oauth.sqlite` |
 | `EMBEDDING_ENDPOINT`       | Embeddings endpoint URL (e.g. `https://api.openai.com/v1/embeddings`) |
 | `EMBEDDING_MODEL`       | Embedding model name (e.g. `text-embedding-3-small`) |
 | `EMBEDDING_DIMENSIONS`  | Embedding vector dimensions; **must match** the `vector(N)` column type in `sql/001_init.sql` |
@@ -116,6 +119,7 @@ Optional with sensible defaults:
 | `MAX_RECALL_LIMIT`      | `50` |
 | `MAX_TEXT_CHARS`        | `16000` |
 | `MAX_BATCH_SIZE`        | `200` |
+| `OwnsonaAdminSecret`    | unset → the CLI-only `set_keep` fails closed (the `keep` flag can't be changed by anyone). Set it (and the matching `admin_secret` in the CLI config) to manage `keep`. |
 
 The live `application.ini` lives in the source tree at
 `src/main/backend/` (gitignored). The `bld` build copies it into the
@@ -311,12 +315,24 @@ first attempt with the placeholder server.
 
 ## Tomcat noise --- different mechanism
 
-Noise from Tomcat itself (HTTP-parser INFO from scanners with bad Host
-headers, HTTP/2 protocol warnings, client-aborted-connection chatter)
-is `java.util.logging`, not log4j2. Suppression goes in
-`src/main/core/org/kissweb/restServer/StartupListener.java`'s
-`configTomcatLogger()` method. JUL silencing belongs in core's
+Noise from Tomcat itself (malformed-request INFO from port scanners,
+TLS spoken to the plaintext port, HTTP/2 protocol chatter, invalid bot
+cookies, client aborts) is `java.util.logging`, not log4j2. Suppression
+lives in `src/main/core/org/kissweb/restServer/StartupListener.java`'s
+`configTomcatLogger()` --- JUL silencing belongs in core's
 StartupListener, not in application code.
+
+Two subtleties that took a fix:
+
+- **JUL references loggers weakly.** Setting a level on a logger whose
+  reference you don't keep is lost to GC, and the noise returns hours or
+  days later. `StartupListener` now holds strong references to every
+  logger it reconfigures.
+- **Suppress by content, not by level.** Cranking the connector loggers
+  to SEVERE also hid their genuine warnings. A `Filter` on the root
+  handlers now drops only the specific meaningless records (bad request
+  lines, abusive HTTP/2, invalid cookies, client aborts) at any level,
+  so real Tomcat warnings — and all application logging — still appear.
 
 ## History
 
@@ -445,3 +461,21 @@ StartupListener, not in application code.
   `Connection`, which Kiss's own `openNewConnection()` does not do.
   Kiss's lifecycle now owns pool teardown, so `OwnsonaContextListener`
   was deleted too.
+- **2026-06-04** --- Added the per-memory `keep` protection flag
+  (`Y`/`N`/`U`; Migration005, `CURRENT_DB_VERSION = 5`): `keep='Y'`
+  blocks update/forget for every client, and the flag is changed only
+  via a CLI-only, secret-gated (`OwnsonaAdminSecret`), unadvertised
+  `set_keep` tool. Extended the `ownsona` CLI with curation commands
+  (`display` / `change` / `delete` / `enumerate`, id selectors, `-k`
+  filter). Fixed three deployment-adjacent issues found while shipping
+  it: `OAuthResourceIdentifier` must be the `/mcp` URL or the resource
+  server 401s on audience mismatch; the OAuth ini→SQLite migration now
+  runs only when the SQLite DB is newly created (a lingering
+  `oauth.ini` was re-importing into a populated DB and failing AS
+  startup); and `StartupListener` now holds strong references to its
+  reconfigured JUL loggers and filters Tomcat connector noise by
+  content instead of blanket-SEVERE (which had been hiding genuine
+  warnings).
+
+  *(Note: this History section is not kept exhaustively current — `git
+  log` is canonical. It captures the larger design beats.)*

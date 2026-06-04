@@ -85,6 +85,13 @@ own authorization server, so no external IdP is required); secret-shaped
 inputs (API keys, JWTs, PEM private-key markers, etc.) are rejected
 before they hit the database.
 
+Every memory carries a `keep` protection flag (`Y`/`N`/`U`, default
+`U`): a `keep='Y'` memory cannot be changed or deleted by any client.
+The flag is returned on every read tool's output, but it can only be
+*changed* through the `ownsona` CLI — via a secret-gated, unadvertised
+`set_keep` operation — so connected LLM clients can read protection
+status yet never alter it.
+
 ## Command-line client
 
 Ownsona ships with a small standalone CLI under [`cli/`](cli/) for
@@ -94,10 +101,18 @@ Ownsona MCP server's database.
 
 Written in portable C; builds on Linux, macOS, and Windows (MSYS2
 UCRT64) with one runtime dependency (libcurl) and a single Makefile.
-Each MCP tool maps to a subcommand:
+It offers curation commands for managing the store plus thin wrappers
+over individual MCP tools:
 
 ```bash
-ownsona add    "<text>"           # remember
+# Curation (id selectors: an id, a range 5-9, a list 5,7,9, or 5-9,12,$)
+ownsona display [ids] [-k YNU]    # show id, keep, text, in id order
+ownsona enumerate [ids] [-k YNU]  # walk + act on each memory interactively
+ownsona change <id> "<text>"      # replace one memory's text
+ownsona delete <ids>              # hard-delete the selected memories
+ownsona add    "<text>"           # remember (aliases: remember, new)
+
+# Thin tool wrappers
 ownsona query  "<question>"       # recall
 ownsona search "<substring>"      # text_search
 ownsona list                      # list_memories
@@ -109,6 +124,11 @@ ownsona import FILE               # remember_batch (JSON or lines)
 ownsona teach  FILE               # extract facts from prose via an LLM,
                                   # then bulk-load them
 ```
+
+The curation commands (`display` / `enumerate` / `change` / `delete`)
+and the `keep` protection flag they manage are documented in
+[`CLI.md`](CLI.md); changing `keep` needs an `admin_secret` in the CLI
+config that matches the server's `OwnsonaAdminSecret`.
 
 The `teach` subcommand is the headline feature: hand it a long-form
 text (an autobiography draft, journal, project notes) and it uses an

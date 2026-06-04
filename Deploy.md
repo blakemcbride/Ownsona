@@ -67,8 +67,12 @@ Confirm each item before touching the server.
 - **You can reach the VPS over SSH** as a sudoer.
 - **You know the public host** the LLM clients dial out to
   (e.g. `https://ownsona.example.com`). This becomes
-  `OAuthAuthorizationServer`. It must be the **exact same URL** the
-  clients use — token `iss` and `aud` claims are checked against it.
+  `OAuthAuthorizationServer`, and `OAuthResourceIdentifier` is that host
+  plus `/mcp`. The token `iss` is checked against
+  `OAuthAuthorizationServer`; the token `aud` is checked against
+  `OAuthResourceIdentifier` — and MCP clients carry the `/mcp` URL as
+  their audience, so the resource identifier **must** include `/mcp`
+  (see step 3.4).
 - **The TLS cert at that host is valid.** OAuth clients refuse to follow
   redirects to invalid HTTPS; certbot must be running and the cert not
   expired.
@@ -201,31 +205,44 @@ Do all of the following:
    ```
 
 3. **Add the OAuth section.** A standard single-host deployment needs
-   exactly three keys:
+   these keys:
 
    ```ini
    # OAuth 2.1 (resource server + embedded authorization server).
-   # OAuthAuthorizationServer is the single URL that drives everything:
-   # resource identifier, AS issuer, and JWKS URI all derive from it.
+   # AS issuer and JWKS URI derive from OAuthAuthorizationServer.
    OAuthAuthorizationServer = https://<your-host>
    OAuthAsEnabled           = true
 
+   # Canonical identifier of THIS protected resource --- the token 'aud'.
+   # MUST be the /mcp URL: MCP clients send the /mcp server URL as their
+   # RFC 8707 'resource', so the AS stamps that into 'aud' and the
+   # resource server must expect the same value.  It does NOT usefully
+   # default from OAuthAuthorizationServer (the bare host never matches
+   # the audience clients carry, 401-ing every /mcp request).
+   OAuthResourceIdentifier = https://<your-host>/mcp
+
    # Persist the AS signing key + registered clients + refresh tokens
-   # OUTSIDE the Tomcat webapps tree.  Without this line, the file
-   # defaults to WEB-INF/backend/oauth.ini --- which is rewritten on
-   # every WAR redeploy, silently rotating the AS signing key and
-   # forcing every LLM client through the browser OAuth flow again.
-   # Pick any absolute path the service user can write to (see step
-   # 3.4a below).
-   OAuthAsIniFile = /home/ownsona/oauth.ini
+   # in a SQLite database OUTSIDE the Tomcat webapps tree, so a WAR
+   # redeploy can't reset the AS state (which would rotate the signing
+   # key and force every LLM client through the browser OAuth flow
+   # again).  Pick any absolute path the service user can write to
+   # (see step 3.4a below).
+   OAuthAsSqliteFile = /home/ownsona/oauth.sqlite
+
+   # OPTIONAL: only for a one-time import of a legacy oauth.ini into the
+   # SQLite store on a server upgrading from the old ini-based AS.  The
+   # import runs only when the SQLite file does NOT yet exist; once it
+   # does, this line is ignored.  Omit it on a fresh install.
+   # OAuthAsIniFile = /home/ownsona/oauth.ini
    ```
 
    Replace `<your-host>` with the public host of your VPS (e.g.
    `ownsona.example.com`). Include `https://`. **Do not include a
-   trailing slash** — the validator trims it but matching is easier
-   to reason about when the configured value is canonical.
+   trailing slash** on `OAuthAuthorizationServer` — the validator trims
+   it but matching is easier to reason about when the configured value
+   is canonical.
 
-   Replace `/home/ownsona/oauth.ini` with whatever absolute path you
+   Replace `/home/ownsona/oauth.sqlite` with whatever absolute path you
    chose in step 3.4a.
 
 4. **Leave the existing `EMBEDDING_*` keys alone.** They are still
@@ -251,19 +268,18 @@ for the full list):
 # OAuthRequiredScopes          =
 ```
 
-### 3.4a Choose a location for `oauth.ini`
+### 3.4a Choose a location for `oauth.sqlite`
 
-The AS persistence file holds the master signing key and every
-registered MCP client. It is rewritten at runtime as new clients
-register and refresh tokens rotate. Two reasons to put it outside the
-deployed webapp:
+The AS persistence file (a SQLite database) holds the master signing
+key and every registered MCP client. It is written at runtime as new
+clients register and refresh tokens rotate. Two reasons to put it
+outside the deployed webapp:
 
-- **Survives redeploys.** The default location `WEB-INF/backend/oauth.ini`
-  is overwritten every time you `cp work/Kiss.war ROOT.war`, because
-  Tomcat re-extracts the WAR over the existing directory. Every redeploy
-  silently rotates the AS signing key → every issued access token
-  fails verification → every LLM client gets bounced back through the
-  browser OAuth flow.
+- **Survives redeploys.** A path inside the webapp tree is overwritten
+  every time you `cp work/Kiss.war ROOT.war`, because Tomcat re-extracts
+  the WAR over the existing directory. That resets the AS state →
+  rotates the signing key → every issued access token fails verification
+  → every LLM client gets bounced back through the browser OAuth flow.
 - **Backup-friendly.** A predictable absolute path is easy to add to
   your existing backup policy.
 
@@ -278,9 +294,9 @@ Common choices:
 
 | Path | Why you might pick it |
 |---|---|
-| `/home/ownsona/oauth.ini` | Service user's home directory; no extra setup needed (the directory already exists and is owned by `ownsona`). |
-| `/var/lib/ownsona/oauth.ini` | Conventional Linux state-file location; needs a one-time `sudo install -d -o ownsona -g ownsona -m 700 /var/lib/ownsona`. |
-| `/etc/ownsona/oauth.ini` | If you treat it as host configuration; same one-time `install -d` step. |
+| `/home/ownsona/oauth.sqlite` | Service user's home directory; no extra setup needed (the directory already exists and is owned by `ownsona`). |
+| `/var/lib/ownsona/oauth.sqlite` | Conventional Linux state-file location; needs a one-time `sudo install -d -o ownsona -g ownsona -m 700 /var/lib/ownsona`. |
+| `/etc/ownsona/oauth.sqlite` | If you treat it as host configuration; same one-time `install -d` step. |
 
 If you go with the simplest option:
 
@@ -297,20 +313,20 @@ sudo install -d -o ownsona -g ownsona -m 700 /var/lib/ownsona   # adapt as neede
 ```
 
 Record whatever path you chose; you'll paste it into `application.ini`
-as `OAuthAsIniFile = <that path>` in step 3.4.
+as `OAuthAsSqliteFile = <that path>` in step 3.4.
 
-If you skip this step entirely (leave `OAuthAsIniFile` unset), the AS
-falls back to `WEB-INF/backend/oauth.ini`. That works, but every
-redeploy will reset OAuth state — fine for short-lived dev installs,
-inadvisable for anything you don't want to re-authorize from every
-client every time you ship.
+If you skip this step entirely (leave `OAuthAsSqliteFile` unset), the AS
+state can land inside the deployed webapp tree, where every redeploy
+resets it — fine for short-lived dev installs, inadvisable for anything
+you don't want to re-authorize from every client every time you ship.
 
 ### 3.5 Build and deploy the new WAR
 
-The build embeds `application.ini` into the WAR. It deliberately
-**excludes** `oauth.ini` (the AS signing key + registered client + refresh
-token store), so any state the AS later writes lives only on the deployed
-side and is not clobbered by a future redeploy.
+The build embeds `application.ini` into the WAR. The AS state store
+(`oauth.sqlite` — the AS signing key + registered clients + refresh
+tokens) lives at the absolute `OAuthAsSqliteFile` path outside the
+webapp tree, so any state the AS writes is not clobbered by a future
+redeploy.
 
 ```bash
 cd /home/ownsona/ownsona
@@ -381,6 +397,14 @@ realm="...", resource_metadata="..."` header. If it returns 200, the
 OAuth resource-server is not gating requests — almost always because
 `OAuthAuthorizationServer` was left blank in step 3.4.
 
+In the first call's output, confirm the advertised `resource` is the
+**`/mcp` URL** (`https://<your-host>/mcp`), not the bare host. If it
+shows the bare host, `OAuthResourceIdentifier` is unset/wrong — and
+then a real client will complete the OAuth login but every `/mcp` call
+will still come back `401` (the validator rejects the token because its
+`aud` is the `/mcp` URL while the server expects the bare host). Fix
+`OAuthResourceIdentifier` in step 3.4 and restart.
+
 If all four pass, **the server is ready.** Move on to the clients.
 
 ---
@@ -447,7 +471,7 @@ flow again unless:
 
 - you revoke the refresh token, or
 - the AS signing key rotates (e.g. you delete the AS state file at
-  `OAuthAsIniFile`), or
+  `OAuthAsSqliteFile`), or
 - the refresh token TTL elapses (30 days by default).
 
 ### 4.4 Per-client notes
@@ -559,12 +583,12 @@ listed in the corresponding phase's ship checklist in
   again; you re-enter your `OWNSONA_LOGIN_USERNAME` /
   `OWNSONA_LOGIN_PASSWORD` and click Allow.
 - The AS state — signing key, dynamically-registered clients, refresh
-  tokens — lives at the path you set in `OAuthAsIniFile` (§3.4a). The
-  WAR build also excludes the dev `oauth.ini` from the packaged WAR,
-  but the absolute-path setting is what guarantees future redeploys
-  cannot touch the live AS state.
+  tokens — lives in the SQLite database at the path you set in
+  `OAuthAsSqliteFile` (§3.4a). The absolute-path setting outside the
+  webapp tree is what guarantees future redeploys cannot touch the live
+  AS state.
 - To force-invalidate every issued token (e.g. you suspect a leak),
-  stop the service, delete the AS state file at `OAuthAsIniFile`, and
+  stop the service, delete the AS state file at `OAuthAsSqliteFile`, and
   start the service. Each LLM client redoes the full OAuth flow on
   next use.
 - To rotate the login password without invalidating any client

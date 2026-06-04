@@ -421,12 +421,22 @@ OWNSONA_LOGIN_PASSWORD = <pick-a-strong-password>
 # OwnsonaAdminSecret = <pick-a-strong-random-secret>
 
 # OAuth 2.1 (resource server + embedded authorization server).
-# OAuthAuthorizationServer is the single URL that drives everything:
-# the resource identifier, the AS issuer, and the JWKS URI all derive
-# from it.  Use the full URL with scheme; for host example.com that's
-# https://example.com.
+# OAuthAuthorizationServer is the AS issuer URL; the AS issuer and JWKS
+# URI derive from it.  Use the full URL with scheme; for host
+# example.com that's https://example.com.
 OAuthAuthorizationServer = https://<your-host>
 OAuthAsEnabled           = true
+
+# Canonical identifier of this protected resource (the token 'aud').
+# MUST be the /mcp URL: MCP clients send the /mcp server URL as their
+# RFC 8707 'resource', so this has to match or every /mcp request 401s
+# on audience mismatch.  It does NOT usefully default from
+# OAuthAuthorizationServer (the bare host).
+OAuthResourceIdentifier = https://<your-host>/mcp
+
+# Persist the AS state (signing key, clients, refresh tokens) in a
+# SQLite db OUTSIDE the webapps tree so redeploys can't reset it.
+OAuthAsSqliteFile = /home/ownsona/oauth.sqlite
 ```
 
 #### What `OWNSONA_LOGIN_USERNAME` / `OWNSONA_LOGIN_PASSWORD` are
