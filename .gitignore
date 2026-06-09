@@ -29,6 +29,7 @@ claude-resume
 src/main/backend/application.ini
 src/main/backend/oauth.ini
 .mcp.json
+LoginInfo.txt
 
 
 # Gradle
