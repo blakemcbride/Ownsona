@@ -560,6 +560,47 @@ static int discover_authorization_server(const ownsona_config_t *cfg,
     return 0;
 }
 
+/*
+ * Resolve the canonical resource identifier (RFC 8707 / RFC 9728) the
+ * access token must be bound to.  Reads the "resource" field from the
+ * protected-resource metadata at
+ * <server_origin>/.well-known/oauth-protected-resource so the CLI sends
+ * exactly the audience the server expects --- rather than assuming it is
+ * the server URL, which is wrong whenever the server binds tokens to the
+ * bare host (the AS==RS default).  Returns 0 and sets *resource_out
+ * (malloc'd, caller owns) on success; non-zero on any failure.
+ */
+static int discover_resource(const ownsona_config_t *cfg, char **resource_out) {
+    *resource_out = NULL;
+    char *origin = origin_of(cfg->server_url);
+    if (origin == NULL)
+        return 1;
+    char url[1024];
+    snprintf(url, sizeof url, "%s/.well-known/oauth-protected-resource", origin);
+    free(origin);
+
+    long status = 0;
+    char *err = NULL;
+    char *body = http_get(url, &status, &err);
+    free(err);
+    if (body == NULL || status != 200) {
+        free(body);
+        return 1;
+    }
+    cJSON *doc = cJSON_Parse(body);
+    free(body);
+    if (doc == NULL)
+        return 1;
+    int rc = 1;
+    cJSON *res = cJSON_GetObjectItemCaseSensitive(doc, "resource");
+    if (cJSON_IsString(res) && res->valuestring != NULL) {
+        *resource_out = xstrdup(res->valuestring);
+        rc = 0;
+    }
+    cJSON_Delete(doc);
+    return rc;
+}
+
 /* Given the issuer URL, fetch the RFC 8414 metadata document and pull
  * out the endpoints we need. */
 static int fetch_as_metadata(const char *issuer, as_metadata_t *out) {
@@ -963,8 +1004,24 @@ int ownsona_oauth_bootstrap(ownsona_config_t *cfg) {
     char *verifier = NULL, *challenge = NULL;
     make_pkce(&verifier, &challenge);
     char *state = random_state();
-    const char *resource = (cfg->oauth_resource != NULL && *cfg->oauth_resource != '\0')
-        ? cfg->oauth_resource : cfg->server_url;
+    /* Resolve the resource indicator the token must be bound to.  Honor an
+     * explicit override; otherwise take the value the server advertises in
+     * its protected-resource metadata (taking ownership into cfg so it is
+     * also persisted for refresh); fall back to server_url only if
+     * discovery fails. */
+    const char *resource;
+    if (cfg->oauth_resource != NULL && *cfg->oauth_resource != '\0') {
+        resource = cfg->oauth_resource;
+    } else {
+        char *discovered = NULL;
+        if (discover_resource(cfg, &discovered) == 0) {
+            xfree(&cfg->oauth_resource);
+            cfg->oauth_resource = discovered;   /* hand off; freed by config cleanup */
+            resource = cfg->oauth_resource;
+        } else {
+            resource = cfg->server_url;
+        }
+    }
 
     CURL *enc = curl_easy_init();
     if (enc == NULL)
@@ -1109,8 +1166,23 @@ int ownsona_oauth_ensure_fresh_token(ownsona_config_t *cfg) {
     if (fetch_as_metadata(cfg->oauth_authorization_server, &md) != 0)
         return 1;
 
-    const char *resource = (cfg->oauth_resource != NULL && *cfg->oauth_resource != '\0')
-        ? cfg->oauth_resource : cfg->server_url;
+    /* Same resource resolution as login: explicit override, else the
+     * value the server advertises, else server_url.  Done here too so a
+     * refresh in a fresh process (where oauth_resource was not persisted)
+     * still binds the token to the audience the server expects. */
+    const char *resource;
+    if (cfg->oauth_resource != NULL && *cfg->oauth_resource != '\0') {
+        resource = cfg->oauth_resource;
+    } else {
+        char *discovered = NULL;
+        if (discover_resource(cfg, &discovered) == 0) {
+            xfree(&cfg->oauth_resource);
+            cfg->oauth_resource = discovered;   /* hand off; freed by config cleanup */
+            resource = cfg->oauth_resource;
+        } else {
+            resource = cfg->server_url;
+        }
+    }
 
     CURL *enc = curl_easy_init();
     char *e_rt       = url_encode(enc, cfg->oauth_refresh_token);

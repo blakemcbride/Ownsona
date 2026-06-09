@@ -180,6 +180,51 @@ sql/
     secret check. The CLI holds the same secret as `admin_secret` in its
     config.
 
+11. **The token audience is the bare origin, and the audience check
+    tolerates a trailing slash.** `OAuthResourceIdentifier` is
+    `https://ownsona.com` (the issuer / origin), **not** the `/mcp` URL.
+    Real MCP clients disagree on the RFC 8707 `resource` value and a
+    single exact-match setting cannot satisfy all of them:
+    - **ChatGPT** always sends the bare origin `https://ownsona.com`
+      (derived from the server origin; it ignores the `resource` the
+      metadata advertises).
+    - **Claude** discovers the metadata `resource` and treats it as a
+      URI, RFC 3986-canonicalizing an empty path to a trailing slash, so
+      it sends `https://ownsona.com/`.
+    - **The OwnSona CLI** discovers and sends the metadata `resource`
+      verbatim.
+
+    A `/mcp` audience locks out ChatGPT (it never sends `/mcp`); a bare
+    origin locks out Claude under an exact-match check (trailing slash).
+    The resolution: keep the audience at the origin **and** patch the
+    core validator to trim a trailing slash on both sides before
+    comparing.
+
+    ⚠️ **This required a patch to vendored Kiss core**
+    (`src/main/core/org/kissweb/oauth/BearerTokenValidator.java`,
+    `checkAudience()`) — normally off-limits, but unavoidable: the
+    audience comparison lives only there, overriding `authenticate()` is
+    forbidden (invariant 8), and no config value reconciles the clients.
+    The patch mirrors the trailing-slash normalization `checkIssuer()`
+    already applies, so it is app-neutral and suitable to **upstream to
+    Kiss**. It will be **lost on a Kiss upgrade** — re-apply it (or
+    confirm it landed upstream) after any framework bump.
+
+    Because the audience is the bare origin, the canonical
+    protected-resource metadata URL (RFC 9728: host +
+    `/.well-known/oauth-protected-resource` + the resource's path, which
+    is empty) is just the root — which the core
+    `ProtectedResourceMetadataServlet` already serves, and which the
+    `BearerTokenValidator` challenge already advertises. So **no
+    app-level metadata servlet is needed**; don't reintroduce one (an
+    earlier interim `ProtectedResourceMetadataMcpServlet` that served
+    `/mcp`-relative metadata URLs was removed — it duplicated generic
+    core logic and became unnecessary once the audience moved to the
+    origin). The CLI (`cli/src/oauth.c`) discovers the resource from the
+    root metadata rather than hardcoding `server_url`. After changing the
+    audience, existing client connections must be reconnected — clients
+    cache the discovered `resource` and reuse it on refresh.
+
 ---
 
 ## Operational model
