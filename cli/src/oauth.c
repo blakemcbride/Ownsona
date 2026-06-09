@@ -1004,23 +1004,27 @@ int ownsona_oauth_bootstrap(ownsona_config_t *cfg) {
     char *verifier = NULL, *challenge = NULL;
     make_pkce(&verifier, &challenge);
     char *state = random_state();
-    /* Resolve the resource indicator the token must be bound to.  Honor an
-     * explicit override; otherwise take the value the server advertises in
-     * its protected-resource metadata (taking ownership into cfg so it is
-     * also persisted for refresh); fall back to server_url only if
-     * discovery fails. */
+    /* Resolve the resource indicator the token must be bound to.  On a
+     * fresh login we ALWAYS re-discover it from the server's
+     * protected-resource metadata and overwrite any persisted value: the
+     * persisted value is just a cache of a previous discovery, and if the
+     * server's canonical resource has changed (as it did when the audience
+     * moved off the /mcp path) an honored-stale cache would mint a token
+     * the server rejects, with no way to recover short of hand-editing the
+     * config.  The freshly-discovered value is persisted for the refresh
+     * path (which must keep using the value the grant was made with).  Only
+     * if discovery fails do we fall back: to the last persisted value, then
+     * to server_url. */
     const char *resource;
-    if (cfg->oauth_resource != NULL && *cfg->oauth_resource != '\0') {
+    char *discovered = NULL;
+    if (discover_resource(cfg, &discovered) == 0) {
+        xfree(&cfg->oauth_resource);
+        cfg->oauth_resource = discovered;       /* hand off; freed by config cleanup */
         resource = cfg->oauth_resource;
+    } else if (cfg->oauth_resource != NULL && *cfg->oauth_resource != '\0') {
+        resource = cfg->oauth_resource;         /* discovery failed; reuse last known */
     } else {
-        char *discovered = NULL;
-        if (discover_resource(cfg, &discovered) == 0) {
-            xfree(&cfg->oauth_resource);
-            cfg->oauth_resource = discovered;   /* hand off; freed by config cleanup */
-            resource = cfg->oauth_resource;
-        } else {
-            resource = cfg->server_url;
-        }
+        resource = cfg->server_url;             /* last resort */
     }
 
     CURL *enc = curl_easy_init();
