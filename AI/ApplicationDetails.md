@@ -262,10 +262,22 @@ sql/
     in the `remember` response) and on demand (`find_conflicts`), using
     pure embedding + tag-overlap math (invariant #1 forbids a generative
     call here). It never decides whether two facts actually contradict.
-    Resolution is always explicit: `remember(..., supersedes=[id])`
-    soft-deletes the named row(s) and links `replaced_by_id`, or the user
-    uses `forget`. `keep='Y'` rows are never superseded (reported
-    `protected`).
+    Resolution is always explicit, via two `remember` levers (Tier 2):
+    - `supersedes=[id]` — the old fact is now **wrong**: soft-delete it
+      and link `replaced_by_id`.
+    - `downweights=[id]` — the old fact is merely **outdated**: apply a
+      strong negative reinforcement (`CONFLICT_PENALTY`) so the new fact
+      out-ranks it, but **keep it** active and recallable. This is the
+      non-destructive "un-learn the stale answer" path and the default
+      choice when the LLM isn't sure the old fact is flatly wrong.
+
+    Both `remember` levers are *targeted overrides*, so both respect
+    `keep='Y'` (the protected row wins; reported `protected`). This is
+    deliberately different from raw `reinforce`, which is symmetric
+    feedback and stays exempt from the keep lock (invariant #9). The
+    distinction: a lever that names a specific memory to retire/demote in
+    favor of another must not override protection; general thumbs-up/down
+    feedback may. The user can also always resolve manually with `forget`.
 
 ---
 

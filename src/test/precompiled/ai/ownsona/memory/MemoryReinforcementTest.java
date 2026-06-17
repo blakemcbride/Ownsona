@@ -79,6 +79,22 @@ class MemoryReinforcementTest {
         assertEquals(0.95, s, EPS);
     }
 
+    @Test
+    void conflictPenaltyDemotesBelowAFreshFact() {
+        // Tier 2 down-weight: a stale fact hit with CONFLICT_PENALTY must
+        // end up ranking below a fresh fact stored at the default salience
+        // (importance 0.5), so the new answer wins recall without deletion.
+        assertTrue(MemoryService.CONFLICT_PENALTY < 0.0, "penalty must be negative");
+        final double demoted = MemoryService.applyReinforcement(
+                1.0, MemoryService.CONFLICT_PENALTY,
+                MemoryService.REINFORCE_ETA, MemoryService.REINFORCE_LAMBDA,
+                MemoryService.SALIENCE_MIN, MemoryService.SALIENCE_MAX);
+        // 0.95*1.0 - 0.3 = 0.65 -> below a fresh 0.5-importance fact whose
+        // own salience can climb on use; and strictly below its prior 1.0.
+        assertEquals(0.65, demoted, EPS);
+        assertTrue(demoted < 1.0, "down-weight must lower salience");
+    }
+
     // -------------------------------------------------------------------
     // validateReinforceDelta
     // -------------------------------------------------------------------

@@ -316,7 +316,12 @@ Do not store temporary instructions, one-time commands, secrets, passwords, cred
     "supersedes": {
       "type": "array",
       "items": { "type": "integer" },
-      "description": "Optional ids this new fact corrects and replaces. Each is soft-deleted and linked (replaced_by_id) to the new memory. keep='Y' rows are never deleted — reported back as 'protected'."
+      "description": "Optional ids this new fact corrects and replaces because they are now WRONG. Each is soft-deleted and linked (replaced_by_id) to the new memory. keep='Y' rows are reported 'protected' and left intact."
+    },
+    "downweights": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "description": "Optional ids this new fact does NOT invalidate but should out-rank (older facts now outdated/less relevant, not wrong). Each is demoted via negative reinforcement so the new fact surfaces first, but is kept and stays recallable. Use instead of supersedes when unsure the old fact is flatly wrong. keep='Y' rows are reported 'protected'."
     }
   },
   "required": ["text"]
@@ -341,6 +346,9 @@ Do not store temporary instructions, one-time commands, secrets, passwords, cred
     { "id": 42, "status": "superseded" },
     { "id": 17, "status": "protected" },
     { "id": 99, "status": "not_found" }
+  ],
+  "downweighted": [
+    { "id": 55, "status": "downweighted" }
   ]
 }
 ```
@@ -349,10 +357,15 @@ Do not store temporary instructions, one-time commands, secrets, passwords, cred
 that are semantically close to the new memory AND share a tag, excluding
 the near-duplicate `candidates` already surfaced by the dedup check — a
 hint that the new fact may be correcting one of them. The server does not
-judge contradiction; the client decides whether to pass those ids as
-`supersedes`. `superseded` (present only when the caller supplied
-`supersedes`) reports each requested id's outcome: `superseded`,
-`protected` (a `keep='Y'` row, left intact), or `not_found`.
+judge contradiction; the client decides, per conflict, whether to pass
+the id as `supersedes` (old fact now wrong), `downweights` (old fact
+merely outdated — demote but keep), or neither. `superseded` (present
+only when the caller supplied `supersedes`) reports each requested id's
+outcome: `superseded`, `protected` (a `keep='Y'` row, left intact), or
+`not_found`. `downweighted` (present only when the caller supplied
+`downweights`) reports `downweighted`, `protected`, or `not_found`.
+Both `supersedes` and `downweights` respect `keep='Y'`; raw `reinforce`
+(§8.15) does not.
 
 ---
 
@@ -1137,8 +1150,9 @@ other: clusters of active rows that are both semantically close
 Use this to surface same-topic memories that might disagree. The server
 only flags candidates (pure embedding + tag-overlap heuristic); it does
 not decide which is correct. Resolve a conflict by confirming the right
-memory, or by storing the corrected fact with `remember` using its
-`supersedes` field to retire the wrong one.
+memory, or by storing the corrected fact with `remember` and passing the
+stale memory's id in `supersedes` (now wrong → soft-deleted) or
+`downweights` (merely outdated → demoted but kept).
 
 #### Input Schema
 

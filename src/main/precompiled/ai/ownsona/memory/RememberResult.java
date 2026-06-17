@@ -44,11 +44,20 @@ public final class RememberResult {
      */
     public final List<SupersedeOutcome> superseded;
 
-    /** Per-id result of an explicit supersede (correction) request. */
+    /**
+     * Outcome of any explicit {@code downweights} request: for each id the
+     * caller asked to demote (Tier 2 non-destructive conflict resolution),
+     * whether it was down-weighted, skipped because protected, or not
+     * found.  Empty when the caller didn't ask to down-weight anything.
+     */
+    public final List<SupersedeOutcome> downweighted;
+
+    /** Per-id result of an explicit conflict-resolution request. */
     public static final class SupersedeOutcome {
-        public static final String SUPERSEDED = "superseded";
-        public static final String PROTECTED  = "protected";
-        public static final String NOT_FOUND  = "not_found";
+        public static final String SUPERSEDED   = "superseded";
+        public static final String DOWNWEIGHTED = "downweighted";
+        public static final String PROTECTED    = "protected";
+        public static final String NOT_FOUND    = "not_found";
 
         public final long   id;
         public final String status;
@@ -70,13 +79,22 @@ public final class RememberResult {
     public RememberResult(long id, boolean alreadyExisted,
                           List<MemoryRow> candidates, List<MemoryRow> previouslyCorrected) {
         this(id, alreadyExisted, candidates, previouslyCorrected,
-                Collections.emptyList(), Collections.emptyList());
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
     }
 
     public RememberResult(long id, boolean alreadyExisted,
                           List<MemoryRow> candidates, List<MemoryRow> previouslyCorrected,
                           List<MemoryRow> potentialConflicts,
                           List<SupersedeOutcome> superseded) {
+        this(id, alreadyExisted, candidates, previouslyCorrected,
+                potentialConflicts, superseded, Collections.emptyList());
+    }
+
+    public RememberResult(long id, boolean alreadyExisted,
+                          List<MemoryRow> candidates, List<MemoryRow> previouslyCorrected,
+                          List<MemoryRow> potentialConflicts,
+                          List<SupersedeOutcome> superseded,
+                          List<SupersedeOutcome> downweighted) {
         this.id                  = id;
         this.alreadyExisted      = alreadyExisted;
         this.candidates          = (candidates == null)
@@ -91,5 +109,8 @@ public final class RememberResult {
         this.superseded          = (superseded == null)
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(new ArrayList<>(superseded));
+        this.downweighted        = (downweighted == null)
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(new ArrayList<>(downweighted));
     }
 }

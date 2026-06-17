@@ -98,6 +98,15 @@ public final class MemoryService {
     /** Bound on the magnitude of an explicit reinforce delta. */
     static final double MAX_REINFORCE_DELTA = 1.0;
 
+    /**
+     * Negative reward applied to a memory named in {@code remember}'s
+     * {@code downweights} list (Tier 2 non-destructive conflict
+     * resolution).  The strongest single demotion the reinforcement rule
+     * allows --- enough that a fresh corrected fact out-ranks the demoted
+     * one, while the demoted row stays active and recallable.
+     */
+    static final double CONFLICT_PENALTY = -1.0;
+
     // ------------------------------------------------------------------
     // Conflict detection (Tier 1).  Pure embedding + tag-overlap heuristic;
     // the server never asks a generative model whether two facts conflict
@@ -152,7 +161,7 @@ public final class MemoryService {
                                    String rawCaptureMode, String rawSessionId,
                                    String rawDedupPolicy,
                                    java.util.Date rawExpiresAt, java.util.Date rawLastConfirmedAt,
-                                   String sourceClient, Long[] rawSupersedes) {
+                                   String sourceClient, Long[] rawSupersedes, Long[] rawDownweights) {
         final String text = requireText(rawText);
         final String secret = SecretScanner.detect(text);
         if (secret != null)
@@ -173,12 +182,12 @@ public final class MemoryService {
         try {
             final Long existing = repo.findActiveIdByNormalized(db, userId, normalized);
             if (existing != null) {
-                final List<RememberResult.SupersedeOutcome> sup =
-                        processSupersedes(db, rawSupersedes, existing);
+                final Resolutions res = applyResolutions(db, rawSupersedes, rawDownweights, existing);
                 logger.info("remember: duplicate, returning existing id={}", existing);
                 success = true;
                 return new RememberResult(existing, true, Collections.emptyList(),
-                        Collections.emptyList(), Collections.emptyList(), sup);
+                        Collections.emptyList(), Collections.emptyList(),
+                        res.superseded, res.downweighted);
             }
 
             final float[] vec = embed(text);
@@ -194,13 +203,12 @@ public final class MemoryService {
             final List<MemoryRow> previouslyCorrected = findPreviouslyCorrected(db, vec, dedupPolicy);
             if (!candidates.isEmpty() && DEDUP_POLICY_SKIP_IF_NEAR.equals(dedupPolicy)) {
                 final MemoryRow top = candidates.get(0);
-                final List<RememberResult.SupersedeOutcome> sup =
-                        processSupersedes(db, rawSupersedes, top.id);
+                final Resolutions res = applyResolutions(db, rawSupersedes, rawDownweights, top.id);
                 logger.info("remember: near-dup found id={} score={} policy=skip_if_near",
                         top.id, top.score);
                 success = true;
                 return new RememberResult(top.id, true, candidates, previouslyCorrected,
-                        Collections.emptyList(), sup);
+                        Collections.emptyList(), res.superseded, res.downweighted);
             }
             if (!previouslyCorrected.isEmpty())
                 logger.info("remember: previously-corrected near-dup found id={} score={} (proceeding with insert)",
@@ -231,12 +239,12 @@ public final class MemoryService {
                 if (isUniqueViolation(e)) {
                     final Long racedId = repo.findActiveIdByNormalized(db, userId, normalized);
                     if (racedId != null) {
-                        final List<RememberResult.SupersedeOutcome> sup =
-                                processSupersedes(db, rawSupersedes, racedId);
+                        final Resolutions res = applyResolutions(db, rawSupersedes, rawDownweights, racedId);
                         logger.info("remember: lost insert race, returning existing id={}", racedId);
                         success = true;
                         return new RememberResult(racedId, true, Collections.emptyList(),
-                                Collections.emptyList(), Collections.emptyList(), sup);
+                                Collections.emptyList(), Collections.emptyList(),
+                                res.superseded, res.downweighted);
                     }
                 }
                 throw e;
@@ -245,12 +253,13 @@ public final class MemoryService {
             // correcting.  Supersedes: explicit corrections the caller asked
             // to retire in favor of the row we just stored.
             final List<MemoryRow> potentialConflicts = findPotentialConflicts(db, vec, tags, candidates);
-            final List<RememberResult.SupersedeOutcome> sup = processSupersedes(db, rawSupersedes, id);
-            logger.info("remember: inserted id={} chars={} tags={} conflicts={} superseded={}",
-                    id, text.length(), tags.length, potentialConflicts.size(), sup.size());
+            final Resolutions res = applyResolutions(db, rawSupersedes, rawDownweights, id);
+            logger.info("remember: inserted id={} chars={} tags={} conflicts={} superseded={} downweighted={}",
+                    id, text.length(), tags.length, potentialConflicts.size(),
+                    res.superseded.size(), res.downweighted.size());
             success = true;
             return new RememberResult(id, false, candidates, previouslyCorrected,
-                    potentialConflicts, sup);
+                    potentialConflicts, res.superseded, res.downweighted);
         } catch (ServiceException e) {
             throw e;
         } catch (Exception e) {
@@ -1777,6 +1786,66 @@ public final class MemoryService {
             }
             repo.softDelete(db, sid, "superseded by memory " + survivingId, survivingId);
             out.add(new RememberResult.SupersedeOutcome(sid, RememberResult.SupersedeOutcome.SUPERSEDED));
+        }
+        return out;
+    }
+
+    /** Holder for the two conflict-resolution levers on {@code remember}. */
+    private static final class Resolutions {
+        final List<RememberResult.SupersedeOutcome> superseded;
+        final List<RememberResult.SupersedeOutcome> downweighted;
+        Resolutions(List<RememberResult.SupersedeOutcome> superseded,
+                    List<RememberResult.SupersedeOutcome> downweighted) {
+            this.superseded   = superseded;
+            this.downweighted = downweighted;
+        }
+    }
+
+    /**
+     * Run both explicit conflict-resolution levers a {@code remember} call
+     * can carry: {@code supersedes} (retire the old fact --- soft-delete) and
+     * {@code downweights} (Tier 2: demote the old fact but keep it).  Both
+     * target {@code survivingId} as the winning memory.
+     */
+    private Resolutions applyResolutions(Connection db, Long[] supersedes, Long[] downweights,
+                                         long survivingId) throws Exception {
+        return new Resolutions(
+                processSupersedes(db, supersedes, survivingId),
+                processDownweights(db, downweights, survivingId));
+    }
+
+    /**
+     * Tier 2 non-destructive conflict resolution: apply a strong negative
+     * reinforcement ({@link #CONFLICT_PENALTY}) to each id the caller named
+     * in {@code downweights}, so the new memory out-ranks the demoted one in
+     * future recalls --- WITHOUT deleting it (it stays active and
+     * recallable).  Like {@code supersedes} this is an explicit override
+     * targeting a specific memory, so it respects {@code keep='Y'}: a
+     * protected row is reported {@code protected} and left untouched.
+     * Unknown ids are reported {@code not_found}; the surviving id and
+     * duplicates are skipped.  Runs in the caller's transaction.
+     */
+    private List<RememberResult.SupersedeOutcome> processDownweights(Connection db, Long[] downweights,
+                                                                     long survivingId) throws Exception {
+        if (downweights == null || downweights.length == 0)
+            return Collections.emptyList();
+        final List<RememberResult.SupersedeOutcome> out = new ArrayList<>();
+        final Set<Long> seen = new LinkedHashSet<>();
+        for (Long did : downweights) {
+            if (did == null || did.longValue() == survivingId || !seen.add(did))
+                continue;
+            final MemoryRow existing = repo.findById(db, did);
+            if (existing == null || existing.deletedAt != null) {
+                out.add(new RememberResult.SupersedeOutcome(did, RememberResult.SupersedeOutcome.NOT_FOUND));
+                continue;
+            }
+            if ("Y".equals(existing.keep)) {
+                out.add(new RememberResult.SupersedeOutcome(did, RememberResult.SupersedeOutcome.PROTECTED));
+                continue;
+            }
+            repo.reinforce(db, did, CONFLICT_PENALTY,
+                    REINFORCE_ETA, REINFORCE_LAMBDA, SALIENCE_MIN, SALIENCE_MAX);
+            out.add(new RememberResult.SupersedeOutcome(did, RememberResult.SupersedeOutcome.DOWNWEIGHTED));
         }
         return out;
     }

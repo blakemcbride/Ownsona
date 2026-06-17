@@ -216,12 +216,22 @@ public class MCPServer extends MCPServerBase {
                 "Optional ISO 8601 timestamp marking when this fact was last verified as still " +
                 "true. Use the 'confirm' tool to refresh it without rebuilding the embedding."));
         props.put("supersedes", arrayProp("integer",
-                "Optional list of memory ids that this new memory corrects and replaces. Use it " +
-                "when the user states something that contradicts and supersedes an earlier fact " +
-                "(e.g. they moved, changed jobs, or corrected a detail). Each listed memory is " +
-                "soft-deleted and linked to this new one as its replacement. Protected (kept) " +
-                "memories are never deleted --- they are reported back as 'protected' and left " +
-                "intact. Only supply ids you are confident the new fact actually invalidates."));
+                "Optional list of memory ids that this new memory corrects and replaces because " +
+                "they are now WRONG. Use it when the user states something that invalidates an " +
+                "earlier fact (e.g. they moved, changed jobs, or corrected a detail). Each listed " +
+                "memory is soft-deleted and linked to this new one as its replacement. Protected " +
+                "(kept) memories are never deleted --- they are reported back as 'protected' and " +
+                "left intact. Only supply ids you are confident the new fact actually invalidates."));
+        props.put("downweights", arrayProp("integer",
+                "Optional list of memory ids that this new memory does NOT invalidate but should " +
+                "out-rank --- the older facts are now less relevant or partially outdated, not " +
+                "wrong. Each listed memory is demoted (its learned salience is lowered) so this " +
+                "newer fact surfaces first in recall, but the older one is kept and stays " +
+                "recallable. Use this instead of 'supersedes' when you are not certain the old " +
+                "fact is flatly wrong. Protected (kept) memories are reported 'protected' and " +
+                "left untouched. When the 'remember' response surfaces 'potential_conflicts', " +
+                "decide per conflict: 'supersedes' if the old fact is now wrong, 'downweights' if " +
+                "it is merely outdated, or leave it alone if both still hold."));
         return tool("remember",
                 "Use this tool when the user asks you to remember, save, store, note, or retain a " +
                 "durable fact, preference, project detail, personal detail, or other information " +
@@ -683,9 +693,10 @@ public class MCPServer extends MCPServerBase {
                 "tag, so they describe the same labelled topic but might disagree. Groups are " +
                 "formed by union-find over qualifying pairs and sorted by the strongest pair in " +
                 "each cluster. This tool only surfaces candidates --- it does not decide which is " +
-                "correct. To resolve a conflict, either confirm the right memory, or store the " +
-                "correct fact with 'remember' using its 'supersedes' field to retire the wrong " +
-                "one. Soft-deleted and expired rows are excluded. Read-only.",
+                "correct. To resolve a conflict: confirm the right memory; or store the correct " +
+                "fact with 'remember', passing the wrong memory's id in 'supersedes' (if it is now " +
+                "wrong) or 'downweights' (if it is merely outdated and should just rank lower). " +
+                "Soft-deleted and expired rows are excluded. Read-only.",
                 props, new String[]{});
     }
 
@@ -757,9 +768,10 @@ public class MCPServer extends MCPServerBase {
         final Date     lastConfirmedAt = parseIso(args.getString("last_confirmed_at", null));
         final String   client          = args.getString("source_client", null);
         final Long[]   supersedes      = optLongArray(args, "supersedes");
+        final Long[]   downweights     = optLongArray(args, "downweights");
 
         final RememberResult r = SERVICE.remember(text, tags, provider, imp, captureMode, sessionId,
-                dedupPolicy, expiresAt, lastConfirmedAt, client, supersedes);
+                dedupPolicy, expiresAt, lastConfirmedAt, client, supersedes, downweights);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);
@@ -802,6 +814,16 @@ public class MCPServer extends MCPServerBase {
                 sArr.put(so);
             }
             out.put("superseded", sArr);
+        }
+        if (!r.downweighted.isEmpty()) {
+            final JSONArray dArr = new JSONArray();
+            for (RememberResult.SupersedeOutcome s : r.downweighted) {
+                final JSONObject so = new JSONObject();
+                so.put("id", s.id);
+                so.put("status", s.status);
+                dArr.put(so);
+            }
+            out.put("downweighted", dArr);
         }
         return successResult(out);
     }
