@@ -169,11 +169,17 @@ to design around.  When the design has to choose between flexibility
 and simplicity, it picks simplicity.
 </p>
 </dd>
-<dt>Vendor neutrality on the server side.</dt>
-<dd><p>The only place a vendor name appears in the request or write path is
-the <code class="code">EmbeddingProvider</code> implementation.  MCP tool descriptions
-are generic: they say &ldquo;the calling LLM,&rdquo; not &ldquo;Claude.&rdquo;  Adding a
-new provider is one class plus an <samp class="file">application.ini</samp> switch.
+<dt>Vendor neutrality, and generative calls off the hot path.</dt>
+<dd><p>Vendor coupling lives in two pluggable seams, configured separately:
+<code class="code">EmbeddingProvider</code> (always used) and the optional
+<code class="code">GenerativeProvider</code>.  A generative LLM may be used for
+<em class="emph">background / maintenance</em> work through that second seam, but
+<b class="b">never on the synchronous recall/remember path</b> &mdash; a normal read or
+write never depends on a generative model being up.  With no generative
+provider configured the server runs fully on embeddings plus
+deterministic heuristics.  MCP tool descriptions stay generic: they say
+&ldquo;the calling LLM,&rdquo; not &ldquo;Claude.&rdquo;  Adding a provider is one class plus
+an <samp class="file">application.ini</samp> switch.
 </p>
 </dd>
 <dt>Additive schema migrations only.</dt>

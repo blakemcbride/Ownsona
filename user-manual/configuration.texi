@@ -27,6 +27,8 @@ if you want it immediate.
 * Optional keys with defaults::
 * Database keys::
 * Embedding keys::
+* Generative LLM keys::
+* Learning and background-job keys::
 * Tunables::
 * Re-embedding flag::
 @end menu
@@ -209,6 +211,99 @@ other providers, the provider's model name.
 
 @item EMBEDDING_DIMENSIONS
 See @ref{Required keys}.
+@end table
+
+@node Generative LLM keys
+@section Generative LLM keys
+@cindex LLM_API_KEY
+@cindex generative provider
+
+A @b{second, optional} vendor seam, configured independently of the
+embedding keys above.  It powers OwnSona's generative background
+features --- automatic consolidation, automatic conflict resolution, and
+relation-graph extraction (@pxref{Background intelligence}).  Leave
+@code{LLM_API_KEY} unset and the server runs purely on embeddings plus
+deterministic heuristics; every generative feature stays off and nothing
+breaks.  Generative calls are background/maintenance only --- they never
+sit on the synchronous @code{recall} / @code{remember} path.
+
+You can point these at a different vendor (and a cheaper model) than your
+embeddings provider --- any OpenAI-compatible @code{/v1/chat/completions}
+endpoint works (OpenAI, OpenRouter, a local Ollama, @dots{}).
+
+@table @code
+@item LLM_API_KEY
+Unset by default.  When unset, the generative seam is not constructed
+and all generative features are disabled.
+
+@item LLM_MODEL
+Required iff @code{LLM_API_KEY} is set.  The chat model id, e.g.@:
+@code{gpt-4o-mini}.
+
+@item LLM_ENDPOINT
+Required iff @code{LLM_API_KEY} is set.  The OpenAI-compatible
+chat-completions URL, e.g.@: @code{https://api.openai.com/v1/chat/completions}.
+
+@item LLM_PROVIDER
+Default @code{openai}.  A label recorded for logging/provenance only.
+@end table
+
+@node Learning and background-job keys
+@section Learning and background-job keys
+@cindex consolidation
+@cindex conflict resolution
+@cindex relation graph
+
+The learning that needs @b{no configuration} --- salience, reinforcement
+(@code{reinforce} / @code{confirm}), per-query contextual ranking, and
+conflict @emph{surfacing} --- is always on.  The keys below gate only the
+@emph{generative background jobs}, which are off by default.
+
+@b{Each background job needs three switches all on:} (1) the
+@code{LLM_*} keys above, (2) the job's @code{*_ENABLED} flag here, and
+(3) the matching line uncommented in
+@file{src/main/backend/CronTasks/crontab} (@code{Consolidate} for the
+maintenance passes, @code{ExtractRelations} for the graph).  Any one left
+off keeps the job a cheap no-op.  Cost is bounded: each pass makes at most
+its @code{*_MAX_*} small LLM calls per run, and zero when there is nothing
+to do.
+
+@table @code
+@item CONSOLIDATION_ENABLED
+Default @code{false}.  Enables the consolidation/dedup pass: merge
+near-identical memories into one canonical fact and supersede the copies
+(recoverable soft-delete).
+
+@item CONSOLIDATION_THRESHOLD
+Default @code{0.95}.  Cosine cutoff for the clusters the merge pass acts
+on --- high, so only near-identical rows merge unattended.
+
+@item CONFLICT_RESOLUTION_ENABLED
+Default @code{false}.  Enables the conflict-resolution pass: among
+same-topic contradictory facts, keep the current one and supersede the
+stale.  A separate switch from consolidation because auto-picking a
+winner is higher-stakes than merging duplicates.
+
+@item CONFLICT_RESOLUTION_THRESHOLD
+Default @code{0.80}.  Tag-gated cosine cutoff for the conflict pass.
+
+@item CONSOLIDATION_MAX_GROUPS
+Default @code{25}.  Per-pass cap on clusters processed (bounds LLM cost).
+
+@item GRAPH_EXTRACTION_ENABLED
+Default @code{false}.  Enables the relation-extraction pass that
+populates the graph @code{query_relations} traverses.
+
+@item GRAPH_EXTRACTION_MAX_MEMORIES
+Default @code{25}.  Memories processed per run (one LLM call each); each
+memory is extracted at most once.
+
+@item GRAPH_MAX_HOPS
+Default @code{2} (hard cap 5).  Default/cap for @code{query_relations}.
+
+@item GRAPH_MAX_RELATIONS
+Default @code{200}.  Cap on relations returned by one
+@code{query_relations} call.
 @end table
 
 @node Tunables

@@ -202,6 +202,19 @@ Next: <a href="Database-schema-reference.html" accesskey="n" rel="next">Database
 <tr><td width="35%"><code class="code">MAX_TEXT_CHARS</code></td><td width="15%"><code class="code">16000</code></td><td width="50%">Hard cap on memory text length.</td></tr>
 <tr><td width="35%"><code class="code">MAX_BATCH_SIZE</code></td><td width="15%"><code class="code">200</code></td><td width="50%">Max items per <code class="code">remember_batch</code>.</td></tr>
 <tr><td width="35%"><code class="code">REEMBED_ON_STARTUP</code></td><td width="15%"><code class="code">false</code></td><td width="50%">Triggers the re-embed walker. Auto-flipped after success.</td></tr>
+<tr><td width="35%"><code class="code">LLM_API_KEY</code></td><td width="15%">(none)</td><td width="50%">Generative-LLM key. Unset = generative background features disabled.</td></tr>
+<tr><td width="35%"><code class="code">LLM_MODEL</code></td><td width="15%">(none)</td><td width="50%">Chat model id (required iff <code class="code">LLM_API_KEY</code> set).</td></tr>
+<tr><td width="35%"><code class="code">LLM_ENDPOINT</code></td><td width="15%">(none)</td><td width="50%">OpenAI-compatible chat URL (required iff <code class="code">LLM_API_KEY</code> set).</td></tr>
+<tr><td width="35%"><code class="code">LLM_PROVIDER</code></td><td width="15%"><code class="code">openai</code></td><td width="50%">Generative provider label (logging only).</td></tr>
+<tr><td width="35%"><code class="code">CONSOLIDATION_ENABLED</code></td><td width="15%"><code class="code">false</code></td><td width="50%">Enable the merge/dedup background pass.</td></tr>
+<tr><td width="35%"><code class="code">CONSOLIDATION_THRESHOLD</code></td><td width="15%"><code class="code">0.95</code></td><td width="50%">Cosine cutoff for the merge pass.</td></tr>
+<tr><td width="35%"><code class="code">CONFLICT_RESOLUTION_ENABLED</code></td><td width="15%"><code class="code">false</code></td><td width="50%">Enable the auto conflict-resolution pass.</td></tr>
+<tr><td width="35%"><code class="code">CONFLICT_RESOLUTION_THRESHOLD</code></td><td width="15%"><code class="code">0.80</code></td><td width="50%">Tag-gated cosine cutoff for the conflict pass.</td></tr>
+<tr><td width="35%"><code class="code">CONSOLIDATION_MAX_GROUPS</code></td><td width="15%"><code class="code">25</code></td><td width="50%">Per-pass cap on clusters (LLM-cost bound).</td></tr>
+<tr><td width="35%"><code class="code">GRAPH_EXTRACTION_ENABLED</code></td><td width="15%"><code class="code">false</code></td><td width="50%">Enable relation-triple extraction.</td></tr>
+<tr><td width="35%"><code class="code">GRAPH_EXTRACTION_MAX_MEMORIES</code></td><td width="15%"><code class="code">25</code></td><td width="50%">Memories extracted per run (LLM-cost bound).</td></tr>
+<tr><td width="35%"><code class="code">GRAPH_MAX_HOPS</code></td><td width="15%"><code class="code">2</code></td><td width="50%">Default/cap hops for <code class="code">query_relations</code> (hard cap 5).</td></tr>
+<tr><td width="35%"><code class="code">GRAPH_MAX_RELATIONS</code></td><td width="15%"><code class="code">200</code></td><td width="50%">Cap on relations returned per <code class="code">query_relations</code>.</td></tr>
 <tr><td width="35%"><code class="code">OAuthAsIniFile</code></td><td width="15%"><code class="code">oauth.ini</code></td><td width="50%">Path to the AS persistence file.  Strongly recommended: absolute path outside the deployed webapp.</td></tr>
 <tr><td width="35%"><code class="code">OAuthRequiredScopes</code></td><td width="15%">(none)</td><td width="50%">Comma- or space-separated list of scopes every access token must carry.</td></tr>
 <tr><td width="35%"><code class="code">OAuthResourceIdentifier</code></td><td width="15%">= <code class="code">OAuthAuthorizationServer</code></td><td width="50%">Override for the <code class="code">aud</code> value tokens must carry.</td></tr>

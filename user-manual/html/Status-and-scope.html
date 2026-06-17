@@ -169,9 +169,12 @@ source tree for the per-phase implementation status.
 <ul class="itemize mark-bullet">
 <li><b class="b">Multi-user tenancy.</b>  Not coming.
 </li><li><b class="b">Hosted SaaS.</b>  Not coming.  Run your own.
-</li><li><b class="b">Generative-LLM calls in the server&rsquo;s request path.</b>  Not coming;
-guardrail #1.  The CLI&rsquo;s <code class="code">teach</code> subcommand uses an LLM to extract
-facts from prose, but that&rsquo;s client-side and the server doesn&rsquo;t know.
+</li><li><b class="b">Generative-LLM calls in the server&rsquo;s synchronous request path.</b>
+Not coming; guardrail #1.  Generative calls <em class="emph">are</em> allowed for
+optional background/maintenance work through the <code class="code">GenerativeProvider</code>
+seam (consolidation, conflict resolution, relation extraction), but they
+never sit between a client&rsquo;s <code class="code">recall</code>/<code class="code">remember</code> and its
+response.
 </li></ul>
 </div>
 

@@ -159,7 +159,7 @@ dl dd {
 Next: <a href="The-memory_005fstats-tool.html" accesskey="n" rel="next">The <code class="code">memory_stats</code> tool</a>, Previous: <a href="The-get_005fmemory-tool.html" accesskey="p" rel="prev">The <code class="code">get_memory</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="The-count_005fmemories-tool-1"><span>5.16 The <code class="code">count_memories</code> tool<a class="copiable-link" href="#The-count_005fmemories-tool-1"> &para;</a></span></h3>
+<h3 class="section" id="The-count_005fmemories-tool-1"><span>5.19 The <code class="code">count_memories</code> tool<a class="copiable-link" href="#The-count_005fmemories-tool-1"> &para;</a></span></h3>
 <a class="index-entry-id" id="index-count_005fmemories"></a>
 
 <p>Returns <code class="code">COUNT(*)</code> over the memory store, with the same set of
@@ -168,12 +168,12 @@ source-provider filters.  Cheap; useful as a sanity check before a
 bulk operation (&ldquo;how many would I touch?&rdquo;).
 </p>
 <ul class="mini-toc">
-<li><a href="#Inputs-13" accesskey="1">Inputs</a></li>
-<li><a href="#Output-13" accesskey="2">Output</a></li>
-<li><a href="#Errors-13" accesskey="3">Errors</a></li>
+<li><a href="#Inputs-16" accesskey="1">Inputs</a></li>
+<li><a href="#Output-16" accesskey="2">Output</a></li>
+<li><a href="#Errors-16" accesskey="3">Errors</a></li>
 </ul>
-<div class="subsection-level-extent" id="Inputs-13">
-<h4 class="subsection"><span>5.16.1 Inputs<a class="copiable-link" href="#Inputs-13"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Inputs-16">
+<h4 class="subsection"><span>5.19.1 Inputs<a class="copiable-link" href="#Inputs-16"> &para;</a></span></h4>
 
 <dl class="table">
 <dt><code class="code">include_deleted</code></dt>
@@ -210,8 +210,8 @@ this many characters.
 </dl>
 
 </div>
-<div class="subsection-level-extent" id="Output-13">
-<h4 class="subsection"><span>5.16.2 Output<a class="copiable-link" href="#Output-13"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Output-16">
+<h4 class="subsection"><span>5.19.2 Output<a class="copiable-link" href="#Output-16"> &para;</a></span></h4>
 
 <div class="example">
 <pre class="example-preformatted">{
@@ -221,8 +221,8 @@ this many characters.
 </pre></div>
 
 </div>
-<div class="subsection-level-extent" id="Errors-13">
-<h4 class="subsection"><span>5.16.3 Errors<a class="copiable-link" href="#Errors-13"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Errors-16">
+<h4 class="subsection"><span>5.19.3 Errors<a class="copiable-link" href="#Errors-16"> &para;</a></span></h4>
 
 <p><code class="code">INVALID_INPUT</code> (out-of-range filter values), <code class="code">DATABASE_ERROR</code>.
 </p>

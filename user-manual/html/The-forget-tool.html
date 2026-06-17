@@ -28,7 +28,7 @@ in the source distribution for the full text. -->
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="MCP-Tools.html" rel="up" title="MCP Tools">
 <link href="The-forget_005fbatch-tool.html" rel="next" title="The forget_batch tool">
-<link href="The-confirm-tool.html" rel="prev" title="The confirm tool">
+<link href="The-reinforce-tool.html" rel="prev" title="The reinforce tool">
 <style type="text/css">
 <!--
 /*
@@ -156,10 +156,10 @@ dl dd {
 <div class="section-level-extent" id="The-forget-tool">
 <div class="nav-panel">
 <p>
-Next: <a href="The-forget_005fbatch-tool.html" accesskey="n" rel="next">The <code class="code">forget_batch</code> tool</a>, Previous: <a href="The-confirm-tool.html" accesskey="p" rel="prev">The <code class="code">confirm</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="The-forget_005fbatch-tool.html" accesskey="n" rel="next">The <code class="code">forget_batch</code> tool</a>, Previous: <a href="The-reinforce-tool.html" accesskey="p" rel="prev">The <code class="code">reinforce</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="The-forget-tool-1"><span>5.11 The <code class="code">forget</code> tool<a class="copiable-link" href="#The-forget-tool-1"> &para;</a></span></h3>
+<h3 class="section" id="The-forget-tool-1"><span>5.12 The <code class="code">forget</code> tool<a class="copiable-link" href="#The-forget-tool-1"> &para;</a></span></h3>
 <a class="index-entry-id" id="index-forget"></a>
 <a class="index-entry-id" id="index-soft-delete"></a>
 <a class="index-entry-id" id="index-tombstone"></a>
@@ -170,12 +170,12 @@ becomes a tombstone that the dedup-on-write check consults).  Pass
 <code class="code">hard_delete=true</code> to drop the row entirely.
 </p>
 <ul class="mini-toc">
-<li><a href="#Inputs-8" accesskey="1">Inputs</a></li>
-<li><a href="#Output-8" accesskey="2">Output</a></li>
-<li><a href="#Errors-8" accesskey="3">Errors</a></li>
+<li><a href="#Inputs-9" accesskey="1">Inputs</a></li>
+<li><a href="#Output-9" accesskey="2">Output</a></li>
+<li><a href="#Errors-9" accesskey="3">Errors</a></li>
 </ul>
-<div class="subsection-level-extent" id="Inputs-8">
-<h4 class="subsection"><span>5.11.1 Inputs<a class="copiable-link" href="#Inputs-8"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Inputs-9">
+<h4 class="subsection"><span>5.12.1 Inputs<a class="copiable-link" href="#Inputs-9"> &para;</a></span></h4>
 
 <dl class="table">
 <dt><code class="code">id</code></dt>
@@ -207,8 +207,8 @@ outcome.
 </dl>
 
 </div>
-<div class="subsection-level-extent" id="Output-8">
-<h4 class="subsection"><span>5.11.2 Output<a class="copiable-link" href="#Output-8"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Output-9">
+<h4 class="subsection"><span>5.12.2 Output<a class="copiable-link" href="#Output-9"> &para;</a></span></h4>
 
 <div class="example">
 <pre class="example-preformatted">{
@@ -227,8 +227,8 @@ soft-delete&quot;</code> / <code class="code">&quot;Would hard-delete&quot;</cod
 tombstone (already soft-deleted)&quot;</code>.
 </p>
 </div>
-<div class="subsection-level-extent" id="Errors-8">
-<h4 class="subsection"><span>5.11.3 Errors<a class="copiable-link" href="#Errors-8"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Errors-9">
+<h4 class="subsection"><span>5.12.3 Errors<a class="copiable-link" href="#Errors-9"> &para;</a></span></h4>
 
 <p><code class="code">INVALID_INPUT</code>, <code class="code">NOT_FOUND</code>, <code class="code">DATABASE_ERROR</code>.
 </p>
@@ -237,7 +237,7 @@ tombstone (already soft-deleted)&quot;</code>.
 <hr>
 <div class="nav-panel">
 <p>
-Next: <a href="The-forget_005fbatch-tool.html">The <code class="code">forget_batch</code> tool</a>, Previous: <a href="The-confirm-tool.html">The <code class="code">confirm</code> tool</a>, Up: <a href="MCP-Tools.html">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="The-forget_005fbatch-tool.html">The <code class="code">forget_batch</code> tool</a>, Previous: <a href="The-reinforce-tool.html">The <code class="code">reinforce</code> tool</a>, Up: <a href="MCP-Tools.html">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

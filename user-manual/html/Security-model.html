@@ -28,7 +28,7 @@ in the source distribution for the full text. -->
 <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
 <link href="Server-Internals.html" rel="up" title="Server Internals">
 <link href="Logging.html" rel="next" title="Logging">
-<link href="The-per_002drecord-upgrader-framework.html" rel="prev" title="The per-record upgrader framework">
+<link href="Background-intelligence.html" rel="prev" title="Background intelligence">
 <style type="text/css">
 <!--
 /*
@@ -156,10 +156,10 @@ dl dd {
 <div class="section-level-extent" id="Security-model">
 <div class="nav-panel">
 <p>
-Next: <a href="Logging.html" accesskey="n" rel="next">Logging</a>, Previous: <a href="The-per_002drecord-upgrader-framework.html" accesskey="p" rel="prev">The per-record upgrader framework</a>, Up: <a href="Server-Internals.html" accesskey="u" rel="up">Server Internals</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="Logging.html" accesskey="n" rel="next">Logging</a>, Previous: <a href="Background-intelligence.html" accesskey="p" rel="prev">Background intelligence</a>, Up: <a href="Server-Internals.html" accesskey="u" rel="up">Server Internals</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="Security-model-1"><span>6.9 Security model<a class="copiable-link" href="#Security-model-1"> &para;</a></span></h3>
+<h3 class="section" id="Security-model-1"><span>6.10 Security model<a class="copiable-link" href="#Security-model-1"> &para;</a></span></h3>
 <a class="index-entry-id" id="index-security"></a>
 <a class="index-entry-id" id="index-OAuth-2_002e1"></a>
 <a class="index-entry-id" id="index-SecretScanner"></a>
@@ -172,7 +172,7 @@ Next: <a href="Logging.html" accesskey="n" rel="next">Logging</a>, Previous: <a 
 <li><a href="#User-isolation" accesskey="5">User isolation</a></li>
 </ul>
 <div class="subsection-level-extent" id="Transport">
-<h4 class="subsection"><span>6.9.1 Transport<a class="copiable-link" href="#Transport"> &para;</a></span></h4>
+<h4 class="subsection"><span>6.10.1 Transport<a class="copiable-link" href="#Transport"> &para;</a></span></h4>
 
 <p>Tomcat terminates HTTPS on <code class="code">:443</code> from a PKCS12 keystore
 (typically generated from a Let&rsquo;s Encrypt certificate).  No reverse
@@ -181,7 +181,7 @@ not exposed publicly.
 </p>
 </div>
 <div class="subsection-level-extent" id="Authentication-1">
-<h4 class="subsection"><span>6.9.2 Authentication<a class="copiable-link" href="#Authentication-1"> &para;</a></span></h4>
+<h4 class="subsection"><span>6.10.2 Authentication<a class="copiable-link" href="#Authentication-1"> &para;</a></span></h4>
 <a class="index-entry-id" id="index-OAuth-2_002e1-1"></a>
 <a class="index-entry-id" id="index-JWT"></a>
 <a class="index-entry-id" id="index-JWKS"></a>
@@ -234,7 +234,7 @@ the client-side end of the flow.
 </p>
 </div>
 <div class="subsection-level-extent" id="Secret-rejection">
-<h4 class="subsection"><span>6.9.3 Secret rejection<a class="copiable-link" href="#Secret-rejection"> &para;</a></span></h4>
+<h4 class="subsection"><span>6.10.3 Secret rejection<a class="copiable-link" href="#Secret-rejection"> &para;</a></span></h4>
 
 <p><code class="code">SecretScanner</code> runs on every write (<code class="code">remember</code>,
 <code class="code">remember_batch</code>, <code class="code">update_memory</code>) and rejects text that
@@ -258,7 +258,7 @@ fires.
 </p>
 </div>
 <div class="subsection-level-extent" id="Database-privileges">
-<h4 class="subsection"><span>6.9.4 Database privileges<a class="copiable-link" href="#Database-privileges"> &para;</a></span></h4>
+<h4 class="subsection"><span>6.10.4 Database privileges<a class="copiable-link" href="#Database-privileges"> &para;</a></span></h4>
 
 <p>The <code class="code">ownsona</code> PostgreSQL role has
 <code class="code">SELECT/INSERT/UPDATE/DELETE/TRUNCATE</code> on <code class="code">memories</code>, plus
@@ -268,7 +268,7 @@ It is not a superuser.
 </p>
 </div>
 <div class="subsection-level-extent" id="User-isolation">
-<h4 class="subsection"><span>6.9.5 User isolation<a class="copiable-link" href="#User-isolation"> &para;</a></span></h4>
+<h4 class="subsection"><span>6.10.5 User isolation<a class="copiable-link" href="#User-isolation"> &para;</a></span></h4>
 
 <p>Schema-level: every row carries <code class="code">user_id</code> and every query filters
 on it.  Operationally: single-user mode pins every write to the
@@ -280,7 +280,7 @@ is deliberately out of scope.
 <hr>
 <div class="nav-panel">
 <p>
-Next: <a href="Logging.html">Logging</a>, Previous: <a href="The-per_002drecord-upgrader-framework.html">The per-record upgrader framework</a>, Up: <a href="Server-Internals.html">Server Internals</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+Next: <a href="Logging.html">Logging</a>, Previous: <a href="Background-intelligence.html">Background intelligence</a>, Up: <a href="Server-Internals.html">Server Internals</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

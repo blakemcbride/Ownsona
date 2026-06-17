@@ -16,6 +16,12 @@ The name is a contraction of @emph{own persona}.  The store is your
 persona, the part of yourself you teach once and never have to teach
 again.
 
+And it does not just store --- it @emph{learns}.  OwnSona figures out
+which memories actually matter from feedback, learns which memories fit
+which kinds of questions, keeps itself consistent when facts contradict,
+consolidates duplicates, and builds a relationship graph you can ask
+multi-hop questions of.  @xref{Background intelligence}.
+
 @menu
 * The problem::                  Per-provider amnesia.
 * The pitch::                    One memory, every LLM.
@@ -56,6 +62,12 @@ ChatGPT or Gemini already knows.
 @item
 A fact written by one model is recallable by the next.  Your context
 follows you across providers, across models, across years.
+
+@item
+The store gets @emph{better} with use: tell it which recalled memories
+helped and it ranks them higher for similar questions later; correct a
+fact and it retires the stale one; let its background jobs run and it
+merges duplicates and maps how your facts connect.
 
 @item
 You own the database.  It lives on a server you control.  Nothing
@@ -101,6 +113,13 @@ interface.  Self-hosted alternatives (Ollama, sentence-transformers)
 work without changing any application code.
 
 @item
+@b{Generative LLM (optional):} a second, independently-configured
+@code{GenerativeProvider} seam (any OpenAI-compatible chat endpoint)
+powers the background intelligence --- consolidation, conflict
+resolution, relation extraction.  Off unless configured; never on the
+request path.  @xref{Background intelligence}.
+
+@item
 @b{Auth:} OAuth 2.1 (auth code + PKCE).  Every @code{/mcp} request
 must present an @code{Authorization: Bearer @var{JWT}} access token
 issued by the embedded authorization server.  MCP clients discover
@@ -127,11 +146,17 @@ The store has @b{one} user (you).  There are no multi-tenant primitives
 to design around.  When the design has to choose between flexibility
 and simplicity, it picks simplicity.
 
-@item Vendor neutrality on the server side.
-The only place a vendor name appears in the request or write path is
-the @code{EmbeddingProvider} implementation.  MCP tool descriptions
-are generic: they say ``the calling LLM,'' not ``Claude.''  Adding a
-new provider is one class plus an @file{application.ini} switch.
+@item Vendor neutrality, and generative calls off the hot path.
+Vendor coupling lives in two pluggable seams, configured separately:
+@code{EmbeddingProvider} (always used) and the optional
+@code{GenerativeProvider}.  A generative LLM may be used for
+@emph{background / maintenance} work through that second seam, but
+@b{never on the synchronous recall/remember path} --- a normal read or
+write never depends on a generative model being up.  With no generative
+provider configured the server runs fully on embeddings plus
+deterministic heuristics.  MCP tool descriptions stay generic: they say
+``the calling LLM,'' not ``Claude.''  Adding a provider is one class plus
+an @file{application.ini} switch.
 
 @item Additive schema migrations only.
 The auto-migration framework will refuse to drop, rename, or rewrite
@@ -167,7 +192,10 @@ Deliberately out of scope:
 @itemize @bullet
 @item @b{Multi-user tenancy.}  Not coming.
 @item @b{Hosted SaaS.}  Not coming.  Run your own.
-@item @b{Generative-LLM calls in the server's request path.}  Not coming;
-guardrail #1.  The CLI's @code{teach} subcommand uses an LLM to extract
-facts from prose, but that's client-side and the server doesn't know.
+@item @b{Generative-LLM calls in the server's synchronous request path.}
+Not coming; guardrail #1.  Generative calls @emph{are} allowed for
+optional background/maintenance work through the @code{GenerativeProvider}
+seam (consolidation, conflict resolution, relation extraction), but they
+never sit between a client's @code{recall}/@code{remember} and its
+response.
 @end itemize

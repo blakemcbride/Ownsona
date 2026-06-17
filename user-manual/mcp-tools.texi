@@ -20,9 +20,12 @@ example calls.
 * The update_memory tool::       Edit an existing memory.
 * The update_memory_batch tool:: Edit up to 200 memories in one call.
 * The confirm tool::             Refresh last_confirmed_at.
+* The reinforce tool::           Feedback that tunes learned ranking.
 * The forget tool::              Soft-delete or hard-delete a memory.
 * The forget_batch tool::        Soft-delete up to 200 memories in one call.
 * The find_near_duplicates tool:: Cluster active memories by cosine similarity.
+* The find_conflicts tool::      Surface same-topic memories that may contradict.
+* The query_relations tool::     Multi-hop traversal of the relation graph.
 * The text_search tool::         Plain-substring search.
 * The get_memory tool::          Fetch a single memory by id.
 * The count_memories tool::      Cheap COUNT with optional filters.
@@ -304,6 +307,19 @@ The tool description instructs the calling LLM to @b{prefer the most
 recently confirmed match} when multiple results look contradictory:
 compare @code{last_confirmed_at} first, then @code{updated_at}, then
 @code{created_at}.
+
+@cindex salience
+@cindex ranking
+Each match also carries the learned @code{salience} (a double) and
+@code{use_count} (and @code{context_count} when it has learned context).
+Results are @b{ordered} by a blend of cosine similarity, salience, and
+learned per-query context --- @code{cosine * (1 + w*salience +
+w*context_match)} --- with recency as a tiebreaker.  Crucially the
+reported @code{score} stays the @b{raw cosine similarity}, so
+@code{min_score} and the contradiction heuristic above keep their original
+meaning; the learning affects order, not the reported score.  See
+@ref{The reinforce tool} for how salience and context are taught, and
+@ref{Background intelligence} for the bigger picture.
 
 @subsection Errors
 
@@ -588,6 +604,66 @@ rebuilding the embedding.  Cheap operation.
 
 @code{INVALID_INPUT}, @code{NOT_FOUND}.
 
+@node The reinforce tool
+@section The @code{reinforce} tool
+@cindex reinforce
+@cindex salience
+@cindex learning
+
+Records feedback on which recalled memories were useful, so the store
+learns to rank genuinely helpful facts higher over time.  This is the
+crux of OwnSona's learning behaviour: it adjusts a per-memory
+@dfn{salience} weight that recall multiplies into its ranking.  It never
+edits a memory's text and never deletes anything, so it is exempt from
+the @code{keep='Y'} lock (like @code{confirm}).
+
+There is @b{no time-based decay}: a memory is never demoted merely for
+being old.  Salience moves only on an explicit @code{reinforce} (or a
+@code{confirm}, which counts as positive feedback).
+
+@subsection Inputs
+
+@table @code
+@item memory_ids
+@b{Required array of integers.}  The ids that helped (or hurt) ---
+typically ids returned by @code{recall} / @code{search_memory}.
+
+@item delta
+Number, @minus{}1.0--1.0.  Optional, default @code{+1}.  Positive means
+the memory was helpful (rank it higher); negative means it was unhelpful
+or wrong (rank it lower).
+
+@item query
+Optional string.  The question or topic these memories helped answer ---
+ideally the same query you passed to @code{recall}.  With positive
+feedback, OwnSona moves each memory's learned @dfn{context centroid}
+toward this query's embedding, so similar future queries surface these
+memories first --- @dfn{contextual ranking}, beyond the single global
+salience weight.  Ignored for negative feedback.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "reinforced": [
+    @{ "id": 17, "salience": 0.775, "use_count": 3, "context_count": 1 @}
+  ],
+  "skipped": [ 99 ],
+  "message": "Ok"
+@}
+@end example
+
+@code{reinforced} lists the active rows that were updated; @code{skipped}
+(present only when non-empty) lists requested ids that were unknown or
+already soft-deleted.  Duplicate ids are collapsed.
+
+@subsection Errors
+
+@code{INVALID_INPUT} (empty @code{memory_ids}, out-of-range @code{delta}),
+@code{LIMIT_EXCEEDED}, @code{DATABASE_ERROR}.
+
 @node The forget tool
 @section The @code{forget} tool
 @cindex forget
@@ -767,6 +843,100 @@ returned clusters.
 @subsection Errors
 
 @code{INVALID_INPUT} (out-of-range threshold or max_groups),
+@code{DATABASE_ERROR}.
+
+@node The find_conflicts tool
+@section The @code{find_conflicts} tool
+@cindex find_conflicts
+@cindex conflicts
+@cindex contradictions
+
+Read-only diagnostic that surfaces memories which may @emph{contradict}
+each other: clusters of active memories that are both semantically close
+@b{and} share at least one tag (so they describe the same labelled topic
+but might disagree).  Same clustering and output shape as
+@code{find_near_duplicates}; the differences are the lower default
+threshold and the tag gate.
+
+The server does not decide whether the memories truly conflict --- that
+is a judgement for the calling LLM (or you).  Resolve a conflict by
+confirming the right memory, or by storing the corrected fact with
+@code{remember} using its @code{supersedes} field (the old fact is now
+wrong) or @code{downweights} (it is merely outdated).
+
+@subsection Inputs
+
+@table @code
+@item threshold
+Number, 0.5--1.0.  Optional, default 0.80 (lower than
+@code{find_near_duplicates}, since a conflict is ``same topic, possibly
+different answer'').
+
+@item max_groups
+Integer.  Optional, default 50.  Hard cap 500.
+@end table
+
+@subsection Output
+
+Identical shape to @code{find_near_duplicates} (@code{groups} of
+@code{ids} / @code{max_similarity} / @code{pair_count} / @code{memories},
+plus a @code{summary}).
+
+@subsection Errors
+
+@code{INVALID_INPUT}, @code{DATABASE_ERROR}.
+
+@node The query_relations tool
+@section The @code{query_relations} tool
+@cindex query_relations
+@cindex relations
+@cindex knowledge graph
+@cindex multi-hop
+
+Traverses the relationship graph extracted from your memories to answer
+connected, @dfn{multi-hop} questions --- e.g.@: ``who is my manager's
+spouse?'' --- that a flat similarity search cannot.  Read-only; pure
+breadth-first search over the @code{memory_relations} graph, with no LLM
+call at query time.
+
+The graph is populated by the relation-extraction background job (see
+@ref{Background intelligence}); if this tool returns nothing, extraction
+may not be enabled yet --- fall back to @code{recall}.
+
+@subsection Inputs
+
+@table @code
+@item entity
+@b{Required string.}  The entity to start from (a person, place,
+organization, thing, or ``the user'').  Matched case-insensitively
+against relation subjects and objects.
+
+@item max_hops
+Integer.  Optional, default 2, hard cap 5.  Use 1 for direct relations
+only; higher values follow longer chains.
+@end table
+
+@subsection Output
+
+@example
+@{
+  "ok": true,
+  "entity": "my manager",
+  "relations": [
+    @{ "subject": "Dana", "predicate": "manages", "object": "the user",
+      "source_memory_id": 12, "source_text": "Dana is my manager." @}
+  ],
+  "summary": @{ "count": 1 @}
+@}
+@end example
+
+Edges are treated as undirected for reachability.  Soft-deleted source
+memories are excluded, and each edge carries its source memory's current
+text.  Results are capped at @code{GRAPH_MAX_RELATIONS}.
+
+@subsection Errors
+
+@code{INVALID_INPUT} (missing entity, @code{max_hops} < 1),
 @code{DATABASE_ERROR}.
 
 @node The text_search tool

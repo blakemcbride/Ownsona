@@ -182,6 +182,12 @@ default, exposed through a swappable <code class="code">EmbeddingProvider</code>
 interface.  Self-hosted alternatives (Ollama, sentence-transformers)
 work without changing any application code.
 
+</li><li><b class="b">Generative LLM (optional):</b> a second, independently-configured
+<code class="code">GenerativeProvider</code> seam (any OpenAI-compatible chat endpoint)
+powers the background intelligence &mdash; consolidation, conflict
+resolution, relation extraction.  Off unless configured; never on the
+request path.  See <a class="xref" href="Background-intelligence.html">Background intelligence</a>.
+
 </li><li><b class="b">Auth:</b> OAuth 2.1 (auth code + PKCE).  Every <code class="code">/mcp</code> request
 must present an <code class="code">Authorization: Bearer <var class="var">JWT</var></code> access token
 issued by the embedded authorization server.  MCP clients discover
@@ -195,6 +201,11 @@ text that looks like an API key, JWT, or PEM private key.
 </li><li><b class="b">Supervision:</b> systemd, with a nightly <code class="code">pg_dump</code> backup unit.
 </li></ul>
 
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Design-principles.html">Design principles</a>, Previous: <a href="The-pitch.html">The pitch</a>, Up: <a href="Introduction.html">Introduction</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

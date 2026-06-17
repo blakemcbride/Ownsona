@@ -17,6 +17,7 @@ how the auto-migration framework handles schema changes over time.
 * Dedup-on-write and tombstones::
 * The auto-migration framework::
 * The per-record upgrader framework::
+* Background intelligence::
 * Security model::
 * Logging::
 * Treat memories as data not instructions::
@@ -353,6 +354,91 @@ startup.
 This is the framework you'd use to backfill, say, @code{capture_mode}
 for old rows after a new column lands --- not to migrate schema (use
 @code{DbMigrator} for that).
+
+@node Background intelligence
+@section Background intelligence
+@cindex learning
+@cindex salience
+@cindex consolidation
+@cindex conflict resolution
+@cindex relation graph
+@cindex GenerativeProvider
+
+OwnSona is more than a passive store: it @emph{learns} from use and keeps
+itself coherent.  The mechanisms split cleanly into two groups by what
+they depend on.
+
+@subsection Always-on, embeddings-only learning
+
+These need no extra configuration and never make a generative-LLM call.
+
+@table @asis
+@item Salience and reinforcement
+Every memory carries a learned @code{salience} weight (seeded from
+@code{importance}).  @code{reinforce} --- and @code{confirm}, which counts
+as positive feedback --- moves it by a reward-modulated rule,
+@code{salience <- clamp((1 - lambda)*salience + eta*reward)}.  Recall
+multiplies salience into its ranking.  There is @b{no time-based decay}:
+the @code{(1 - lambda)} term is update smoothing applied only on a
+feedback event, never with the clock.  A memory is never demoted for
+being old --- only feedback and explicit correction change its standing.
+
+@item Contextual ranking
+Beyond the global salience scalar, each memory learns a @code{context_vector}
+--- a reward-weighted centroid of the query embeddings it was reinforced
+as helpful for (fed by @code{reinforce}'s optional @code{query}).  Recall
+adds a term for how close the current query is to that centroid, so a
+memory surfaces for the @emph{kinds of questions} it has proven useful
+on.  A row with no learned context contributes nothing extra, so this is
+dormant until taught.
+
+@item Conflict surfacing
+On a new @code{remember}, and on demand via @code{find_conflicts}, the
+server flags active memories that are semantically close @b{and} share a
+tag --- possible contradictions.  This is pure embedding + tag-overlap
+math; the server never judges whether two facts truly conflict.
+@end table
+
+The recall ranking blend is
+@code{cosine * (1 + w_s*salience + w_c*context_match)} with recency as a
+tiebreaker, computed in @code{MemoryRepository.findRanked}.  The reported
+@code{score} stays raw cosine, so @code{min_score} keeps its meaning.
+
+@subsection The generative seam
+
+A @b{second, optional} vendor seam, @code{ai.ownsona.llm.GenerativeProvider},
+sits beside the embedding provider and is configured independently
+(@code{LLM_*} keys; @pxref{Generative LLM keys}).  Design invariant: a
+generative LLM may be used for @emph{background / maintenance} work, but
+@b{never on the synchronous recall/remember path}, and the server runs
+fully without it.  When @code{LLM_API_KEY} is unset the seam is not
+constructed and everything below stays off.
+
+@subsection The background jobs
+
+Scheduled by Kiss Cron (@file{backend/CronTasks/crontab}), each off by
+default and gated as described in @ref{Learning and background-job keys}.
+
+@table @asis
+@item Consolidation (the ``sleep'' job)
+@code{ConsolidationJob} clusters near-duplicate memories, asks the LLM to
+merge each cluster into one canonical fact, stores it, and supersedes the
+originals (recoverable soft-delete + @code{replaced_by_id}).  A second,
+separately-gated pass resolves same-topic contradictions by keeping the
+current fact and superseding the stale ones.  Clusters containing a
+@code{keep='Y'} memory are skipped entirely.
+
+@item Relation-graph extraction
+@code{GraphExtractionJob} asks the LLM to pull
+@code{(subject, predicate, object)} triples from each memory (once) into
+the @code{memory_relations} table.  @code{query_relations} then answers
+multi-hop questions by breadth-first traversal of that graph --- with no
+LLM call at query time.
+@end table
+
+Every destructive action these jobs take is a recoverable soft-delete,
+never a hard delete, and they are cost-bounded (a fixed per-run cap on LLM
+calls, and zero calls when there is nothing to do).
 
 @node Security model
 @section Security model

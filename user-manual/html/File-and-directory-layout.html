@@ -170,6 +170,10 @@ Next: <a href="Environment-variables.html" accesskey="n" rel="next">Environment 
                 application.ini.example     # redacted template (tracked)
                 application.ini             # live secrets (gitignored)
                 KissInit.groovy             # Kiss app bootstrap
+                CronTasks/                  # Kiss Cron: crontab + job shims
+                    crontab
+                    Consolidate.groovy      # -&gt; ConsolidationJob (Tier 3)
+                    ExtractRelations.groovy # -&gt; GraphExtractionJob (Tier 4)
             core/                           # Kiss framework (do NOT modify)
                 org/kissweb/MCPServerBase.java
                 org/kissweb/restServer/MainServlet.java
@@ -187,17 +191,26 @@ Next: <a href="Environment-variables.html" accesskey="n" rel="next">Environment 
                         OpenAIEmbeddingProvider.java
                         MockEmbeddingProvider.java
                         ReembedJob.java
+                    llm/                    # optional generative seam + background jobs
+                        GenerativeProvider.java
+                        OpenAIGenerativeProvider.java
+                        MockGenerativeProvider.java
+                        ConsolidationJob.java   # merge/dedup + conflict-resolution
+                        GraphExtractionJob.java # relation-triple extraction
                     memory/
                         MemoryService.java
                         MemoryRepository.java
+                        RelationRepository.java     # relation graph
+                        RelationService.java        # multi-hop traversal
                         ...
                     migrations/
                         Migration.java
                         MigrationRegistry.java
                         DbMigrator.java
                         Migration002AddRecordVersion.java
-                        Migration003AddFreshness.java
-                        Migration004AddTombstones.java
+                        ...                         # 003-006
+                        Migration007AddContextVector.java  # Tier 4 ph1
+                        Migration008AddRelations.java      # Tier 4 ph2
         test/
             precompiled/ai/ownsona/         # JUnit 5 tests
     sql/

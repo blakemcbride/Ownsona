@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<!-- Created by GNU Texinfo 7.2, https://www.gnu.org/software/texinfo/ -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!-- This manual is for OwnSona, a single-user MCP (Model Context Protocol)
+memory server.  OwnSona is built on the
+https://kissweb.org (Kiss web development framework), an
+open-source Java full-stack framework that provides the servlet
+container, JSON-RPC plumbing, connection pooling, and base classes
+this server extends.
+
+Copyright © 2018-2026 Blake McBride.
+
+Distributed under the BSD 2-Clause License.  See LICENSE.txt
+in the source distribution for the full text. -->
+<title>Background intelligence (OwnSona Manual)</title>
+
+<meta name="description" content="Background intelligence (OwnSona Manual)">
+<meta name="keywords" content="Background intelligence (OwnSona Manual)">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="makeinfo">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="index.html" rel="start" title="Top">
+<link href="Index.html" rel="index" title="Index">
+<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+<link href="Server-Internals.html" rel="up" title="Server Internals">
+<link href="Security-model.html" rel="next" title="Security model">
+<link href="The-per_002drecord-upgrader-framework.html" rel="prev" title="The per-record upgrader framework">
+<style type="text/css">
+<!--
+/*
+ * OwnSona manual stylesheet --- minimal, monochrome, readable.
+ */
+
+
+a.copiable-link {visibility: hidden; text-decoration: none; line-height: 0em}
+span:hover a.copiable-link {visibility: visible}
+body {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #222;
+    background: #fdfdfd;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+    color: #111;
+}
+
+h1 { font-size: 1.75rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+h2 { font-size: 1.4rem;  border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; color: #444; }
+
+a {
+    color: #04519b;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+code, samp, kbd, tt, var {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f4f4f4;
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+}
+
+pre {
+    background: #f7f7f7;
+    border: 1px solid #e3e3e3;
+    border-left: 3px solid #04519b;
+    border-radius: 3px;
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+}
+
+pre code, pre samp, pre kbd, pre tt, pre var {
+    background: transparent;
+    padding: 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+th, td {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+}
+
+blockquote {
+    border-left: 3px solid #ddd;
+    color: #555;
+    margin: 1rem 0;
+    padding: 0.25rem 1rem;
+    background: #fafafa;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+dl dt {
+    font-weight: 600;
+    margin-top: 0.7rem;
+}
+dl dd {
+    margin-left: 1.5rem;
+}
+
+/* texinfo-specific selectors */
+.menu, .float, .float-caption {
+    margin: 1rem 0;
+}
+.contents-heading, .shortcontents-heading {
+    font-size: 1.3rem;
+}
+.header, .footer {
+    color: #777;
+    font-size: 0.85rem;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+    padding-top: 0.5rem;
+}
+
+-->
+</style>
+
+
+</head>
+
+<body lang="en">
+<div class="section-level-extent" id="Background-intelligence">
+<div class="nav-panel">
+<p>
+Next: <a href="Security-model.html" accesskey="n" rel="next">Security model</a>, Previous: <a href="The-per_002drecord-upgrader-framework.html" accesskey="p" rel="prev">The per-record upgrader framework</a>, Up: <a href="Server-Internals.html" accesskey="u" rel="up">Server Internals</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+<hr>
+<h3 class="section" id="Background-intelligence-1"><span>6.9 Background intelligence<a class="copiable-link" href="#Background-intelligence-1"> &para;</a></span></h3>
+<a class="index-entry-id" id="index-learning-1"></a>
+<a class="index-entry-id" id="index-salience-2"></a>
+<a class="index-entry-id" id="index-consolidation-1"></a>
+<a class="index-entry-id" id="index-conflict-resolution-1"></a>
+<a class="index-entry-id" id="index-relation-graph-1"></a>
+<a class="index-entry-id" id="index-GenerativeProvider"></a>
+
+<p>OwnSona is more than a passive store: it <em class="emph">learns</em> from use and keeps
+itself coherent.  The mechanisms split cleanly into two groups by what
+they depend on.
+</p>
+<ul class="mini-toc">
+<li><a href="#Always_002don_002c-embeddings_002donly-learning" accesskey="1">Always-on, embeddings-only learning</a></li>
+<li><a href="#The-generative-seam" accesskey="2">The generative seam</a></li>
+<li><a href="#The-background-jobs" accesskey="3">The background jobs</a></li>
+</ul>
+<div class="subsection-level-extent" id="Always_002don_002c-embeddings_002donly-learning">
+<h4 class="subsection"><span>6.9.1 Always-on, embeddings-only learning<a class="copiable-link" href="#Always_002don_002c-embeddings_002donly-learning"> &para;</a></span></h4>
+
+<p>These need no extra configuration and never make a generative-LLM call.
+</p>
+<dl class="table">
+<dt>Salience and reinforcement</dt>
+<dd><p>Every memory carries a learned <code class="code">salience</code> weight (seeded from
+<code class="code">importance</code>).  <code class="code">reinforce</code> &mdash; and <code class="code">confirm</code>, which counts
+as positive feedback &mdash; moves it by a reward-modulated rule,
+<code class="code">salience &lt;- clamp((1 - lambda)*salience + eta*reward)</code>.  Recall
+multiplies salience into its ranking.  There is <b class="b">no time-based decay</b>:
+the <code class="code">(1 - lambda)</code> term is update smoothing applied only on a
+feedback event, never with the clock.  A memory is never demoted for
+being old &mdash; only feedback and explicit correction change its standing.
+</p>
+</dd>
+<dt>Contextual ranking</dt>
+<dd><p>Beyond the global salience scalar, each memory learns a <code class="code">context_vector</code>
+&mdash; a reward-weighted centroid of the query embeddings it was reinforced
+as helpful for (fed by <code class="code">reinforce</code>&rsquo;s optional <code class="code">query</code>).  Recall
+adds a term for how close the current query is to that centroid, so a
+memory surfaces for the <em class="emph">kinds of questions</em> it has proven useful
+on.  A row with no learned context contributes nothing extra, so this is
+dormant until taught.
+</p>
+</dd>
+<dt>Conflict surfacing</dt>
+<dd><p>On a new <code class="code">remember</code>, and on demand via <code class="code">find_conflicts</code>, the
+server flags active memories that are semantically close <b class="b">and</b> share a
+tag &mdash; possible contradictions.  This is pure embedding + tag-overlap
+math; the server never judges whether two facts truly conflict.
+</p></dd>
+</dl>
+
+<p>The recall ranking blend is
+<code class="code">cosine * (1 + w_s*salience + w_c*context_match)</code> with recency as a
+tiebreaker, computed in <code class="code">MemoryRepository.findRanked</code>.  The reported
+<code class="code">score</code> stays raw cosine, so <code class="code">min_score</code> keeps its meaning.
+</p>
+</div>
+<div class="subsection-level-extent" id="The-generative-seam">
+<h4 class="subsection"><span>6.9.2 The generative seam<a class="copiable-link" href="#The-generative-seam"> &para;</a></span></h4>
+
+<p>A <b class="b">second, optional</b> vendor seam, <code class="code">ai.ownsona.llm.GenerativeProvider</code>,
+sits beside the embedding provider and is configured independently
+(<code class="code">LLM_*</code> keys; see <a class="pxref" href="Generative-LLM-keys.html">Generative LLM keys</a>).  Design invariant: a
+generative LLM may be used for <em class="emph">background / maintenance</em> work, but
+<b class="b">never on the synchronous recall/remember path</b>, and the server runs
+fully without it.  When <code class="code">LLM_API_KEY</code> is unset the seam is not
+constructed and everything below stays off.
+</p>
+</div>
+<div class="subsection-level-extent" id="The-background-jobs">
+<h4 class="subsection"><span>6.9.3 The background jobs<a class="copiable-link" href="#The-background-jobs"> &para;</a></span></h4>
+
+<p>Scheduled by Kiss Cron (<samp class="file">backend/CronTasks/crontab</samp>), each off by
+default and gated as described in <a class="ref" href="Learning-and-background_002djob-keys.html">Learning and background-job keys</a>.
+</p>
+<dl class="table">
+<dt>Consolidation (the &ldquo;sleep&rdquo; job)</dt>
+<dd><p><code class="code">ConsolidationJob</code> clusters near-duplicate memories, asks the LLM to
+merge each cluster into one canonical fact, stores it, and supersedes the
+originals (recoverable soft-delete + <code class="code">replaced_by_id</code>).  A second,
+separately-gated pass resolves same-topic contradictions by keeping the
+current fact and superseding the stale ones.  Clusters containing a
+<code class="code">keep='Y'</code> memory are skipped entirely.
+</p>
+</dd>
+<dt>Relation-graph extraction</dt>
+<dd><p><code class="code">GraphExtractionJob</code> asks the LLM to pull
+<code class="code">(subject, predicate, object)</code> triples from each memory (once) into
+the <code class="code">memory_relations</code> table.  <code class="code">query_relations</code> then answers
+multi-hop questions by breadth-first traversal of that graph &mdash; with no
+LLM call at query time.
+</p></dd>
+</dl>
+
+<p>Every destructive action these jobs take is a recoverable soft-delete,
+never a hard delete, and they are cost-bounded (a fixed per-run cap on LLM
+calls, and zero calls when there is nothing to do).
+</p>
+</div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="Security-model.html">Security model</a>, Previous: <a href="The-per_002drecord-upgrader-framework.html">The per-record upgrader framework</a>, Up: <a href="Server-Internals.html">Server Internals</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
+</div>
+
+
+
+</body>
+</html>

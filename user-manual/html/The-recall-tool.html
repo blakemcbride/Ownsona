@@ -225,6 +225,19 @@ recently confirmed match</b> when multiple results look contradictory:
 compare <code class="code">last_confirmed_at</code> first, then <code class="code">updated_at</code>, then
 <code class="code">created_at</code>.
 </p>
+<a class="index-entry-id" id="index-salience"></a>
+<a class="index-entry-id" id="index-ranking"></a>
+<p>Each match also carries the learned <code class="code">salience</code> (a double) and
+<code class="code">use_count</code> (and <code class="code">context_count</code> when it has learned context).
+Results are <b class="b">ordered</b> by a blend of cosine similarity, salience, and
+learned per-query context &mdash; <code class="code">cosine * (1 + w*salience +
+w*context_match)</code> &mdash; with recency as a tiebreaker.  Crucially the
+reported <code class="code">score</code> stays the <b class="b">raw cosine similarity</b>, so
+<code class="code">min_score</code> and the contradiction heuristic above keep their original
+meaning; the learning affects order, not the reported score.  See
+<a class="ref" href="The-reinforce-tool.html">The <code class="code">reinforce</code> tool</a> for how salience and context are taught, and
+<a class="ref" href="Background-intelligence.html">Background intelligence</a> for the bigger picture.
+</p>
 </div>
 <div class="subsection-level-extent" id="Errors-2">
 <h4 class="subsection"><span>5.4.3 Errors<a class="copiable-link" href="#Errors-2"> &para;</a></span></h4>
@@ -247,6 +260,11 @@ compare <code class="code">last_confirmed_at</code> first, then <code class="cod
 </pre></div>
 
 </div>
+</div>
+<hr>
+<div class="nav-panel">
+<p>
+Next: <a href="The-search_005fmemory-tool.html">The <code class="code">search_memory</code> tool</a>, Previous: <a href="The-remember_005fbatch-tool.html">The <code class="code">remember_batch</code> tool</a>, Up: <a href="MCP-Tools.html">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 
 

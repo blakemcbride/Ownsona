@@ -18,6 +18,9 @@ ownsona search "<substring>"      # text_search
 ownsona list                      # list_memories
 ownsona update <id> "<text>"      # update_memory
 ownsona confirm <id>              # confirm
+ownsona reinforce <id>...         # reinforce (learned ranking feedback)
+ownsona conflicts                 # find_conflicts
+ownsona relations "<entity>"      # query_relations (multi-hop graph)
 ownsona forget <id>               # forget
 ownsona prompt "<user prompt>"    # build_context_prompt
 ownsona import FILE               # remember_batch (JSON or one-per-line)
@@ -255,6 +258,43 @@ Refresh @code{last_confirmed_at} without rebuilding the embedding:
 
 @example
 ownsona confirm 42
+@end example
+
+@subsection reinforce
+
+Record feedback that tunes the learned ranking weights.  A positive
+delta (the default) says the memory helped; a negative one demotes it.
+Pass @code{--query} to also teach @emph{contextual} ranking --- that the
+memory fits this kind of question:
+
+@example
+ownsona reinforce 17                       # +1 (helpful)
+ownsona reinforce 17 --query "where do I live"
+ownsona reinforce 17 --delta=-1            # unhelpful / wrong
+@end example
+
+It never edits text or deletes; protected (@code{keep='Y'}) memories can
+still be reinforced.
+
+@subsection conflicts (find_conflicts)
+
+Surface same-topic memories that may contradict each other (tag-gated;
+read-only):
+
+@example
+ownsona conflicts
+ownsona conflicts --threshold 0.85
+@end example
+
+@subsection relations (query_relations)
+
+Traverse the relationship graph for connected, multi-hop questions.  The
+graph is populated by the background extraction job; with none extracted
+yet, this returns nothing.
+
+@example
+ownsona relations "my manager"
+ownsona relations "my manager" --max-hops 3
 @end example
 
 @subsection forget

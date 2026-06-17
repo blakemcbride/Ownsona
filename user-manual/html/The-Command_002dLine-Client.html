@@ -178,6 +178,9 @@ ownsona search &quot;&lt;substring&gt;&quot;      # text_search
 ownsona list                      # list_memories
 ownsona update &lt;id&gt; &quot;&lt;text&gt;&quot;      # update_memory
 ownsona confirm &lt;id&gt;              # confirm
+ownsona reinforce &lt;id&gt;...         # reinforce (learned ranking feedback)
+ownsona conflicts                 # find_conflicts
+ownsona relations &quot;&lt;entity&gt;&quot;      # query_relations (multi-hop graph)
 ownsona forget &lt;id&gt;               # forget
 ownsona prompt &quot;&lt;user prompt&gt;&quot;    # build_context_prompt
 ownsona import FILE               # remember_batch (JSON or one-per-line)

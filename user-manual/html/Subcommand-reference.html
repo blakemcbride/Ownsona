@@ -179,8 +179,11 @@ come after:
 <li><a href="#list" accesskey="5">list</a></li>
 <li><a href="#update-_0028update_005fmemory_0029" accesskey="6">update (update_memory)</a></li>
 <li><a href="#confirm" accesskey="7">confirm</a></li>
-<li><a href="#forget" accesskey="8">forget</a></li>
-<li><a href="#prompt-_0028build_005fcontext_005fprompt_0029" accesskey="9">prompt (build_context_prompt)</a></li>
+<li><a href="#reinforce" accesskey="8">reinforce</a></li>
+<li><a href="#conflicts-_0028find_005fconflicts_0029" accesskey="9">conflicts (find_conflicts)</a></li>
+<li><a href="#relations-_0028query_005frelations_0029">relations (query_relations)</a></li>
+<li><a href="#forget">forget</a></li>
+<li><a href="#prompt-_0028build_005fcontext_005fprompt_0029">prompt (build_context_prompt)</a></li>
 <li><a href="#import-_0028remember_005fbatch_0029">import (remember_batch)</a></li>
 </ul>
 <div class="subsection-level-extent" id="Common-flags">
@@ -275,8 +278,51 @@ tombstones.
 </pre></div>
 
 </div>
+<div class="subsection-level-extent" id="reinforce">
+<h4 class="subsection"><span>9.3.8 reinforce<a class="copiable-link" href="#reinforce"> &para;</a></span></h4>
+
+<p>Record feedback that tunes the learned ranking weights.  A positive
+delta (the default) says the memory helped; a negative one demotes it.
+Pass <code class="code">--query</code> to also teach <em class="emph">contextual</em> ranking &mdash; that the
+memory fits this kind of question:
+</p>
+<div class="example">
+<pre class="example-preformatted">ownsona reinforce 17                       # +1 (helpful)
+ownsona reinforce 17 --query &quot;where do I live&quot;
+ownsona reinforce 17 --delta=-1            # unhelpful / wrong
+</pre></div>
+
+<p>It never edits text or deletes; protected (<code class="code">keep='Y'</code>) memories can
+still be reinforced.
+</p>
+</div>
+<div class="subsection-level-extent" id="conflicts-_0028find_005fconflicts_0029">
+<h4 class="subsection"><span>9.3.9 conflicts (find_conflicts)<a class="copiable-link" href="#conflicts-_0028find_005fconflicts_0029"> &para;</a></span></h4>
+
+<p>Surface same-topic memories that may contradict each other (tag-gated;
+read-only):
+</p>
+<div class="example">
+<pre class="example-preformatted">ownsona conflicts
+ownsona conflicts --threshold 0.85
+</pre></div>
+
+</div>
+<div class="subsection-level-extent" id="relations-_0028query_005frelations_0029">
+<h4 class="subsection"><span>9.3.10 relations (query_relations)<a class="copiable-link" href="#relations-_0028query_005frelations_0029"> &para;</a></span></h4>
+
+<p>Traverse the relationship graph for connected, multi-hop questions.  The
+graph is populated by the background extraction job; with none extracted
+yet, this returns nothing.
+</p>
+<div class="example">
+<pre class="example-preformatted">ownsona relations &quot;my manager&quot;
+ownsona relations &quot;my manager&quot; --max-hops 3
+</pre></div>
+
+</div>
 <div class="subsection-level-extent" id="forget">
-<h4 class="subsection"><span>9.3.8 forget<a class="copiable-link" href="#forget"> &para;</a></span></h4>
+<h4 class="subsection"><span>9.3.11 forget<a class="copiable-link" href="#forget"> &para;</a></span></h4>
 
 <p>Soft-delete by default; <code class="code">--hard</code> drops the row entirely.  Pair
 with <code class="code">--reason</code> or <code class="code">--replaced-by</code> to leave a tombstone trail
@@ -291,7 +337,7 @@ ownsona forget 42 --hard
 
 </div>
 <div class="subsection-level-extent" id="prompt-_0028build_005fcontext_005fprompt_0029">
-<h4 class="subsection"><span>9.3.9 prompt (build_context_prompt)<a class="copiable-link" href="#prompt-_0028build_005fcontext_005fprompt_0029"> &para;</a></span></h4>
+<h4 class="subsection"><span>9.3.12 prompt (build_context_prompt)<a class="copiable-link" href="#prompt-_0028build_005fcontext_005fprompt_0029"> &para;</a></span></h4>
 
 <div class="example">
 <pre class="example-preformatted">ownsona prompt &quot;What should I name my new dog?&quot; --max-chars 1000
@@ -305,7 +351,7 @@ ownsona forget 42 --hard
 
 </div>
 <div class="subsection-level-extent" id="import-_0028remember_005fbatch_0029">
-<h4 class="subsection"><span>9.3.10 import (remember_batch)<a class="copiable-link" href="#import-_0028remember_005fbatch_0029"> &para;</a></span></h4>
+<h4 class="subsection"><span>9.3.13 import (remember_batch)<a class="copiable-link" href="#import-_0028remember_005fbatch_0029"> &para;</a></span></h4>
 
 <p>Bulk-load from a JSON array or a one-fact-per-line text file.  The CLI
 chunks the input into batches of 200 (<code class="code">MAX_BATCH_SIZE</code>).

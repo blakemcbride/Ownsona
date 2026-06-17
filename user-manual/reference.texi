@@ -49,6 +49,19 @@ Every key recognized in @file{src/main/backend/application.ini}.
 @item @code{MAX_TEXT_CHARS} @tab @code{16000} @tab Hard cap on memory text length.
 @item @code{MAX_BATCH_SIZE} @tab @code{200} @tab Max items per @code{remember_batch}.
 @item @code{REEMBED_ON_STARTUP} @tab @code{false} @tab Triggers the re-embed walker. Auto-flipped after success.
+@item @code{LLM_API_KEY} @tab (none) @tab Generative-LLM key. Unset = generative background features disabled.
+@item @code{LLM_MODEL} @tab (none) @tab Chat model id (required iff @code{LLM_API_KEY} set).
+@item @code{LLM_ENDPOINT} @tab (none) @tab OpenAI-compatible chat URL (required iff @code{LLM_API_KEY} set).
+@item @code{LLM_PROVIDER} @tab @code{openai} @tab Generative provider label (logging only).
+@item @code{CONSOLIDATION_ENABLED} @tab @code{false} @tab Enable the merge/dedup background pass.
+@item @code{CONSOLIDATION_THRESHOLD} @tab @code{0.95} @tab Cosine cutoff for the merge pass.
+@item @code{CONFLICT_RESOLUTION_ENABLED} @tab @code{false} @tab Enable the auto conflict-resolution pass.
+@item @code{CONFLICT_RESOLUTION_THRESHOLD} @tab @code{0.80} @tab Tag-gated cosine cutoff for the conflict pass.
+@item @code{CONSOLIDATION_MAX_GROUPS} @tab @code{25} @tab Per-pass cap on clusters (LLM-cost bound).
+@item @code{GRAPH_EXTRACTION_ENABLED} @tab @code{false} @tab Enable relation-triple extraction.
+@item @code{GRAPH_EXTRACTION_MAX_MEMORIES} @tab @code{25} @tab Memories extracted per run (LLM-cost bound).
+@item @code{GRAPH_MAX_HOPS} @tab @code{2} @tab Default/cap hops for @code{query_relations} (hard cap 5).
+@item @code{GRAPH_MAX_RELATIONS} @tab @code{200} @tab Cap on relations returned per @code{query_relations}.
 @item @code{OAuthAsIniFile} @tab @code{oauth.ini} @tab Path to the AS persistence file.  Strongly recommended: absolute path outside the deployed webapp.
 @item @code{OAuthRequiredScopes} @tab (none) @tab Comma- or space-separated list of scopes every access token must carry.
 @item @code{OAuthResourceIdentifier} @tab = @code{OAuthAuthorizationServer} @tab Override for the @code{aud} value tokens must carry.
@@ -125,6 +138,10 @@ ownsona/                                   # repo root
                 application.ini.example     # redacted template (tracked)
                 application.ini             # live secrets (gitignored)
                 KissInit.groovy             # Kiss app bootstrap
+                CronTasks/                  # Kiss Cron: crontab + job shims
+                    crontab
+                    Consolidate.groovy      # -> ConsolidationJob (Tier 3)
+                    ExtractRelations.groovy # -> GraphExtractionJob (Tier 4)
             core/                           # Kiss framework (do NOT modify)
                 org/kissweb/MCPServerBase.java
                 org/kissweb/restServer/MainServlet.java
@@ -142,17 +159,26 @@ ownsona/                                   # repo root
                         OpenAIEmbeddingProvider.java
                         MockEmbeddingProvider.java
                         ReembedJob.java
+                    llm/                    # optional generative seam + background jobs
+                        GenerativeProvider.java
+                        OpenAIGenerativeProvider.java
+                        MockGenerativeProvider.java
+                        ConsolidationJob.java   # merge/dedup + conflict-resolution
+                        GraphExtractionJob.java # relation-triple extraction
                     memory/
                         MemoryService.java
                         MemoryRepository.java
+                        RelationRepository.java     # relation graph
+                        RelationService.java        # multi-hop traversal
                         ...
                     migrations/
                         Migration.java
                         MigrationRegistry.java
                         DbMigrator.java
                         Migration002AddRecordVersion.java
-                        Migration003AddFreshness.java
-                        Migration004AddTombstones.java
+                        ...                         # 003-006
+                        Migration007AddContextVector.java  # Tier 4 ph1
+                        Migration008AddRelations.java      # Tier 4 ph2
         test/
             precompiled/ai/ownsona/         # JUnit 5 tests
     sql/

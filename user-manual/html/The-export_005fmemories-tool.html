@@ -159,7 +159,7 @@ dl dd {
 Next: <a href="Error-codes.html" accesskey="n" rel="next">Error codes</a>, Previous: <a href="The-list_005ftags-tool.html" accesskey="p" rel="prev">The <code class="code">list_tags</code> tool</a>, Up: <a href="MCP-Tools.html" accesskey="u" rel="up">MCP Tools</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Index.html" title="Index" rel="index">Index</a>]</p>
 </div>
 <hr>
-<h3 class="section" id="The-export_005fmemories-tool-1"><span>5.19 The <code class="code">export_memories</code> tool<a class="copiable-link" href="#The-export_005fmemories-tool-1"> &para;</a></span></h3>
+<h3 class="section" id="The-export_005fmemories-tool-1"><span>5.22 The <code class="code">export_memories</code> tool<a class="copiable-link" href="#The-export_005fmemories-tool-1"> &para;</a></span></h3>
 <a class="index-entry-id" id="index-export_005fmemories"></a>
 <a class="index-entry-id" id="index-backup"></a>
 
@@ -170,12 +170,12 @@ different embedding model.  Capped server-side at a large but finite
 number of rows per call.
 </p>
 <ul class="mini-toc">
-<li><a href="#Inputs-16" accesskey="1">Inputs</a></li>
-<li><a href="#Output-16" accesskey="2">Output</a></li>
-<li><a href="#Errors-16" accesskey="3">Errors</a></li>
+<li><a href="#Inputs-19" accesskey="1">Inputs</a></li>
+<li><a href="#Output-19" accesskey="2">Output</a></li>
+<li><a href="#Errors-19" accesskey="3">Errors</a></li>
 </ul>
-<div class="subsection-level-extent" id="Inputs-16">
-<h4 class="subsection"><span>5.19.1 Inputs<a class="copiable-link" href="#Inputs-16"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Inputs-19">
+<h4 class="subsection"><span>5.22.1 Inputs<a class="copiable-link" href="#Inputs-19"> &para;</a></span></h4>
 
 <dl class="table">
 <dt><code class="code">include_deleted</code></dt>
@@ -185,8 +185,8 @@ historical record.
 </dl>
 
 </div>
-<div class="subsection-level-extent" id="Output-16">
-<h4 class="subsection"><span>5.19.2 Output<a class="copiable-link" href="#Output-16"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Output-19">
+<h4 class="subsection"><span>5.22.2 Output<a class="copiable-link" href="#Output-19"> &para;</a></span></h4>
 
 <p>Same per-row shape as <code class="code">recall</code> matches, minus the <code class="code">score</code>
 field and the embedding vector:
@@ -203,8 +203,8 @@ field and the embedding vector:
 </pre></div>
 
 </div>
-<div class="subsection-level-extent" id="Errors-16">
-<h4 class="subsection"><span>5.19.3 Errors<a class="copiable-link" href="#Errors-16"> &para;</a></span></h4>
+<div class="subsection-level-extent" id="Errors-19">
+<h4 class="subsection"><span>5.22.3 Errors<a class="copiable-link" href="#Errors-19"> &para;</a></span></h4>
 
 <p><code class="code">LIMIT_EXCEEDED</code> when the store exceeds the export cap (in
 which case obtain an out-of-band dump), <code class="code">DATABASE_ERROR</code>.
