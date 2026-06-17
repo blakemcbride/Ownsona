@@ -6,7 +6,7 @@
 #include <stdlib.h>
 
 static const char USAGE[] =
-"usage: ownsona reinforce <id> [<id>...] [--delta N]\n"
+"usage: ownsona reinforce <id> [<id>...] [--delta N] [--query \"...\"]\n"
 "\n"
 "Record feedback on memories so the store learns to rank genuinely\n"
 "useful facts higher.  Raises (or, with a negative delta, lowers) each\n"
@@ -16,20 +16,26 @@ static const char USAGE[] =
 "Options:\n"
 "  --delta N    feedback strength in [-1, 1].  Default +1 (helpful);\n"
 "               use a negative value (e.g. --delta=-1) for 'unhelpful'.\n"
+"  --query STR  the question/topic these memories helped answer.  With\n"
+"               positive feedback, teaches the store to surface them for\n"
+"               similar future queries (contextual ranking).\n"
 "  -h, --help\n";
 
 int cmd_reinforce(int argc, char **argv, const ownsona_global_opts_t *gopt) {
     static const struct option longopts[] = {
         { "delta", required_argument, 0, 'd' },
+        { "query", required_argument, 0, 'q' },
         { "help",  no_argument,       0, 'h' },
         { 0, 0, 0, 0 }
     };
 
     const char *delta = NULL;
+    const char *query = NULL;
     int c;
     while ((c = getopt_long(argc, argv, "h", longopts, NULL)) != -1) {
         switch (c) {
             case 'd': delta = optarg; break;
+            case 'q': query = optarg; break;
             case 'h': fputs(USAGE, stdout); return 0;
             default:  fputs(USAGE, stderr); return 2;
         }
@@ -66,6 +72,8 @@ int cmd_reinforce(int argc, char **argv, const ownsona_global_opts_t *gopt) {
     cJSON_AddItemToObject(args, "memory_ids", ids);
     if (delta != NULL)
         cJSON_AddNumberToObject(args, "delta", strtod(delta, NULL));
+    if (query != NULL)
+        cJSON_AddStringToObject(args, "query", query);
 
     char *err = NULL;
     cJSON *result = ownsona_mcp_call(&cfg, "reinforce", args, &err);

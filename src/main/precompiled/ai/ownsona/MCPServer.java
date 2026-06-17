@@ -577,14 +577,22 @@ public class MCPServer extends MCPServerBase {
                 "Feedback strength in [-1, 1]. Positive (default +1) means the memory was helpful " +
                 "and should rank higher in future recalls; negative means it was unhelpful or " +
                 "wrong and should rank lower. Omit for the default of +1."));
+        props.put("query", scalarProp("string",
+                "Optional. The user's question or topic that these memories helped answer --- " +
+                "ideally the same query you passed to recall / search_memory. When supplied with " +
+                "positive feedback, the store also learns to surface these memories for similar " +
+                "future queries (contextual ranking), not just globally. Ignored for negative " +
+                "feedback."));
         return tool("reinforce",
                 "Record feedback on which recalled memories were useful, so the store learns to " +
                 "rank genuinely helpful facts higher over time. After you answer using memories " +
                 "returned by recall / search_memory, call this with the ids that actually helped " +
-                "(positive delta) or that were misleading (negative delta). This adjusts a learned " +
-                "salience weight; it never edits the memory's text and never deletes anything. " +
-                "Protected (kept) memories can still be reinforced. Unknown or already-deleted " +
-                "ids are silently skipped; the response lists which ids took effect.",
+                "(positive delta) or that were misleading (negative delta), and optionally the " +
+                "'query' they helped answer so the store learns which memories fit which kinds of " +
+                "questions. This adjusts a learned salience weight (and, with a query, a learned " +
+                "per-query-context weight); it never edits the memory's text and never deletes " +
+                "anything. Protected (kept) memories can still be reinforced. Unknown or " +
+                "already-deleted ids are silently skipped; the response lists which ids took effect.",
                 props, new String[]{"memory_ids"});
     }
 
@@ -1102,8 +1110,9 @@ public class MCPServer extends MCPServerBase {
             ids[i] = boxed[i].longValue();
         }
         final Double delta = args.has("delta") ? args.getDouble("delta") : null;
+        final String query = args.getString("query", null);
 
-        final List<MemoryRow> rows = SERVICE.reinforce(ids, delta);
+        final List<MemoryRow> rows = SERVICE.reinforce(ids, delta, query);
 
         // Report which ids took effect (active rows that were reinforced) so
         // the caller can tell what was skipped (unknown / already deleted).
@@ -1115,6 +1124,7 @@ public class MCPServer extends MCPServerBase {
             o.put("id", m.id);
             o.put("salience", m.salience == null ? m.importance : m.salience);
             o.put("use_count", m.useCount);
+            o.put("context_count", m.contextCount);
             reinforced.put(o);
         }
         final JSONArray skipped = new JSONArray();
@@ -1464,6 +1474,8 @@ public class MCPServer extends MCPServerBase {
         // importance so the field always carries the effective rank weight.
         o.put("salience", m.salience == null ? m.importance : m.salience);
         o.put("use_count", m.useCount);
+        if (m.contextCount > 0)
+            o.put("context_count", m.contextCount);
         if (m.sourceProvider != null)
             o.put("source_provider", m.sourceProvider);
         final String captureMode = captureModeOf(m);

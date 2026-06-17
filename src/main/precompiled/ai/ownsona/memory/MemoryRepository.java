@@ -32,7 +32,7 @@ public final class MemoryRepository {
             "metadata::text AS metadata_json, " +
             "record_version, expires_at, last_confirmed_at, " +
             "forget_reason, replaced_by_id, keep, " +
-            "salience, use_count, reward_sum, last_used_at";
+            "salience, use_count, reward_sum, last_used_at, context_count";
 
     /**
      * SQL fragment that excludes soft-deleted AND expired rows.  Used by
@@ -217,6 +217,21 @@ public final class MemoryRepository {
     private static final double SALIENCE_RANK_WEIGHT = 0.5;
 
     /**
+     * Multiplier applied to the learned context match (Tier 4) in the
+     * recall ranking blend: {@code rank = cosine * (1 + SALIENCE_RANK_WEIGHT
+     * * salience + CONTEXT_RANK_WEIGHT * context_match)}.  context_match is
+     * 0 for rows with no learned context (so behavior is unchanged until a
+     * memory has been reinforced with a query context).
+     */
+    private static final double CONTEXT_RANK_WEIGHT = 0.5;
+
+    /**
+     * Learning rate for the context centroid update: the centroid moves
+     * this fraction toward each new helpful query embedding.
+     */
+    private static final double CONTEXT_ETA = 0.3;
+
+    /**
      * How many candidates to pull by raw cosine distance (HNSW-index
      * friendly) before re-ranking by the salience blend.  Over-fetching
      * lets salience promote a row whose cosine rank is just outside the
@@ -254,32 +269,39 @@ public final class MemoryRepository {
         final int overfetch = Math.min(RANK_OVERFETCH_MAX,
                 Math.max(RANK_OVERFETCH_MIN, limit * RANK_OVERFETCH_FACTOR));
 
+        // context_match: cosine of the query against the memory's learned
+        // context centroid, or 0 when the memory has no centroid yet (so
+        // ranking is unchanged until a row is reinforced with a context).
         final StringBuilder inner = new StringBuilder();
         inner.append("SELECT ").append(SELECT_COLUMNS)
              .append(", 1 - (embedding <=> ?::vector) AS score")
+             .append(", CASE WHEN context_vector IS NULL THEN 0 ")
+             .append("ELSE GREATEST(0, 1 - (context_vector <=> ?::vector)) END AS context_match")
              .append(" FROM memories")
              .append(" WHERE user_id = ? AND ").append(ACTIVE_AND_FRESH);
         if (hasTags)
             inner.append(" AND tags && ?::text[]");
         inner.append(" ORDER BY embedding <=> ?::vector LIMIT ?");
 
-        // Re-rank the cosine-nearest candidates by the salience blend.
-        // COALESCE keeps un-seeded rows (salience IS NULL) at importance.
+        // Re-rank the cosine-nearest candidates by the salience + context
+        // blend.  COALESCE keeps un-seeded rows (salience IS NULL) at
+        // importance; context_match is 0 for rows with no learned context.
         final String sql =
                 "SELECT * FROM ( " + inner + " ) c " +
                 "ORDER BY (score * (1 + " + SALIENCE_RANK_WEIGHT +
-                " * COALESCE(salience, importance, 0.5))) DESC, " +
+                " * COALESCE(salience, importance, 0.5) + " + CONTEXT_RANK_WEIGHT +
+                " * context_match)) DESC, " +
                 "COALESCE(last_confirmed_at, last_used_at, created_at) DESC " +
                 "LIMIT ?";
 
         final List<Record> rows;
         if (hasTags) {
             rows = db.fetchAll(sql,
-                    vecLiteral, userId, VectorFormat.toPgArrayLiteral(tagFilter),
+                    vecLiteral, vecLiteral, userId, VectorFormat.toPgArrayLiteral(tagFilter),
                     vecLiteral, overfetch, limit);
         } else {
             rows = db.fetchAll(sql,
-                    vecLiteral, userId, vecLiteral, overfetch, limit);
+                    vecLiteral, vecLiteral, userId, vecLiteral, overfetch, limit);
         }
 
         final List<MemoryRow> out = new ArrayList<>(rows.size());
@@ -312,6 +334,27 @@ public final class MemoryRepository {
     public boolean reinforce(Connection db, long id, double reward,
                              double eta, double lambda,
                              double clampMin, double clampMax) throws Exception {
+        return reinforce(db, id, reward, eta, lambda, clampMin, clampMax, null);
+    }
+
+    /**
+     * Same as the salience-only {@link #reinforce}, but also moves the
+     * memory's learned context centroid toward {@code contextVec} (Tier 4)
+     * when a positive-reward feedback carries a query context.  The centroid
+     * is a reward-weighted running mean of the query embeddings for which
+     * this memory proved helpful; recall later boosts the memory when a new
+     * query is close to it.  Updated in Java (read / blend / write) to stay
+     * independent of pgvector arithmetic-operator support across versions.
+     *
+     * <p>{@code contextVec} is ignored (no centroid change) when null or
+     * when {@code reward <= 0} --- we only associate a memory with the
+     * contexts where it actually helped, and "move away" has no clean
+     * meaning for a centroid.
+     */
+    public boolean reinforce(Connection db, long id, double reward,
+                             double eta, double lambda,
+                             double clampMin, double clampMax,
+                             float[] contextVec) throws Exception {
         db.execute(
                 "UPDATE memories SET " +
                 "  salience = LEAST(?, GREATEST(?, " +
@@ -321,6 +364,24 @@ public final class MemoryRepository {
                 "  last_used_at = now() " +
                 "WHERE id = ? AND deleted_at IS NULL",
                 clampMax, clampMin, lambda, eta, reward, reward, id);
+
+        if (contextVec != null && reward > 0) {
+            // Read the current centroid (as text), blend toward the new
+            // query embedding, write it back, and count the observation.
+            final Record cur = db.fetchOne(
+                    "SELECT context_vector::text AS cv FROM memories " +
+                    "WHERE id = ? AND deleted_at IS NULL", id);
+            if (cur != null) {
+                final float[] old = VectorFormat.parseLiteral(cur.getString("cv"));
+                final float[] updated = VectorFormat.blend(old, contextVec, CONTEXT_ETA);
+                db.execute(
+                        "UPDATE memories SET context_vector = ?::vector, " +
+                        "context_count = context_count + 1 " +
+                        "WHERE id = ? AND deleted_at IS NULL",
+                        VectorFormat.toLiteral(updated), id);
+            }
+        }
+
         final MemoryRow row = findById(db, id);
         return row != null && row.deletedAt == null;
     }
@@ -982,6 +1043,8 @@ public final class MemoryRepository {
         final Double rs        = r.getDouble("reward_sum");
         m.rewardSum            = (rs == null) ? 0.0 : rs;
         m.lastUsedAt           = r.getDateTime("last_used_at");
+        final Integer cc       = r.getInt("context_count");
+        m.contextCount         = (cc == null) ? 0 : cc;
         return m;
     }
 

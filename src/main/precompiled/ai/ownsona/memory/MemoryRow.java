@@ -59,4 +59,10 @@ public final class MemoryRow {
     public int      useCount;
     public double   rewardSum;
     public Date     lastUsedAt;
+
+    // Tier 4 contextual retrieval policy.  context_count is how many
+    // context-bearing reinforcements have shaped this memory's learned
+    // context centroid (the centroid vector itself is not read into this
+    // transport object --- it's used only inside the ranking SQL).
+    public int      contextCount;
 }

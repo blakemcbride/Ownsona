@@ -280,7 +280,7 @@ ownsona search "<substring>"               substring search
 ownsona list                               recent memories
 ownsona update <id> "<new text>"           replace a memory
 ownsona confirm <id>                       refresh last_confirmed_at
-ownsona reinforce <id>... [--delta N]      feedback: adjust learned salience
+ownsona reinforce <id>... [--delta N] [--query "..."]  feedback: adjust learned salience (+ contextual ranking)
 ownsona conflicts [--threshold N]          surface possibly-contradicting memories
 ownsona forget <id>                        soft-delete (--hard to drop)
 ownsona prompt "<user prompt>"             build an LLM-ready prompt
@@ -471,6 +471,17 @@ reinforced 1 memory
 A negative delta demotes a memory that proved unhelpful:
 `ownsona reinforce 17 --delta=-1`. Reinforcement never edits text and
 never deletes; it only nudges the learned ranking weight.
+
+Pass `--query` with the question the memory answered to also teach the
+store *which memory fits which kind of question* (contextual ranking):
+
+```
+$ ownsona reinforce 17 --query "where do I live"
+reinforced 1 memory
+  [17] salience=0.775  use_count=1
+```
+
+Future recalls similar to "where do I live" will rank memory 17 higher.
 
 ### Find memories that may contradict each other
 

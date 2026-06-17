@@ -261,15 +261,18 @@ sql/
     correction. If you're ever tempted to add a "prune stale rows" job,
     don't — surface the conflict instead and let the user/LLM decide.
 
-13. **Recall ranks by salience but reports cosine.** `recall` /
-    `search_memory` order results by
+13. **Recall ranks by salience + learned context but reports cosine.**
+    `recall` / `search_memory` order results by
     `cosine · (1 + SALIENCE_RANK_WEIGHT · COALESCE(salience, importance,
-    0.5))`, breaking ties by recency (`last_confirmed_at`, then
-    `last_used_at`, then `created_at`) — recency is a *tiebreaker only*,
-    never a decay. The blended score is used solely for ordering; the
-    `score` field returned to clients stays the raw cosine similarity, so
-    `min_score` and the client-side contradiction heuristic keep their
-    original meaning. The ranking lives in `MemoryRepository.findRanked`
+    0.5) + CONTEXT_RANK_WEIGHT · context_match)`, breaking ties by recency
+    (`last_confirmed_at`, then `last_used_at`, then `created_at`) — recency
+    is a *tiebreaker only*, never a decay. `context_match` is the Tier 4
+    contextual term (0 for rows with no learned context, so behavior is
+    unchanged until a memory is reinforced with a query — see #16). The
+    blended score is used solely for ordering; the `score` field returned
+    to clients stays the raw cosine similarity, so `min_score` and the
+    client-side contradiction heuristic keep their original meaning. The
+    ranking lives in `MemoryRepository.findRanked`
     (over-fetches by cosine via the HNSW index, then re-ranks); the
     dedup / conflict paths still use plain-cosine `findSimilar`, so don't
     point them at `findRanked`.
@@ -338,6 +341,27 @@ sql/
       WARN (visible under the `ai.ownsona` ERROR floor) with the affected
       ids, so any action can be reviewed and undone.
     Don't move this onto the synchronous path or make it hard-delete.
+
+16. **Contextual retrieval policy is additive, null-safe, and embeddings-
+    only (Tier 4 phase 1).** Each memory carries an optional learned
+    `context_vector` — a reward-weighted centroid of the query embeddings
+    it was reinforced as helpful for (added by `Migration007`,
+    `CURRENT_DB_VERSION` 7). `reinforce` takes an optional `query`: on
+    positive feedback the server embeds it and moves each reinforced
+    memory's centroid toward it (`MemoryRepository.reinforce`'s 8-arg
+    overload; the blend is `VectorFormat.blend` at `CONTEXT_ETA`). Recall
+    adds `CONTEXT_RANK_WEIGHT · context_match` to the rank blend (#13),
+    where `context_match` is the query↔centroid cosine, or **0 when the
+    centroid is NULL** — so a store that never sends a `query` behaves
+    exactly as Tier 1. This is the Part-5 "learned selection policy"
+    (`SystemAnalysis.md`) scoped to *memory selection*: context features =
+    query embedding, selector = the reward-modulated centroid. It uses
+    only the embedding seam (no generative call), so it is allowed on the
+    reinforce path. The centroid is NOT carried in `SELECT_COLUMNS` /
+    `MemoryRow` (a 1536-dim vector on every read would be wasteful) — only
+    `context_count` is; the vector is referenced directly in `findRanked`
+    and read for update in `reinforce`. A future embedding-dimension change
+    must resize `context_vector` alongside `embedding`.
 
 ---
 

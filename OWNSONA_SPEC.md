@@ -1111,6 +1111,10 @@ were misleading (negative `delta`).
     "delta": {
       "type": "number",
       "description": "Feedback strength in [-1, 1]. Default +1 (helpful); negative means unhelpful/wrong."
+    },
+    "query": {
+      "type": "string",
+      "description": "Optional. The question/topic these memories helped answer (ideally the same query passed to recall). With positive feedback the store learns to surface them for similar future queries (contextual ranking). Ignored for negative feedback."
     }
   },
   "required": ["memory_ids"]
@@ -1123,7 +1127,7 @@ were misleading (negative `delta`).
 {
   "ok": true,
   "reinforced": [
-    { "id": 4, "salience": 0.775, "use_count": 3 }
+    { "id": 4, "salience": 0.775, "use_count": 3, "context_count": 1 }
   ],
   "skipped": [ 99 ],
   "message": "Ok"
@@ -1138,6 +1142,14 @@ changes no user-visible content. The update rule is
 `salience ← clamp((1 − λ)·salience + η·reward)`; there is **no
 time-based decay**, salience changes only on an explicit `reinforce` or
 `confirm` event.
+
+**Contextual ranking (Tier 4).** When `query` is supplied with positive
+feedback, each reinforced memory's learned *context centroid*
+(`context_vector`) moves toward the query's embedding, and `context_count`
+counts the observations. Recall then boosts a memory when a new query is
+close to its centroid — so the store learns *which memory fits which kind
+of question*, not just a global weight. Memories with no centroid get no
+contextual boost, so omitting `query` leaves ranking exactly as it was.
 
 ### 8.16 `find_conflicts`
 
@@ -1190,8 +1202,10 @@ weighting on re-insert.
 
 Match outputs (`recall`, `get_memory`, near-duplicate / conflict groups)
 also carry the learned `salience` (a double; `COALESCE`d to `importance`
-for rows that predate seeding) and `use_count` (integer). These are the
-Tier 1 reinforcement signals — see `reinforce` (§8.15).
+for rows that predate seeding) and `use_count` (integer) — the Tier 1
+reinforcement signals — and `context_count` (integer, included only when
+> 0), the count of context-bearing reinforcements behind the Tier 4
+contextual ranking. See `reinforce` (§8.15).
 
 ### `source_client` on writes
 
@@ -1276,6 +1290,20 @@ last_used_at TIMESTAMPTZ                  -- last reinforce/confirm; recency tie
 2) and updated only on an explicit `reinforce` / `confirm` event. There
 is **no time-based decay or age-based pruning** — a memory is never
 removed or down-weighted for being old.
+
+The learned-context columns (DB version 7) support the Tier 4 contextual
+retrieval policy:
+
+```sql
+context_vector vector(1536),              -- reward-weighted centroid of helpful-query embeddings; NULL until learned
+context_count  INTEGER NOT NULL DEFAULT 0 -- number of context-bearing reinforcements
+```
+
+`context_vector` is updated only when `reinforce` is called with a
+`query` and positive feedback; it has no ANN index (used only for a
+per-row scalar during re-ranking). A NULL centroid contributes no boost,
+so the feature is dormant until used. Its dimension must match
+`embedding`.
 
 ### 9.3 Indexes
 

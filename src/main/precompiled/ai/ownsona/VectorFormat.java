@@ -50,6 +50,56 @@ public final class VectorFormat {
         return sb.toString();
     }
 
+    /**
+     * Parse a pgvector text literal ({@code [v1,v2,...]}) back into a
+     * float[].  Returns null for null/empty input.  Used to read a stored
+     * vector column (selected as {@code ::text}) for in-Java updates ---
+     * cheaper and more portable than relying on pgvector arithmetic
+     * operators, which vary across versions.
+     */
+    public static float[] parseLiteral(String s) {
+        if (s == null)
+            return null;
+        String t = s.trim();
+        if (t.isEmpty())
+            return null;
+        if (t.charAt(0) == '[')
+            t = t.substring(1);
+        if (t.endsWith("]"))
+            t = t.substring(0, t.length() - 1);
+        t = t.trim();
+        if (t.isEmpty())
+            return new float[0];
+        final String[] parts = t.split(",");
+        final float[] out = new float[parts.length];
+        for (int i = 0; i < parts.length; i++)
+            out[i] = Float.parseFloat(parts[i].trim());
+        return out;
+    }
+
+    /**
+     * Reward-weighted move of {@code base} toward {@code toward}:
+     * {@code (1-w)*base + w*toward}, element-wise.  When {@code base} is
+     * null this is the first observation, so a copy of {@code toward} is
+     * returned.  Used to update a memory's learned context centroid on
+     * reinforcement.  No normalization --- cosine ranking is scale-invariant.
+     */
+    public static float[] blend(float[] base, float[] toward, double towardWeight) {
+        if (toward == null)
+            throw new IllegalArgumentException("toward is null");
+        if (base == null)
+            return toward.clone();
+        if (base.length != toward.length)
+            throw new IllegalArgumentException(
+                    "vector length mismatch: " + base.length + " vs " + toward.length);
+        final double bw = towardWeight;
+        final double aw = 1.0 - towardWeight;
+        final float[] out = new float[base.length];
+        for (int i = 0; i < base.length; i++)
+            out[i] = (float) (aw * base[i] + bw * toward[i]);
+        return out;
+    }
+
     private VectorFormat() {
     }
 }

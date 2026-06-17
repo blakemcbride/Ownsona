@@ -841,6 +841,20 @@ public final class MemoryService {
      *         input order
      */
     public List<MemoryRow> reinforce(long[] ids, Double delta) {
+        return reinforce(ids, delta, null);
+    }
+
+    /**
+     * Same as {@link #reinforce(long[], Double)} but with an optional
+     * {@code queryText} --- the query/topic the reinforced memories helped
+     * answer (Tier 4 contextual retrieval policy).  When supplied and the
+     * reward is positive, the query is embedded once and each reinforced
+     * memory's learned context centroid is moved toward it, so future
+     * similar queries rank that memory higher.  Embedding the context is
+     * best-effort: if it fails, salience still updates and the context step
+     * is skipped (logged at WARN).
+     */
+    public List<MemoryRow> reinforce(long[] ids, Double delta, String queryText) {
         if (ids == null || ids.length == 0)
             throw new ServiceException(ServiceException.INVALID_INPUT,
                     "memory_ids is required and must be non-empty.");
@@ -848,6 +862,19 @@ public final class MemoryService {
             throw new ServiceException(ServiceException.LIMIT_EXCEEDED,
                     "too many ids: " + ids.length + " > " + Config.MAX_BATCH_SIZE);
         final double reward = validateReinforceDelta(delta);
+
+        // Embed the query context once (best-effort) when one is supplied
+        // and the feedback is positive.
+        float[] contextVec = null;
+        final String q = (queryText == null) ? null : queryText.trim();
+        if (q != null && !q.isEmpty() && reward > 0) {
+            try {
+                contextVec = embedder.embed(q);
+            } catch (Exception e) {
+                logger.warn("reinforce: context embedding failed, proceeding without context: {}",
+                        e.getMessage());
+            }
+        }
 
         final Connection db = MainServlet.openNewConnection();
         boolean success = false;
@@ -858,11 +885,12 @@ public final class MemoryService {
                 if (!seen.add(id))
                     continue;
                 final boolean ok = repo.reinforce(db, id, reward,
-                        REINFORCE_ETA, REINFORCE_LAMBDA, SALIENCE_MIN, SALIENCE_MAX);
+                        REINFORCE_ETA, REINFORCE_LAMBDA, SALIENCE_MIN, SALIENCE_MAX, contextVec);
                 if (ok)
                     out.add(repo.findById(db, id));
             }
-            logger.info("reinforce: requested={} applied={} delta={}", seen.size(), out.size(), reward);
+            logger.info("reinforce: requested={} applied={} delta={} context={}",
+                    seen.size(), out.size(), reward, contextVec != null);
             success = true;
             return out;
         } catch (ServiceException e) {
