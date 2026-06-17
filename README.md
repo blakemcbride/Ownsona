@@ -220,7 +220,7 @@ sql/setup_db.sh "<postgres-password>"
 #        they guard the OAuth consent page)
 #      - OAuthAuthorizationServer = https://<your-host>
 #      - OAuthAsEnabled           = true
-#      - OAuthAsIniFile = /absolute/path/outside/the/webapp/oauth.ini
+#      - OAuthAsSqliteFile = /absolute/path/outside/the/webapp/oauth.sqlite
 #        (recommended for production; without it, every WAR redeploy
 #        rotates the AS signing key and re-prompts every LLM client)
 cp src/main/backend/application.ini.example src/main/backend/application.ini

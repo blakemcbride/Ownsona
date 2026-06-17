@@ -64,7 +64,7 @@
 # as you like), (2) set the LLM_* keys plus CONSOLIDATION_ENABLED=true
 # and/or CONFLICT_RESOLUTION_ENABLED=true in application.ini.  With the
 # LLM unset, or both passes disabled, the fired job is a cheap no-op.
-#0 3 * * * Consolidate
+0 3 * * * Consolidate
 
 # Tier 4 phase 2 relation-graph extraction --- OFF by default.
 # When enabled it asks the LLM to extract (subject, predicate, object)
@@ -75,5 +75,5 @@
 #
 # To enable: (1) uncomment the line below (runs nightly at 03:30), (2) set
 # GRAPH_EXTRACTION_ENABLED=true and the LLM_* keys in application.ini.
-#30 3 * * * ExtractRelations
+30 3 * * * ExtractRelations
 

@@ -1694,13 +1694,15 @@ OAuthAsEnabled           = true
 `EMBEDDING_DIMENSIONS` must match the `vector(N)` column type in
 `sql/001_init.sql`.
 
-Strongly recommended for production: set `OAuthAsIniFile` to an
+Strongly recommended for production: set `OAuthAsSqliteFile` to an
 absolute path outside the deployed webapp (e.g.
-`/home/ownsona/oauth.ini`).  Without it, the AS state file defaults
-to `WEB-INF/backend/oauth.ini` inside the WAR's exploded directory,
+`/home/ownsona/oauth.sqlite`).  Without it, the AS state file defaults
+to `WEB-INF/backend/oauth.sqlite` inside the WAR's exploded directory,
 which is rewritten on every redeploy — silently rotating the AS
 signing key and forcing every registered MCP client back through
-the browser OAuth flow.
+the browser OAuth flow.  (`OAuthAsIniFile` is a legacy one-shot
+ini-to-SQLite migration trigger, not the persistence file; leave it
+unset unless importing a pre-SQLite `oauth.ini`.)
 
 Optional (defaults shown):
 
@@ -1712,7 +1714,7 @@ MAX_RECALL_LIMIT     = 50
 MAX_TEXT_CHARS       = 16000
 MAX_BATCH_SIZE       = 200
 
-OAuthAsIniFile                = oauth.ini    # absolute path recommended; see above
+OAuthAsSqliteFile             = oauth.sqlite # absolute path recommended; see above
 OAuthAccessTokenTtlSeconds    = 3600
 OAuthRefreshTokenTtlSeconds   = 2592000
 OAuthAllowDynamicRegistration = true

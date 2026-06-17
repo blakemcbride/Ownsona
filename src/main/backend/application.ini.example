@@ -149,9 +149,8 @@ REEMBED_ON_STARTUP = false
 #   * AS issuer (in metadata) .... defaults to this URL
 #   * JWKS URI ................... auto-discovered via the RFC 8414
 #                                  metadata document the AS publishes
-# NOTE: the resource identifier (token 'aud') does NOT usefully default
-# from this for an MCP server --- set OAuthResourceIdentifier below to the
-# /mcp URL.  See that setting for why.
+# NOTE: for an MCP server, set OAuthResourceIdentifier below to the bare
+# origin (this same URL), NOT the /mcp URL.  See that setting for why.
 OAuthAuthorizationServer = https://<your-host>
 
 # Master switch for the embedded authorization server.  When true the
@@ -159,17 +158,36 @@ OAuthAuthorizationServer = https://<your-host>
 # resource server can still validate tokens issued elsewhere).
 OAuthAsEnabled = true
 
+# Path to the AS's SQLite persistence file --- where it stores the
+# signing key, registered clients, and refresh tokens.  Relative values
+# are resolved against the application root (the deployed
+# WEB-INF/backend/ directory), which is OVERWRITTEN on every WAR
+# redeploy --- that silently revokes the signing key (every issued
+# access token fails verification) and forces every client to redo the
+# OAuth login flow.  For production set an ABSOLUTE path outside the
+# Tomcat webapps tree, writable by the service user the JVM runs as, and
+# included in your backup policy (it is the AS's master secret).
+# OAuthAsSqliteFile = /home/<service-user>/oauth.sqlite
+
 # Canonical identifier of THIS protected resource --- the value tokens
 # must carry as their 'aud' claim, and the RFC 8707 'resource' an MCP
-# client requests.  An MCP client derives it from the server URL it is
-# pointed at, i.e. https://<your-host>/mcp, so the AS stamps that into
-# 'aud' and the resource server must expect the SAME value.
+# client requests.  The AS and the resource server are the same Kiss app,
+# so set this to the issuer (the bare host) --- also the framework default
+# for AS==RS.
 #
-# Set this to the /mcp URL.  Although it would otherwise default to
-# OAuthAuthorizationServer (the bare host), that default does NOT include
-# /mcp, so it would never match the audience MCP clients actually carry
-# --- every /mcp request would fail validation with 401.  Set explicitly:
-OAuthResourceIdentifier = https://<your-host>/mcp
+# Why the bare host and NOT the /mcp URL: real MCP clients disagree on the
+# RFC 8707 'resource' value, and one setting must satisfy all of them:
+#   * ChatGPT always sends the bare ORIGIN (https://<your-host>); it
+#     derives it from the server origin and ignores what the metadata says.
+#   * Claude discovers the metadata 'resource', treats it as a URI, and
+#     canonicalizes the empty path to a trailing slash (https://<your-host>/).
+#   * The OwnSona CLI sends the metadata 'resource' verbatim.
+# A /mcp value would never match ChatGPT (it never sends /mcp).  The origin
+# matches ChatGPT directly; Claude's trailing-slash variant matches because
+# BearerTokenValidator.checkAudience() trims a trailing slash on both sides
+# before comparing.  Single-resource host, so the broader audience carries
+# no token-confusion risk.
+OAuthResourceIdentifier = https://<your-host>
 
 # --- Optional overrides (uncomment only when defaults don't fit). ---
 
@@ -189,20 +207,14 @@ OAuthResourceIdentifier = https://<your-host>/mcp
 # OIDC discovery (rare).
 # OAuthJwksUri = https://<your-host>/oauth/jwks
 
-# Path to the AS persistence file (signing key, registered clients,
-# refresh tokens).  Default is "oauth.ini", resolved against the
-# application root (the deployed WEB-INF/backend/ directory).  Set this
-# to an ABSOLUTE path to place the file outside the deployed webapp ---
-# strongly recommended for production, because the default location is
-# overwritten on every WAR redeploy, which silently revokes the AS
-# signing key (every issued access token fails verification) and forces
-# every registered client to re-do the OAuth login flow.  Choose a path
-# that is:
-#   - outside the Tomcat webapps tree, so redeploys cannot touch it;
-#   - writable by the service user the JVM runs as;
-#   - included in your backup policy (it is the master secret of the
-#     authorization server).
-# Example:
+# One-shot legacy ini-to-SQLite migration trigger.  The AS no longer
+# persists to an ini file --- its state lives in the SQLite store at
+# OAuthAsSqliteFile above.  OAuthAsIniFile is consulted ONLY on the first
+# startup where the SQLite file does not yet exist: if it points at an
+# existing pre-SQLite oauth.ini, that file is imported into SQLite and
+# then deleted.  Once the SQLite store exists it is the sole source of
+# truth and OAuthAsIniFile is ignored entirely.  Leave unset on fresh
+# installs and on any install already running on SQLite.
 # OAuthAsIniFile = /home/<service-user>/oauth.ini
 
 # ===== DATABASE CONNECTION POOL SETTINGS =====

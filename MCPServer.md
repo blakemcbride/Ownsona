@@ -107,7 +107,7 @@ Required keys:
 | `OWNSONA_LOGIN_USERNAME` | Username the OAuth AS consent page accepts |
 | `OWNSONA_LOGIN_PASSWORD` | Password the OAuth AS consent page accepts (plaintext; file is chmod 600) |
 | `OAuthAuthorizationServer` | AS issuer URL (`https://<your-host>`); turns on the resource server. AS issuer and JWKS URI default from this value. |
-| `OAuthResourceIdentifier` | Canonical identifier of this protected resource — the `aud` MCP clients carry. **Set to the `/mcp` URL** (`https://<your-host>/mcp`). It does **not** usefully default from `OAuthAuthorizationServer`: the bare host wouldn't match the audience clients send (their RFC 8707 `resource` is the `/mcp` server URL), so every `/mcp` request would 401 on audience mismatch. |
+| `OAuthResourceIdentifier` | Canonical identifier of this protected resource — the `aud` MCP clients carry. **Set to the bare origin** (`https://<your-host>`), not the `/mcp` URL. Clients disagree on the RFC 8707 `resource` (ChatGPT sends the bare origin, Claude appends a trailing slash, the CLI sends the advertised value); the origin satisfies all three because `BearerTokenValidator.checkAudience()` trims a trailing slash before comparing, whereas a `/mcp` value would never match ChatGPT. This is also the framework default for AS==RS. |
 | `OAuthAsEnabled`           | `true` to enable the embedded authorization server |
 | `OAuthAsSqliteFile`        | Absolute path (outside the webapps tree) where the AS persists its state — signing key, clients, refresh tokens — across redeploys, e.g. `/home/<user>/oauth.sqlite` |
 | `EMBEDDING_ENDPOINT`       | Embeddings endpoint URL (e.g. `https://api.openai.com/v1/embeddings`) |
@@ -309,11 +309,12 @@ Per request:
   whose `resource_metadata` parameter points clients at
   `/.well-known/oauth-protected-resource` for AS discovery. The AS's
   signing key, registered clients, and refresh tokens are persisted to
-  the path set in `OAuthAsIniFile` (production: an absolute path
-  outside the deployed webapp; default: `WEB-INF/backend/oauth.ini`,
+  the SQLite database at `OAuthAsSqliteFile` (production: an absolute
+  path outside the deployed webapp; default: `WEB-INF/backend/oauth.sqlite`,
   which is rewritten on every WAR redeploy and therefore inadvisable
-  for anything but local development). Auth codes are in-memory only
-  with a 60s TTL.
+  for anything but local development). `OAuthAsIniFile` is a legacy
+  one-shot ini-to-SQLite migration trigger, not the persistence file.
+  Auth codes are in-memory only with a 60s TTL.
 - **Secret rejection:** `SecretScanner` blocks obvious tokens
   (OpenAI `sk-...`/`sk-ant-...`/`sk-proj-...`, GitHub `ghp_`/`ghs_`,
   GitHub fine-grained PAT, AWS access key IDs, Slack `xox?-`, Google
