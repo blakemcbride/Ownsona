@@ -39,9 +39,9 @@ public final class MemoryService {
     private static final String CAPTURE_INFERRED = "inferred";
 
     /** Dedup-on-write policies (Phase 4). */
-    static final String DEDUP_POLICY_INSERT       = "insert";
-    static final String DEDUP_POLICY_SKIP_IF_NEAR = "skip_if_near";
-    static final String DEDUP_POLICY_ASK          = "ask";
+    public static final String DEDUP_POLICY_INSERT       = "insert";
+    public static final String DEDUP_POLICY_SKIP_IF_NEAR = "skip_if_near";
+    public static final String DEDUP_POLICY_ASK          = "ask";
 
     /**
      * Similarity threshold above which the dedup-on-write check

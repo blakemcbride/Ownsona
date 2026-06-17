@@ -73,6 +73,48 @@ public final class Config {
      */
     public static final String ADMIN_SECRET;
 
+    // ------------------------------------------------------------------
+    // Generative LLM seam (separate from embeddings).  All optional: when
+    // LLM_API_KEY is unset, the generative provider is not constructed and
+    // every feature that depends on it (consolidation) stays off.  This is
+    // a SECOND vendor seam --- configure it independently of EMBEDDING_*.
+    // ------------------------------------------------------------------
+
+    /** API key for the generative endpoint.  Null/empty disables the seam. */
+    public static final String LLM_API_KEY;
+
+    /** Generative model id (e.g. an OpenAI-compatible chat model).  Required iff LLM_API_KEY is set. */
+    public static final String LLM_MODEL;
+
+    /** OpenAI-compatible chat-completions endpoint URL.  Required iff LLM_API_KEY is set. */
+    public static final String LLM_ENDPOINT;
+
+    /** Generative provider label, recorded only for logging/provenance. */
+    public static final String LLM_PROVIDER;
+
+    /** True when a generative provider is configured (LLM_API_KEY present). */
+    public static final boolean LLM_ENABLED;
+
+    // ------------------------------------------------------------------
+    // Consolidation ("sleep") job (Tier 3).  Off unless explicitly enabled
+    // AND a generative provider is configured.  The SCHEDULE lives in
+    // backend/CronTasks/crontab (Kiss Cron runs it); these knobs only
+    // gate and tune what a fired run does.
+    // ------------------------------------------------------------------
+
+    /** Runtime switch for the consolidation job.  Default false. */
+    public static final boolean CONSOLIDATION_ENABLED;
+
+    /**
+     * Cosine cutoff for the near-duplicate clusters the consolidation job
+     * will merge.  Deliberately high (default 0.95): the unattended job
+     * should only merge near-identical rows.
+     */
+    public static final double CONSOLIDATION_THRESHOLD;
+
+    /** Max clusters merged per run, to bound LLM cost.  Default 25. */
+    public static final int CONSOLIDATION_MAX_GROUPS;
+
     static {
         EMBEDDING_API_KEY        = required("EMBEDDING_API_KEY");
         OWNSONA_LOGIN_USERNAME = required("OWNSONA_LOGIN_USERNAME");
@@ -87,6 +129,16 @@ public final class Config {
         MAX_TEXT_CHARS        = parseInt("MAX_TEXT_CHARS",       16_000);
         MAX_BATCH_SIZE        = parseInt("MAX_BATCH_SIZE",       200);
         ADMIN_SECRET          = optional("OwnsonaAdminSecret",   null);
+
+        LLM_API_KEY   = optional("LLM_API_KEY",  null);
+        LLM_MODEL     = optional("LLM_MODEL",    null);
+        LLM_ENDPOINT  = optional("LLM_ENDPOINT", null);
+        LLM_PROVIDER  = optional("LLM_PROVIDER", "openai");
+        LLM_ENABLED   = LLM_API_KEY != null && !LLM_API_KEY.isEmpty();
+
+        CONSOLIDATION_ENABLED    = parseBool("CONSOLIDATION_ENABLED", false);
+        CONSOLIDATION_THRESHOLD  = parseDouble("CONSOLIDATION_THRESHOLD", 0.95);
+        CONSOLIDATION_MAX_GROUPS = parseInt("CONSOLIDATION_MAX_GROUPS", 25);
     }
 
     private static String required(String name) {
@@ -110,6 +162,24 @@ public final class Config {
         } catch (NumberFormatException e) {
             throw new IllegalStateException("application.ini key " + name + " must be an integer (got: " + v + ")");
         }
+    }
+
+    private static double parseDouble(String name, double def) {
+        final String v = lookup(name);
+        if (v == null || v.isEmpty())
+            return def;
+        try {
+            return Double.parseDouble(v.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalStateException("application.ini key " + name + " must be a number (got: " + v + ")");
+        }
+    }
+
+    private static boolean parseBool(String name, boolean def) {
+        final String v = lookup(name);
+        if (v == null || v.isEmpty())
+            return def;
+        return "true".equalsIgnoreCase(v.trim()) || "yes".equalsIgnoreCase(v.trim()) || "1".equals(v.trim());
     }
 
     private static int requiredInt(String name) {

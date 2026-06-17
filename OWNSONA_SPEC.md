@@ -1399,6 +1399,53 @@ embedding_model TEXT NOT NULL DEFAULT 'text-embedding-3-small'
 
 If adding these, include them in the migration.
 
+### 11.4 Generative Provider (optional, separate seam)
+
+In addition to embeddings, the server has a **second, optional** vendor
+seam for generative-LLM work: `ai.ownsona.llm.GenerativeProvider`. It is
+configured completely independently of embeddings, so the two can point
+at different vendors:
+
+```text
+LLM_API_KEY    generative API key (unset = seam disabled, server runs on embeddings only)
+LLM_MODEL      generative model id (required iff LLM_API_KEY is set)
+LLM_ENDPOINT   OpenAI-compatible /v1/chat/completions URL (required iff LLM_API_KEY is set)
+LLM_PROVIDER   label, for logging/provenance (default "openai")
+```
+
+```java
+public interface GenerativeProvider {
+    String complete(String systemPrompt, String userPrompt) throws Exception;
+    String modelName();
+}
+```
+
+This seam is used for background / maintenance work — currently the Tier 3
+consolidation job — and never on the synchronous recall/remember path
+(see design invariant #1). When `LLM_API_KEY` is unset the seam is not
+constructed and every generative feature stays off.
+
+### 11.5 Consolidation ("sleep") job (Tier 3)
+
+A periodic background job (`ai.ownsona.llm.ConsolidationJob`, scheduled by
+Kiss Cron through `backend/CronTasks/Consolidate.groovy`) clusters
+near-duplicate memories, asks the `GenerativeProvider` to merge each
+cluster into one canonical fact, stores the canonical, and **supersedes**
+the originals (recoverable soft-delete + `replaced_by_id`). It is **not**
+an MCP tool. Config:
+
+```text
+CONSOLIDATION_ENABLED      runtime on/off (default false)
+CONSOLIDATION_THRESHOLD    near-duplicate cosine cutoff (default 0.95)
+CONSOLIDATION_MAX_GROUPS   max clusters merged per run (default 25)
+```
+
+Off by default three independent ways (crontab line commented,
+`CONSOLIDATION_ENABLED=false`, no `LLM_API_KEY`). Skips any cluster
+containing a `keep='Y'` memory. Cost is bounded: at most
+`CONSOLIDATION_MAX_GROUPS` small LLM calls per run, and zero when there
+are no near-duplicate clusters.
+
 ---
 
 ## 12. Security Requirements

@@ -46,3 +46,18 @@
 # Uncomment the following line to run the EveryMinute.groovy file
 #* * * * * EveryMinute
 
+# Tier 3 memory consolidation ("sleep") job --- OFF by default.
+# When enabled it clusters near-duplicate memories, asks the configured
+# LLM to merge each cluster into one canonical fact, and supersedes the
+# originals (recoverable soft-delete).
+#
+# Cost: each run makes AT MOST CONSOLIDATION_MAX_GROUPS (default 25) small
+# LLM calls, and ZERO calls when there are no near-duplicate clusters
+# (the steady state once the store is tidy).  You choose the model via
+# LLM_MODEL --- point it at a cheap one.
+#
+# To enable: (1) uncomment the line below (runs nightly at 03:00 --- adjust
+# as you like), (2) set CONSOLIDATION_ENABLED=true and the LLM_* keys in
+# application.ini.  Any one of those left unset keeps it off.
+#0 3 * * * Consolidate
+

@@ -56,9 +56,14 @@ src/main/precompiled/ai/ownsona/
         OwnsonaUserAuthenticator.java    # AS login: checks OWNSONA_LOGIN_USERNAME/PASSWORD
         OwnsonaConsentProvider.java      # AS consent page text + display name
     embeddings/
-        EmbeddingProvider.java           # the only vendor-coupled seam
+        EmbeddingProvider.java           # embedding vendor seam (always used)
         OpenAIEmbeddingProvider.java
         MockEmbeddingProvider.java
+    llm/
+        GenerativeProvider.java          # optional generative seam (LLM_* config)
+        OpenAIGenerativeProvider.java
+        MockGenerativeProvider.java
+        ConsolidationJob.java            # Tier 3 "sleep" job (cluster -> LLM merge -> supersede)
     memory/
         MemoryService.java               # the MCP tools' business logic
         MemoryRepository.java            # SQL layer
@@ -90,6 +95,10 @@ sql/
 
 `src/main/core/` is the Kiss framework — never modify it.
 `src/main/frontend/` is the bundled example UI — generally not touched.
+`src/main/backend/CronTasks/` holds the Kiss Cron files: `crontab`
+(schedule) and `Consolidate.groovy` (a thin shim that calls
+`ConsolidationJob.runScheduled()`). Kiss auto-starts Cron from
+`MainServlet`; both files are hot-editable on a running server.
 
 ---
 
@@ -109,11 +118,20 @@ sql/
 
 ## Design invariants (don't violate these)
 
-1. **Vendor neutrality.** Generative-LLM calls (chat / completion /
-   classification APIs) must NOT appear in the request or write path.
-   The only vendor-coupled seam is `EmbeddingProvider`. MCP tool
-   descriptions and schemas stay vendor-generic — no "Claude should …",
-   no fields named after a specific vendor's API.
+1. **Vendor neutrality, via two independent seams.** Vendor coupling is
+   confined to two pluggable seams, configured separately:
+   `EmbeddingProvider` (always used; `EMBEDDING_*` keys) and the
+   **optional** `GenerativeProvider` (`ai.ownsona.llm`; `LLM_*` keys). A
+   generative LLM **may** be used for background / maintenance work and
+   best-effort assists through the `GenerativeProvider` seam — currently
+   the Tier 3 consolidation job — but it must **NOT** sit on the
+   synchronous recall / remember hot path in a way that makes a normal
+   read or write fail when the model is down or unconfigured. When no
+   `GenerativeProvider` is configured (no `LLM_API_KEY`), the server runs
+   fully on embeddings + deterministic heuristics, exactly as before, and
+   every generative feature stays off. MCP tool descriptions and schemas
+   stay vendor-generic — no "Claude should …", no fields named after a
+   specific vendor's API.
 
 2. **Migrations are additive only.** Every `MigrationNNN_*.java` adds
    columns / indexes / nullable fields. Never `DROP`, never `RENAME`,
@@ -260,8 +278,10 @@ sql/
     LLM judgement.** The server flags *potential* conflicts —
     semantically close AND tag-sharing — on write (`potential_conflicts`
     in the `remember` response) and on demand (`find_conflicts`), using
-    pure embedding + tag-overlap math (invariant #1 forbids a generative
-    call here). It never decides whether two facts actually contradict.
+    pure embedding + tag-overlap math (the synchronous remember/recall path
+    stays deterministic and LLM-free by design — invariant #1; the
+    generative seam is for background work, not the hot path). It never
+    decides on the write path whether two facts actually contradict.
     Resolution is always explicit, via two `remember` levers (Tier 2):
     - `supersedes=[id]` — the old fact is now **wrong**: soft-delete it
       and link `replaced_by_id`.
@@ -278,6 +298,30 @@ sql/
     distinction: a lever that names a specific memory to retire/demote in
     favor of another must not override protection; general thumbs-up/down
     feedback may. The user can also always resolve manually with `forget`.
+
+15. **Consolidation (Tier 3) is a gated, recoverable, cost-bounded
+    background job.** The "sleep" job (`ai.ownsona.llm.ConsolidationJob`,
+    driven by Kiss Cron via `backend/CronTasks/Consolidate.groovy`)
+    clusters near-duplicates, asks the `GenerativeProvider` to merge each
+    cluster into one canonical fact, stores it, and supersedes the
+    originals. Non-negotiable properties:
+    - **Off by default, three ways:** the crontab line ships commented
+      out, `CONSOLIDATION_ENABLED` defaults false, and it no-ops without
+      `LLM_API_KEY`. Any one keeps it (and all LLM spend) off.
+    - **Recoverable, never destructive:** originals are *superseded*
+      (soft-delete + `replaced_by_id`), never hard-deleted.
+    - **Respects `keep='Y'`:** a cluster containing any protected memory
+      is skipped entirely — the job never touches anything around a
+      locked memory.
+    - **Cost-bounded:** at most `CONSOLIDATION_MAX_GROUPS` (default 25)
+      LLM calls per run, and zero calls when no near-duplicate clusters
+      exist. Threshold defaults high (0.95) so only near-identical rows
+      merge. A garbled/declined model reply is treated as "do not merge"
+      (never supersede on a bad reply).
+    - **Auditable:** each merge and the run summary log at WARN (visible
+      under the `ai.ownsona` ERROR floor) with the superseded ids, so any
+      merge can be reviewed and undone.
+    Don't move this onto the synchronous path or make it hard-delete.
 
 ---
 
