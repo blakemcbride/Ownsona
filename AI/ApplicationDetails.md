@@ -163,8 +163,11 @@ sql/
    gates `update`, `forget`, `updateBatch`, and `forgetBatch`; a
    protected row throws `ServiceException.PROTECTED`. The lock covers
    text/tags/importance edits and deletion. It does NOT cover the
-   freshness ping (`confirm`), internal re-embedding, or additive record
-   upgraders — none of which change user-visible content. The `keep`
+   freshness ping (`confirm`), salience reinforcement (`reinforce`, and
+   the reinforcement `confirm` applies), internal re-embedding, or
+   additive record upgraders — none of which change user-visible content.
+   A `remember(..., supersedes=[id])` correction that would soft-delete a
+   `keep='Y'` row instead skips it and reports it as `protected`. The `keep`
    flag itself is **always settable** (a protected row can be
    un-protected — no permanent lockout), but only through the CLI-only
    `set_keep` path. When adding a new mutation/deletion path, add the
@@ -224,6 +227,45 @@ sql/
     root metadata rather than hardcoding `server_url`. After changing the
     audience, existing client connections must be reconnected — clients
     cache the discovered `resource` and reuse it on refresh.
+
+12. **Memories are never forgotten for being old — only when explicitly
+    invalidated.** This is a firm product decision (the learning-memory
+    work deliberately diverges from the roadmap's decay-based pruning).
+    There is **no time-based decay and no age-based pruning** anywhere.
+    The `salience` weight (Tier 1) changes only on an explicit feedback
+    *event* — `reinforce` or `confirm` — via the reward-modulated rule
+    `salience ← clamp((1−λ)·salience + η·reward)` (`η`/`λ`/clamp live in
+    `MemoryService` as `REINFORCE_*` / `SALIENCE_*`; the SQL update is in
+    `MemoryRepository.reinforce`, mirrored by the pure
+    `MemoryService.applyReinforcement` for tests). The `(1−λ)` factor is
+    update smoothing, **not** a clock-driven decay. Deletion happens only
+    through explicit `forget` or a `remember(..., supersedes=[…])`
+    correction. If you're ever tempted to add a "prune stale rows" job,
+    don't — surface the conflict instead and let the user/LLM decide.
+
+13. **Recall ranks by salience but reports cosine.** `recall` /
+    `search_memory` order results by
+    `cosine · (1 + SALIENCE_RANK_WEIGHT · COALESCE(salience, importance,
+    0.5))`, breaking ties by recency (`last_confirmed_at`, then
+    `last_used_at`, then `created_at`) — recency is a *tiebreaker only*,
+    never a decay. The blended score is used solely for ordering; the
+    `score` field returned to clients stays the raw cosine similarity, so
+    `min_score` and the client-side contradiction heuristic keep their
+    original meaning. The ranking lives in `MemoryRepository.findRanked`
+    (over-fetches by cosine via the HNSW index, then re-ranks); the
+    dedup / conflict paths still use plain-cosine `findSimilar`, so don't
+    point them at `findRanked`.
+
+14. **Conflict handling is surfacing + explicit resolution, never an
+    LLM judgement.** The server flags *potential* conflicts —
+    semantically close AND tag-sharing — on write (`potential_conflicts`
+    in the `remember` response) and on demand (`find_conflicts`), using
+    pure embedding + tag-overlap math (invariant #1 forbids a generative
+    call here). It never decides whether two facts actually contradict.
+    Resolution is always explicit: `remember(..., supersedes=[id])`
+    soft-deletes the named row(s) and links `replaced_by_id`, or the user
+    uses `forget`. `keep='Y'` rows are never superseded (reported
+    `protected`).
 
 ---
 

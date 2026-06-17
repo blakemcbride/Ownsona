@@ -32,4 +32,10 @@ public final class MemoryInsert {
     // Protection flag.  New rows start Unspecified; the column has a SQL
     // default of 'U' as a safety net.  See MemoryRow.keep.
     public String   keep = "U";
+
+    // Learned salience (Tier 1).  New rows seed salience from importance
+    // so a just-stored fact starts at the same weight the old importance-
+    // only ranking gave it.  use_count / reward_sum / last_used_at start
+    // empty (column defaults: 0 / 0.0 / NULL).
+    public Double   salience;
 }

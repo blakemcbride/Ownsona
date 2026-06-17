@@ -49,9 +49,11 @@ import java.util.List;
  *   <li>{@code update_memory} -- correct an existing fact; supports dry_run</li>
  *   <li>{@code update_memory_batch} -- correct many facts in one call; supports dry_run</li>
  *   <li>{@code confirm} -- refresh last_confirmed_at without rebuilding embedding</li>
+ *   <li>{@code reinforce} -- record feedback that adjusts a learned salience weight</li>
  *   <li>{@code forget} -- soft (default) or hard delete; supports dry_run</li>
  *   <li>{@code forget_batch} -- soft-delete many memories in one call; supports dry_run</li>
  *   <li>{@code find_near_duplicates} -- diagnostic: cluster active memories by cosine similarity</li>
+ *   <li>{@code find_conflicts} -- diagnostic: cluster same-tag, semantically close memories that may disagree</li>
  *   <li>{@code text_search} -- substring search</li>
  *   <li>{@code get_memory} -- fetch a single memory by id</li>
  *   <li>{@code count_memories} -- COUNT(*) with optional tag / provider filters</li>
@@ -169,9 +171,11 @@ public class MCPServer extends MCPServerBase {
         tools.put(updateMemoryDescriptor());
         tools.put(updateMemoryBatchDescriptor());
         tools.put(confirmDescriptor());
+        tools.put(reinforceDescriptor());
         tools.put(forgetDescriptor());
         tools.put(forgetBatchDescriptor());
         tools.put(findNearDuplicatesDescriptor());
+        tools.put(findConflictsDescriptor());
         tools.put(textSearchDescriptor());
         tools.put(getMemoryDescriptor());
         tools.put(countMemoriesDescriptor());
@@ -211,6 +215,13 @@ public class MCPServer extends MCPServerBase {
         props.put("last_confirmed_at", scalarProp("string",
                 "Optional ISO 8601 timestamp marking when this fact was last verified as still " +
                 "true. Use the 'confirm' tool to refresh it without rebuilding the embedding."));
+        props.put("supersedes", arrayProp("integer",
+                "Optional list of memory ids that this new memory corrects and replaces. Use it " +
+                "when the user states something that contradicts and supersedes an earlier fact " +
+                "(e.g. they moved, changed jobs, or corrected a detail). Each listed memory is " +
+                "soft-deleted and linked to this new one as its replacement. Protected (kept) " +
+                "memories are never deleted --- they are reported back as 'protected' and left " +
+                "intact. Only supply ids you are confident the new fact actually invalidates."));
         return tool("remember",
                 "Use this tool when the user asks you to remember, save, store, note, or retain a " +
                 "durable fact, preference, project detail, personal detail, or other information " +
@@ -546,6 +557,27 @@ public class MCPServer extends MCPServerBase {
                 props, new String[]{"id"});
     }
 
+    private static JSONObject reinforceDescriptor() {
+        final JSONObject props = new JSONObject();
+        props.put("memory_ids", arrayProp("integer",
+                "The ids of memories to reinforce. These are the id values returned by recall / " +
+                "search_memory in their 'matches'. Pass the ids of the memories that actually " +
+                "helped answer the user."));
+        props.put("delta", scalarProp("number",
+                "Feedback strength in [-1, 1]. Positive (default +1) means the memory was helpful " +
+                "and should rank higher in future recalls; negative means it was unhelpful or " +
+                "wrong and should rank lower. Omit for the default of +1."));
+        return tool("reinforce",
+                "Record feedback on which recalled memories were useful, so the store learns to " +
+                "rank genuinely helpful facts higher over time. After you answer using memories " +
+                "returned by recall / search_memory, call this with the ids that actually helped " +
+                "(positive delta) or that were misleading (negative delta). This adjusts a learned " +
+                "salience weight; it never edits the memory's text and never deletes anything. " +
+                "Protected (kept) memories can still be reinforced. Unknown or already-deleted " +
+                "ids are silently skipped; the response lists which ids took effect.",
+                props, new String[]{"memory_ids"});
+    }
+
     private static JSONObject forgetDescriptor() {
         final JSONObject props = new JSONObject();
         props.put("id", scalarProp("integer", "Identifier of the memory to forget."));
@@ -636,6 +668,27 @@ public class MCPServer extends MCPServerBase {
                 props, new String[]{});
     }
 
+    private static JSONObject findConflictsDescriptor() {
+        final JSONObject props = new JSONObject();
+        props.put("threshold", scalarProp("number",
+                "Cosine similarity cutoff in [0.5, 1.0]. Active memories at or above this that " +
+                "also share a tag are reported as potential conflicts. Default 0.80 --- lower " +
+                "than find_near_duplicates because a conflict is 'same topic, possibly different " +
+                "answer', not 'the same fact'."));
+        props.put("max_groups", scalarProp("integer",
+                "Maximum number of groups to return. Default 50. Hard cap 500."));
+        return tool("find_conflicts",
+                "Diagnostic for surfacing memories that may contradict each other: returns " +
+                "clusters of active memories that are semantically close AND share at least one " +
+                "tag, so they describe the same labelled topic but might disagree. Groups are " +
+                "formed by union-find over qualifying pairs and sorted by the strongest pair in " +
+                "each cluster. This tool only surfaces candidates --- it does not decide which is " +
+                "correct. To resolve a conflict, either confirm the right memory, or store the " +
+                "correct fact with 'remember' using its 'supersedes' field to retire the wrong " +
+                "one. Soft-deleted and expired rows are excluded. Read-only.",
+                props, new String[]{});
+    }
+
     private static JSONObject textSearchDescriptor() {
         final JSONObject props = new JSONObject();
         props.put("text", scalarProp("string",
@@ -665,9 +718,11 @@ public class MCPServer extends MCPServerBase {
                 case "update_memory":        return doUpdateMemory(arguments);
                 case "update_memory_batch":  return doUpdateMemoryBatch(arguments);
                 case "confirm":              return doConfirm(arguments);
+                case "reinforce":            return doReinforce(arguments);
                 case "forget":               return doForget(arguments);
                 case "forget_batch":         return doForgetBatch(arguments);
                 case "find_near_duplicates": return doFindNearDuplicates(arguments);
+                case "find_conflicts":       return doFindConflicts(arguments);
                 case "text_search":          return doTextSearch(arguments);
                 case "get_memory":           return doGetMemory(arguments);
                 case "count_memories":       return doCountMemories(arguments);
@@ -701,9 +756,10 @@ public class MCPServer extends MCPServerBase {
         final Date     expiresAt       = parseIso(args.getString("expires_at", null));
         final Date     lastConfirmedAt = parseIso(args.getString("last_confirmed_at", null));
         final String   client          = args.getString("source_client", null);
+        final Long[]   supersedes      = optLongArray(args, "supersedes");
 
         final RememberResult r = SERVICE.remember(text, tags, provider, imp, captureMode, sessionId,
-                dedupPolicy, expiresAt, lastConfirmedAt, client);
+                dedupPolicy, expiresAt, lastConfirmedAt, client, supersedes);
 
         final JSONObject out = new JSONObject();
         out.put("ok", true);
@@ -730,6 +786,22 @@ public class MCPServer extends MCPServerBase {
             for (MemoryRow c : r.previouslyCorrected)
                 pcArr.put(memoryToMatchJson(c));
             out.put("previously_corrected", pcArr);
+        }
+        if (!r.potentialConflicts.isEmpty()) {
+            final JSONArray pcArr = new JSONArray();
+            for (MemoryRow c : r.potentialConflicts)
+                pcArr.put(memoryToMatchJson(c));
+            out.put("potential_conflicts", pcArr);
+        }
+        if (!r.superseded.isEmpty()) {
+            final JSONArray sArr = new JSONArray();
+            for (RememberResult.SupersedeOutcome s : r.superseded) {
+                final JSONObject so = new JSONObject();
+                so.put("id", s.id);
+                so.put("status", s.status);
+                sArr.put(so);
+            }
+            out.put("superseded", sArr);
         }
         return successResult(out);
     }
@@ -993,6 +1065,52 @@ public class MCPServer extends MCPServerBase {
         return successResult(out);
     }
 
+    private static JSONObject doReinforce(JSONObject args) {
+        if (!args.has("memory_ids"))
+            throw new ServiceException(ServiceException.INVALID_INPUT, "memory_ids is required.");
+        final Long[] boxed = optLongArray(args, "memory_ids");
+        if (boxed == null || boxed.length == 0)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "memory_ids must be a non-empty array of integers.");
+        final long[] ids = new long[boxed.length];
+        for (int i = 0; i < boxed.length; i++) {
+            if (boxed[i] == null)
+                throw new ServiceException(ServiceException.INVALID_INPUT,
+                        "memory_ids[" + i + "] is null.");
+            ids[i] = boxed[i].longValue();
+        }
+        final Double delta = args.has("delta") ? args.getDouble("delta") : null;
+
+        final List<MemoryRow> rows = SERVICE.reinforce(ids, delta);
+
+        // Report which ids took effect (active rows that were reinforced) so
+        // the caller can tell what was skipped (unknown / already deleted).
+        final java.util.Set<Long> applied = new java.util.LinkedHashSet<>();
+        final JSONArray reinforced = new JSONArray();
+        for (MemoryRow m : rows) {
+            applied.add(m.id);
+            final JSONObject o = new JSONObject();
+            o.put("id", m.id);
+            o.put("salience", m.salience == null ? m.importance : m.salience);
+            o.put("use_count", m.useCount);
+            reinforced.put(o);
+        }
+        final JSONArray skipped = new JSONArray();
+        final java.util.Set<Long> seen = new java.util.LinkedHashSet<>();
+        for (long id : ids) {
+            if (seen.add(id) && !applied.contains(id))
+                skipped.put(id);
+        }
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("reinforced", reinforced);
+        if (skipped.length() > 0)
+            out.put("skipped", skipped);
+        out.put("message", "Ok");
+        return successResult(out);
+    }
+
     private static JSONObject doForget(JSONObject args) {
         if (!args.has("id"))
             throw new ServiceException(ServiceException.INVALID_INPUT, "id is required.");
@@ -1089,6 +1207,40 @@ public class MCPServer extends MCPServerBase {
         final Integer maxGroups = args.has("max_groups") ? args.getInt("max_groups") : null;
 
         final NearDuplicatesResult res = SERVICE.findNearDuplicates(threshold, maxGroups);
+
+        final JSONArray groupsJson = new JSONArray();
+        for (NearDuplicateGroup g : res.groups) {
+            final JSONObject gj = new JSONObject();
+            final JSONArray ids = new JSONArray();
+            for (MemoryRow m : g.memories)
+                ids.put(m.id);
+            gj.put("ids", ids);
+            gj.put("max_similarity", g.maxSimilarity);
+            gj.put("pair_count", g.pairCount);
+            final JSONArray rows = new JSONArray();
+            for (MemoryRow m : g.memories)
+                rows.put(memoryToMatchJson(m));
+            gj.put("memories", rows);
+            groupsJson.put(gj);
+        }
+
+        final JSONObject summary = new JSONObject();
+        summary.put("groups", res.groups.size());
+        summary.put("pairs",  res.pairsAboveThreshold);
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("threshold", res.threshold);
+        out.put("groups", groupsJson);
+        out.put("summary", summary);
+        return successResult(out);
+    }
+
+    private static JSONObject doFindConflicts(JSONObject args) {
+        final Double  threshold = args.has("threshold") ? args.getDouble("threshold") : null;
+        final Integer maxGroups = args.has("max_groups") ? args.getInt("max_groups") : null;
+
+        final NearDuplicatesResult res = SERVICE.findConflicts(threshold, maxGroups);
 
         final JSONArray groupsJson = new JSONArray();
         for (NearDuplicateGroup g : res.groups) {
@@ -1286,6 +1438,10 @@ public class MCPServer extends MCPServerBase {
         o.put("tags", new JSONArray(java.util.Arrays.asList(m.tags == null ? new String[0] : m.tags)));
         o.put("keep", m.keep == null ? "U" : m.keep);
         o.put("importance", m.importance);
+        // Learned salience (Tier 1).  COALESCE null (un-seeded rows) to
+        // importance so the field always carries the effective rank weight.
+        o.put("salience", m.salience == null ? m.importance : m.salience);
+        o.put("use_count", m.useCount);
         if (m.sourceProvider != null)
             o.put("source_provider", m.sourceProvider);
         final String captureMode = captureModeOf(m);
@@ -1432,6 +1588,18 @@ public class MCPServer extends MCPServerBase {
         final String[] out = new String[arr.length()];
         for (int i = 0; i < arr.length(); i++)
             out[i] = arr.getString(i);
+        return out;
+    }
+
+    private static Long[] optLongArray(JSONObject args, String key) {
+        if (!args.has(key))
+            return null;
+        final JSONArray arr = args.getJSONArray(key, false);
+        if (arr == null)
+            return null;
+        final Long[] out = new Long[arr.length()];
+        for (int i = 0; i < arr.length(); i++)
+            out[i] = arr.getLong(i);
         return out;
     }
 }

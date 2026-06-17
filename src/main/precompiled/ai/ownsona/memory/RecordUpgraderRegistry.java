@@ -26,14 +26,12 @@ public final class RecordUpgraderRegistry {
      * The record_version this build expects every memory to be at.
      * Bump when you add a new {@link RecordUpgrader} below.
      */
-    public static final int CURRENT_RECORD_VERSION = 1;
+    public static final int CURRENT_RECORD_VERSION = 2;
 
     private static final List<RecordUpgrader> UPGRADERS;
     static {
         final List<RecordUpgrader> u = new ArrayList<>();
-        // Future:
-        //   u.add(new MyV1ToV2Upgrader());   // when CURRENT_RECORD_VERSION = 2
-        //   u.add(new MyV2ToV3Upgrader());   // when CURRENT_RECORD_VERSION = 3
+        u.add(new SalienceSeedUpgrader());   // v1 -> v2: seed salience from importance
         UPGRADERS = Collections.unmodifiableList(u);
     }
 

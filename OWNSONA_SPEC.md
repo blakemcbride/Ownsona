@@ -312,11 +312,20 @@ Do not store temporary instructions, one-time commands, secrets, passwords, cred
     "importance": {
       "type": "number",
       "description": "Optional importance from 0 to 1. Default is 0.5."
+    },
+    "supersedes": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "description": "Optional ids this new fact corrects and replaces. Each is soft-deleted and linked (replaced_by_id) to the new memory. keep='Y' rows are never deleted — reported back as 'protected'."
     }
   },
   "required": ["text"]
 }
 ```
+
+(Other optional inputs documented elsewhere: `capture_mode`,
+`session_id`, `dedup_policy`, `expires_at`, `last_confirmed_at`,
+`source_client`.)
 
 #### Output Schema
 
@@ -324,9 +333,26 @@ Do not store temporary instructions, one-time commands, secrets, passwords, cred
 {
   "ok": true,
   "memory_id": 123,
-  "message": "Ok"
+  "message": "Ok",
+  "potential_conflicts": [
+    { "id": 88, "text": "...", "tags": ["home"], "score": 0.86, "salience": 0.6 }
+  ],
+  "superseded": [
+    { "id": 42, "status": "superseded" },
+    { "id": 17, "status": "protected" },
+    { "id": 99, "status": "not_found" }
+  ]
 }
 ```
+
+`potential_conflicts` (present only when non-empty) lists active rows
+that are semantically close to the new memory AND share a tag, excluding
+the near-duplicate `candidates` already surfaced by the dedup check — a
+hint that the new fact may be correcting one of them. The server does not
+judge contradiction; the client decides whether to pass those ids as
+`supersedes`. `superseded` (present only when the caller supplied
+`supersedes`) reports each requested id's outcome: `superseded`,
+`protected` (a `keep='Y'` row, left intact), or `not_found`.
 
 ---
 
@@ -1046,6 +1072,99 @@ Response (on success):
 }
 ```
 
+### 8.15 `reinforce`
+
+Records feedback on which recalled memories were useful, adjusting a
+learned `salience` weight so genuinely helpful facts rank higher over
+time. Never edits text and never deletes anything.
+
+#### Description for MCP Client
+
+After answering using memories returned by `recall` / `search_memory`,
+call this with the ids that actually helped (positive `delta`) or that
+were misleading (negative `delta`).
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "memory_ids": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "description": "Ids (from recall/search_memory matches) to reinforce."
+    },
+    "delta": {
+      "type": "number",
+      "description": "Feedback strength in [-1, 1]. Default +1 (helpful); negative means unhelpful/wrong."
+    }
+  },
+  "required": ["memory_ids"]
+}
+```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "reinforced": [
+    { "id": 4, "salience": 0.775, "use_count": 3 }
+  ],
+  "skipped": [ 99 ],
+  "message": "Ok"
+}
+```
+
+`reinforced` lists the active rows whose salience was updated; `skipped`
+(present only when non-empty) lists requested ids that were unknown or
+already soft-deleted. Duplicate ids in the input are collapsed.
+Reinforcement is exempt from the `keep='Y'` lock — like `confirm`, it
+changes no user-visible content. The update rule is
+`salience ← clamp((1 − λ)·salience + η·reward)`; there is **no
+time-based decay**, salience changes only on an explicit `reinforce` or
+`confirm` event.
+
+### 8.16 `find_conflicts`
+
+Read-only diagnostic that surfaces memories which may contradict each
+other: clusters of active rows that are both semantically close
+(cosine ≥ `threshold`) AND share at least one tag.
+
+#### Description for MCP Client
+
+Use this to surface same-topic memories that might disagree. The server
+only flags candidates (pure embedding + tag-overlap heuristic); it does
+not decide which is correct. Resolve a conflict by confirming the right
+memory, or by storing the corrected fact with `remember` using its
+`supersedes` field to retire the wrong one.
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "threshold": {
+      "type": "number",
+      "description": "Cosine cutoff in [0.5, 1.0]. Default 0.80 (lower than find_near_duplicates)."
+    },
+    "max_groups": {
+      "type": "integer",
+      "description": "Maximum groups to return. Default 50. Hard cap 500."
+    }
+  }
+}
+```
+
+#### Output Schema
+
+Identical shape to `find_near_duplicates` (`groups` of `ids` /
+`max_similarity` / `pair_count` / `memories`, plus a `summary`). The only
+differences are the lower default threshold and the requirement that
+clustered rows share a tag.
+
 ### The `keep` field on read outputs
 
 Every memory object returned by `recall`, `list_memories`, `get_memory`,
@@ -1054,6 +1173,11 @@ Every memory object returned by `recall`, `list_memories`, `get_memory`,
 The match/`export_memories` output also includes the memory's
 `importance` (a double), so a JSON dump is complete enough to restore the
 weighting on re-insert.
+
+Match outputs (`recall`, `get_memory`, near-duplicate / conflict groups)
+also carry the learned `salience` (a double; `COALESCE`d to `importance`
+for rows that predate seeding) and `use_count` (integer). These are the
+Tier 1 reinforcement signals — see `reinforce` (§8.15).
 
 ### `source_client` on writes
 
@@ -1112,8 +1236,9 @@ CREATE TABLE memories (
 ```
 
 Later schema versions add columns via the auto-migrator (`record_version`,
-`expires_at`, `last_confirmed_at`, `forget_reason`, `replaced_by_id`, and
-`keep`). The `keep` column is a protection flag:
+`expires_at`, `last_confirmed_at`, `forget_reason`, `replaced_by_id`,
+`keep`, and the Tier 1 salience columns). The `keep` column is a
+protection flag:
 
 ```sql
 keep CHAR(1) NOT NULL DEFAULT 'U' CHECK (keep IN ('Y','N','U'))
@@ -1122,6 +1247,21 @@ keep CHAR(1) NOT NULL DEFAULT 'U' CHECK (keep IN ('Y','N','U'))
 `Y` = protected (the memory cannot be changed or deleted by any client),
 `N` = explicitly not protected, `U` = unspecified (the default). The flag
 itself can only be changed via the CLI-only `set_keep` tool (§8.14).
+
+The learned-salience columns (DB version 6) support reinforcement-driven
+ranking:
+
+```sql
+salience     DOUBLE PRECISION,            -- learned weight; NULL until seeded from importance
+use_count    INTEGER          NOT NULL DEFAULT 0,
+reward_sum   DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+last_used_at TIMESTAMPTZ                  -- last reinforce/confirm; recency tiebreaker only
+```
+
+`salience` is seeded from `importance` (per-row upgrader, record version
+2) and updated only on an explicit `reinforce` / `confirm` event. There
+is **no time-based decay or age-based pruning** — a memory is never
+removed or down-weighted for being old.
 
 ### 9.3 Indexes
 

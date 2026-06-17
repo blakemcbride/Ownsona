@@ -8,6 +8,8 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -119,10 +121,18 @@ class RecordUpgraderRegistryTest {
 
     @Test
     void forFromVersionReturnsNullForUnknown() {
-        // The shipped registry is empty, so any lookup returns null.
+        // Out-of-range lookups return null regardless of what's registered.
         assertNull(RecordUpgraderRegistry.forFromVersion(0));
-        assertNull(RecordUpgraderRegistry.forFromVersion(1));
         assertNull(RecordUpgraderRegistry.forFromVersion(99));
+    }
+
+    @Test
+    void forFromVersionReturnsRegisteredUpgrader() {
+        // v1 -> v2 SalienceSeedUpgrader is the first shipped upgrader.
+        final RecordUpgrader u = RecordUpgraderRegistry.forFromVersion(1);
+        assertNotNull(u);
+        assertEquals(1, u.fromVersion());
+        assertEquals(2, u.toVersion());
     }
 
     // -------------------------------------------------------------------

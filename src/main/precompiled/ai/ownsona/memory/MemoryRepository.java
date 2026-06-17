@@ -31,7 +31,8 @@ public final class MemoryRepository {
             "array_to_json(tags)::text AS tags_json, " +
             "metadata::text AS metadata_json, " +
             "record_version, expires_at, last_confirmed_at, " +
-            "forget_reason, replaced_by_id, keep";
+            "forget_reason, replaced_by_id, keep, " +
+            "salience, use_count, reward_sum, last_used_at";
 
     /**
      * SQL fragment that excludes soft-deleted AND expired rows.  Used by
@@ -63,8 +64,8 @@ public final class MemoryRepository {
                 " (user_id, text, normalized_text, embedding, tags, importance, " +
                 "  source_provider, source_client, source_conversation_id, " +
                 "  embedding_provider, embedding_model, metadata, record_version, " +
-                "  expires_at, last_confirmed_at, keep) " +
-                "VALUES (?, ?, ?, ?::vector, ?::text[], ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)",
+                "  expires_at, last_confirmed_at, keep, salience) " +
+                "VALUES (?, ?, ?, ?::vector, ?::text[], ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?)",
                 m.userId,
                 m.text,
                 m.normalizedText,
@@ -80,7 +81,11 @@ public final class MemoryRepository {
                 m.recordVersion,
                 m.expiresAt,
                 m.lastConfirmedAt,
-                (m.keep == null || m.keep.isEmpty()) ? "U" : m.keep);
+                (m.keep == null || m.keep.isEmpty()) ? "U" : m.keep,
+                // Seed salience from importance when the caller didn't set
+                // it explicitly, so a new row ranks the same as it would
+                // have under the old importance-only ordering.
+                (m.salience == null) ? m.importance : m.salience);
 
         final Record r = db.fetchOne("SELECT currval('memories_id_seq') AS id");
         if (r == null)
@@ -204,6 +209,123 @@ public final class MemoryRepository {
     }
 
     /**
+     * Multiplier applied to effective salience in the recall ranking
+     * blend: {@code rank = cosine * (1 + SALIENCE_RANK_WEIGHT * salience)}.
+     * Keeps cosine the dominant term while letting a heavily-reinforced
+     * memory outrank a slightly-closer but never-reinforced one.
+     */
+    private static final double SALIENCE_RANK_WEIGHT = 0.5;
+
+    /**
+     * How many candidates to pull by raw cosine distance (HNSW-index
+     * friendly) before re-ranking by the salience blend.  Over-fetching
+     * lets salience promote a row whose cosine rank is just outside the
+     * requested top-N.  Bounded so a large limit can't pull the whole table.
+     */
+    private static final int RANK_OVERFETCH_FACTOR = 4;
+    private static final int RANK_OVERFETCH_MIN     = 20;
+    private static final int RANK_OVERFETCH_MAX     = 200;
+
+    /**
+     * Recall search with salience-aware ranking (Tier 1).
+     *
+     * <p>Candidates are first gathered by raw cosine distance (so the
+     * pgvector HNSW index does the heavy lifting), then re-ranked by
+     * {@code cosine * (1 + w * effective_salience)}, breaking ties by
+     * recency ({@code last_confirmed_at}, then {@code last_used_at}, then
+     * {@code created_at}).  Effective salience is {@code COALESCE(salience,
+     * importance, 0.5)} so rows that predate the seed upgrader rank exactly
+     * as importance-only ranking would.
+     *
+     * <p><strong>The returned {@code score} stays the raw cosine
+     * similarity</strong>, not the blended rank score --- so {@code
+     * min_score} filtering and the client-side contradiction heuristic keep
+     * their original meaning.  Salience changes the <em>order</em>, not the
+     * reported similarity.
+     *
+     * <p><strong>No time decay.</strong>  Recency is only a tiebreaker;
+     * an old memory is never down-weighted for age, only out-ranked by a
+     * fresher one when their blended scores are otherwise equal.
+     */
+    public List<MemoryRow> findRanked(Connection db, String userId, float[] queryVec,
+                                      int limit, String[] tagFilter) throws Exception {
+        final String vecLiteral = VectorFormat.toLiteral(queryVec);
+        final boolean hasTags = tagFilter != null && tagFilter.length > 0;
+        final int overfetch = Math.min(RANK_OVERFETCH_MAX,
+                Math.max(RANK_OVERFETCH_MIN, limit * RANK_OVERFETCH_FACTOR));
+
+        final StringBuilder inner = new StringBuilder();
+        inner.append("SELECT ").append(SELECT_COLUMNS)
+             .append(", 1 - (embedding <=> ?::vector) AS score")
+             .append(" FROM memories")
+             .append(" WHERE user_id = ? AND ").append(ACTIVE_AND_FRESH);
+        if (hasTags)
+            inner.append(" AND tags && ?::text[]");
+        inner.append(" ORDER BY embedding <=> ?::vector LIMIT ?");
+
+        // Re-rank the cosine-nearest candidates by the salience blend.
+        // COALESCE keeps un-seeded rows (salience IS NULL) at importance.
+        final String sql =
+                "SELECT * FROM ( " + inner + " ) c " +
+                "ORDER BY (score * (1 + " + SALIENCE_RANK_WEIGHT +
+                " * COALESCE(salience, importance, 0.5))) DESC, " +
+                "COALESCE(last_confirmed_at, last_used_at, created_at) DESC " +
+                "LIMIT ?";
+
+        final List<Record> rows;
+        if (hasTags) {
+            rows = db.fetchAll(sql,
+                    vecLiteral, userId, VectorFormat.toPgArrayLiteral(tagFilter),
+                    vecLiteral, overfetch, limit);
+        } else {
+            rows = db.fetchAll(sql,
+                    vecLiteral, userId, vecLiteral, overfetch, limit);
+        }
+
+        final List<MemoryRow> out = new ArrayList<>(rows.size());
+        for (Record r : rows) {
+            final Double s = r.getDouble("score");
+            out.add(toRow(r, s == null ? 0.0 : s));
+        }
+        return out;
+    }
+
+    /**
+     * Apply one reinforcement update to a row's learned salience (Tier 1).
+     *
+     * <p>Uses the reward-modulated rule
+     * {@code salience <- clamp((1 - lambda) * salience + eta * reward)},
+     * bumps {@code use_count}, accumulates {@code reward_sum}, and stamps
+     * {@code last_used_at = now()}.  The {@code (1 - lambda)} factor is an
+     * update-smoothing term that keeps salience bounded and lets a
+     * negative reward pull a wrong memory down --- it is NOT time decay
+     * (it only fires when feedback arrives, never with the clock).
+     *
+     * <p>Only active (non-deleted) rows are reinforced; a soft-deleted row
+     * returns false without change.  This is deliberately NOT blocked by
+     * {@code keep='Y'}: like {@code confirm}, reinforcement changes no
+     * user-visible content (invariant #9), so a protected memory can still
+     * be reinforced.
+     *
+     * @return true if an active row was updated, false otherwise.
+     */
+    public boolean reinforce(Connection db, long id, double reward,
+                             double eta, double lambda,
+                             double clampMin, double clampMax) throws Exception {
+        db.execute(
+                "UPDATE memories SET " +
+                "  salience = LEAST(?, GREATEST(?, " +
+                "      (1 - ?) * COALESCE(salience, importance, 0.5) + ? * ?)), " +
+                "  use_count = use_count + 1, " +
+                "  reward_sum = reward_sum + ?, " +
+                "  last_used_at = now() " +
+                "WHERE id = ? AND deleted_at IS NULL",
+                clampMax, clampMin, lambda, eta, reward, reward, id);
+        final MemoryRow row = findById(db, id);
+        return row != null && row.deletedAt == null;
+    }
+
+    /**
      * Vector similarity search restricted to <em>soft-deleted</em> rows
      * (tombstones).  Used by the dedup-on-write check to surface
      * previously-corrected facts so the caller doesn't silently re-add
@@ -266,6 +388,57 @@ public final class MemoryRepository {
                 ") n " +
                 "WHERE a.user_id = ? AND a.deleted_at IS NULL " +
                 "  AND (a.expires_at IS NULL OR a.expires_at > now()) " +
+                "  AND 1 - (a.embedding <=> n.embedding) >= ? " +
+                "ORDER BY similarity DESC",
+                userId, topK, userId, threshold);
+
+        final List<Object[]> out = new ArrayList<>(rows.size());
+        for (Record r : rows) {
+            final Long   idA = r.getLong("id_a");
+            final Long   idB = r.getLong("id_b");
+            final Double sim = r.getDouble("similarity");
+            if (idA == null || idB == null || sim == null)
+                continue;
+            out.add(new Object[]{ idA, idB, sim });
+        }
+        return out;
+    }
+
+    /**
+     * Find potential <em>conflict</em> pairs: active rows that are both
+     * semantically close (cosine &ge; {@code threshold}) AND share at
+     * least one tag.  The tag gate is what separates a "conflict" (two
+     * facts about the same labelled topic that may disagree) from a plain
+     * near-duplicate.  The server does not judge whether they actually
+     * contradict --- that needs a generative model, which the write/request
+     * path must not call (invariant #1) --- it only surfaces the pair so
+     * the caller (or the calling LLM) can decide.
+     *
+     * <p>Same shape, ordering, and canonicalization ({@code idA < idB}) as
+     * {@link #findNearDuplicatePairs}; soft-deleted and expired rows are
+     * excluded on both sides.
+     *
+     * @return list of {@code Object[]{Long idA, Long idB, Double similarity}},
+     *         {@code idA < idB}, sorted by similarity descending.
+     */
+    public List<Object[]> findConflictPairs(Connection db, String userId,
+                                            double threshold, int topK) throws Exception {
+        final List<Record> rows = db.fetchAll(
+                "SELECT DISTINCT " +
+                "  LEAST(a.id, n.id) AS id_a, GREATEST(a.id, n.id) AS id_b, " +
+                "  1 - (a.embedding <=> n.embedding) AS similarity " +
+                "FROM memories a " +
+                "CROSS JOIN LATERAL ( " +
+                "  SELECT b.id, b.embedding, b.tags FROM memories b " +
+                "  WHERE b.user_id = ? AND b.deleted_at IS NULL " +
+                "    AND (b.expires_at IS NULL OR b.expires_at > now()) " +
+                "    AND b.id <> a.id " +
+                "  ORDER BY a.embedding <=> b.embedding " +
+                "  LIMIT ? " +
+                ") n " +
+                "WHERE a.user_id = ? AND a.deleted_at IS NULL " +
+                "  AND (a.expires_at IS NULL OR a.expires_at > now()) " +
+                "  AND a.tags && n.tags " +
                 "  AND 1 - (a.embedding <=> n.embedding) >= ? " +
                 "ORDER BY similarity DESC",
                 userId, topK, userId, threshold);
@@ -803,6 +976,12 @@ public final class MemoryRepository {
         m.forgetReason         = r.getString("forget_reason");
         m.replacedById         = r.getLong("replaced_by_id");
         m.keep                 = r.getString("keep");
+        m.salience             = r.getDouble("salience");      // null on un-seeded rows
+        final Integer uc       = r.getInt("use_count");
+        m.useCount             = (uc == null) ? 0 : uc;
+        final Double rs        = r.getDouble("reward_sum");
+        m.rewardSum            = (rs == null) ? 0.0 : rs;
+        m.lastUsedAt           = r.getDateTime("last_used_at");
         return m;
     }
 

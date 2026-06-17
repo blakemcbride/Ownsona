@@ -48,4 +48,15 @@ public final class MemoryRow {
     // client), 'N' (explicitly not protected), or 'U' (unspecified, the
     // default).  Only the ownsona CLI may change this value.
     public String   keep;
+
+    // Learned-salience signals (Tier 1).  salience is the reinforcement-
+    // driven ranking weight; it may be null on a row that predates the
+    // seed upgrader, in which case the read paths treat it as equal to
+    // importance.  use_count / reward_sum / last_used_at are the
+    // feedback bookkeeping.  None of these are time-decayed: a memory is
+    // never down-weighted or removed for being old.
+    public Double   salience;
+    public int      useCount;
+    public double   rewardSum;
+    public Date     lastUsedAt;
 }

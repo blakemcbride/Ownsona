@@ -69,6 +69,71 @@ public final class MemoryService {
     /** Cap on the forget_reason free-text field stored on tombstones. */
     private static final int MAX_FORGET_REASON_CHARS = 1024;
 
+    // ------------------------------------------------------------------
+    // Reinforcement / salience (Tier 1).  No time decay anywhere: salience
+    // changes only when feedback arrives (reinforce / confirm), never with
+    // the clock, and a memory is never deleted or down-weighted for age.
+    // ------------------------------------------------------------------
+
+    /** Learning rate in the reinforcement rule (weight on the new reward). */
+    static final double REINFORCE_ETA = 0.3;
+
+    /**
+     * Update-smoothing factor in the reinforcement rule.  Applied only on a
+     * reinforcement event, so it bounds salience and lets a negative reward
+     * pull a wrong memory down.  This is NOT age-based decay.
+     */
+    static final double REINFORCE_LAMBDA = 0.05;
+
+    /** Salience is clamped to this range after every reinforcement. */
+    static final double SALIENCE_MIN = 0.0;
+    static final double SALIENCE_MAX = 3.0;
+
+    /** Reward applied by {@code confirm} (a confirmation is positive feedback). */
+    private static final double CONFIRM_REWARD = 1.0;
+
+    /** Default reward for an explicit {@code reinforce} call with no delta. */
+    static final double DEFAULT_REINFORCE_DELTA = 1.0;
+
+    /** Bound on the magnitude of an explicit reinforce delta. */
+    static final double MAX_REINFORCE_DELTA = 1.0;
+
+    // ------------------------------------------------------------------
+    // Conflict detection (Tier 1).  Pure embedding + tag-overlap heuristic;
+    // the server never asks a generative model whether two facts conflict
+    // (invariant #1).  It only surfaces candidates for the caller to judge.
+    // ------------------------------------------------------------------
+
+    /**
+     * Cosine cutoff for flagging an active row as a potential conflict on
+     * write.  Below the dedup threshold (0.90): a conflict is "same topic,
+     * possibly different answer", not "the same fact".
+     */
+    private static final double CONFLICT_THRESHOLD = 0.80;
+
+    /** Top-K neighbors the on-write conflict check considers. */
+    private static final int CONFLICT_TOPK = 10;
+
+    /** Default / floor for the on-demand {@code find_conflicts} threshold. */
+    static final double DEFAULT_CONFLICT_THRESHOLD = 0.80;
+    static final double MIN_CONFLICT_THRESHOLD     = 0.50;
+
+    /** Per-row top-K neighbors queried by {@code find_conflicts}. */
+    private static final int CONFLICT_PAIR_TOP_K = 10;
+
+    /**
+     * Pure reinforcement rule, exposed for unit tests and as the canonical
+     * definition of the update done in SQL by
+     * {@link MemoryRepository#reinforce}:
+     * {@code salience <- clamp((1 - lambda) * salience + eta * reward)}.
+     */
+    static double applyReinforcement(double salience, double reward,
+                                     double eta, double lambda,
+                                     double clampMin, double clampMax) {
+        final double updated = (1.0 - lambda) * salience + eta * reward;
+        return Math.max(clampMin, Math.min(clampMax, updated));
+    }
+
     private final MemoryRepository repo;
     private final EmbeddingProvider embedder;
     private final String userId;
@@ -87,7 +152,7 @@ public final class MemoryService {
                                    String rawCaptureMode, String rawSessionId,
                                    String rawDedupPolicy,
                                    java.util.Date rawExpiresAt, java.util.Date rawLastConfirmedAt,
-                                   String sourceClient) {
+                                   String sourceClient, Long[] rawSupersedes) {
         final String text = requireText(rawText);
         final String secret = SecretScanner.detect(text);
         if (secret != null)
@@ -108,9 +173,12 @@ public final class MemoryService {
         try {
             final Long existing = repo.findActiveIdByNormalized(db, userId, normalized);
             if (existing != null) {
+                final List<RememberResult.SupersedeOutcome> sup =
+                        processSupersedes(db, rawSupersedes, existing);
                 logger.info("remember: duplicate, returning existing id={}", existing);
                 success = true;
-                return new RememberResult(existing, true);
+                return new RememberResult(existing, true, Collections.emptyList(),
+                        Collections.emptyList(), Collections.emptyList(), sup);
             }
 
             final float[] vec = embed(text);
@@ -126,10 +194,13 @@ public final class MemoryService {
             final List<MemoryRow> previouslyCorrected = findPreviouslyCorrected(db, vec, dedupPolicy);
             if (!candidates.isEmpty() && DEDUP_POLICY_SKIP_IF_NEAR.equals(dedupPolicy)) {
                 final MemoryRow top = candidates.get(0);
+                final List<RememberResult.SupersedeOutcome> sup =
+                        processSupersedes(db, rawSupersedes, top.id);
                 logger.info("remember: near-dup found id={} score={} policy=skip_if_near",
                         top.id, top.score);
                 success = true;
-                return new RememberResult(top.id, true, candidates, previouslyCorrected);
+                return new RememberResult(top.id, true, candidates, previouslyCorrected,
+                        Collections.emptyList(), sup);
             }
             if (!previouslyCorrected.isEmpty())
                 logger.info("remember: previously-corrected near-dup found id={} score={} (proceeding with insert)",
@@ -151,6 +222,7 @@ public final class MemoryService {
             ins.recordVersion        = RecordUpgraderRegistry.CURRENT_RECORD_VERSION;
             ins.expiresAt            = expiresAt;
             ins.lastConfirmedAt      = lastConfirmedAt;
+            ins.salience             = imp;   // new rows start at importance
 
             final long id;
             try {
@@ -159,16 +231,26 @@ public final class MemoryService {
                 if (isUniqueViolation(e)) {
                     final Long racedId = repo.findActiveIdByNormalized(db, userId, normalized);
                     if (racedId != null) {
+                        final List<RememberResult.SupersedeOutcome> sup =
+                                processSupersedes(db, rawSupersedes, racedId);
                         logger.info("remember: lost insert race, returning existing id={}", racedId);
                         success = true;
-                        return new RememberResult(racedId, true);
+                        return new RememberResult(racedId, true, Collections.emptyList(),
+                                Collections.emptyList(), Collections.emptyList(), sup);
                     }
                 }
                 throw e;
             }
-            logger.info("remember: inserted id={} chars={} tags={}", id, text.length(), tags.length);
+            // Potential conflicts: active same-topic rows the caller might be
+            // correcting.  Supersedes: explicit corrections the caller asked
+            // to retire in favor of the row we just stored.
+            final List<MemoryRow> potentialConflicts = findPotentialConflicts(db, vec, tags, candidates);
+            final List<RememberResult.SupersedeOutcome> sup = processSupersedes(db, rawSupersedes, id);
+            logger.info("remember: inserted id={} chars={} tags={} conflicts={} superseded={}",
+                    id, text.length(), tags.length, potentialConflicts.size(), sup.size());
             success = true;
-            return new RememberResult(id, false, candidates, previouslyCorrected);
+            return new RememberResult(id, false, candidates, previouslyCorrected,
+                    potentialConflicts, sup);
         } catch (ServiceException e) {
             throw e;
         } catch (Exception e) {
@@ -348,7 +430,9 @@ public final class MemoryService {
         boolean success = false;
         try {
             final float[] vec = embed(q);
-            final List<MemoryRow> raw = repo.findSimilar(db, userId, vec, n, tagFilter);
+            // findRanked blends salience + recency into the ORDER BY while
+            // keeping the reported score == cosine (so min_score is unchanged).
+            final List<MemoryRow> raw = repo.findRanked(db, userId, vec, n, tagFilter);
             final List<MemoryRow> filtered;
             if (minScore != null) {
                 filtered = new ArrayList<>(raw.size());
@@ -705,6 +789,12 @@ public final class MemoryService {
             if (!ok)
                 throw new ServiceException(ServiceException.NOT_FOUND, "Memory " + id + " not found.");
 
+            // A confirmation is positive feedback: reinforce salience too.
+            // This does not change user-visible content, so (like confirm
+            // itself) it is exempt from the keep='Y' lock (invariant #9).
+            repo.reinforce(db, id, CONFIRM_REWARD,
+                    REINFORCE_ETA, REINFORCE_LAMBDA, SALIENCE_MIN, SALIENCE_MAX);
+
             final MemoryRow updated = repo.findById(db, id);
             logger.info("confirm: id={}", id);
             success = true;
@@ -716,6 +806,75 @@ public final class MemoryService {
         } finally {
             MainServlet.closeConnection(db, success);
         }
+    }
+
+    // ====================================================================================
+    // reinforce
+    // ====================================================================================
+
+    /**
+     * Apply explicit feedback to one or more memories: a positive delta says
+     * "this was helpful", a negative delta "this was wrong / unhelpful".
+     * Each id's salience is updated by the reward-modulated rule (see
+     * {@link #applyReinforcement}), {@code use_count} is bumped, and
+     * {@code last_used_at} is stamped.  Like {@code confirm}, reinforcement
+     * changes no user-visible content, so it is NOT blocked by
+     * {@code keep='Y'} (invariant #9).
+     *
+     * <p>Soft-deleted or unknown ids are skipped and omitted from the
+     * returned list, so a caller can diff requested vs returned to learn
+     * which ids took effect.  Duplicate ids are collapsed so a fact is not
+     * double-counted.
+     *
+     * @param ids   the memory ids to reinforce
+     * @param delta the reward; null defaults to {@link #DEFAULT_REINFORCE_DELTA}
+     * @return the refreshed rows for ids that were actually reinforced, in
+     *         input order
+     */
+    public List<MemoryRow> reinforce(long[] ids, Double delta) {
+        if (ids == null || ids.length == 0)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "memory_ids is required and must be non-empty.");
+        if (ids.length > Config.MAX_BATCH_SIZE)
+            throw new ServiceException(ServiceException.LIMIT_EXCEEDED,
+                    "too many ids: " + ids.length + " > " + Config.MAX_BATCH_SIZE);
+        final double reward = validateReinforceDelta(delta);
+
+        final Connection db = MainServlet.openNewConnection();
+        boolean success = false;
+        try {
+            final List<MemoryRow> out = new ArrayList<>();
+            final Set<Long> seen = new LinkedHashSet<>();
+            for (long id : ids) {
+                if (!seen.add(id))
+                    continue;
+                final boolean ok = repo.reinforce(db, id, reward,
+                        REINFORCE_ETA, REINFORCE_LAMBDA, SALIENCE_MIN, SALIENCE_MAX);
+                if (ok)
+                    out.add(repo.findById(db, id));
+            }
+            logger.info("reinforce: requested={} applied={} delta={}", seen.size(), out.size(), reward);
+            success = true;
+            return out;
+        } catch (ServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap(e, "reinforce failed");
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+    }
+
+    /** Package-private for unit tests. */
+    static double validateReinforceDelta(Double delta) {
+        if (delta == null)
+            return DEFAULT_REINFORCE_DELTA;
+        final double d = delta.doubleValue();
+        if (Double.isNaN(d) || d < -MAX_REINFORCE_DELTA || d > MAX_REINFORCE_DELTA)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "delta must be between " + (-MAX_REINFORCE_DELTA) + " and " +
+                    MAX_REINFORCE_DELTA + " (got " + d + ").");
+        return d;
     }
 
     // ====================================================================================
@@ -955,63 +1114,9 @@ public final class MemoryService {
         boolean success = false;
         try {
             final List<Object[]> pairs = repo.findNearDuplicatePairs(db, userId, threshold, NEAR_DUP_TOP_K);
-
-            // Union-find over the pair ids.  parent[x] = x for a root;
-            // parent[x] = y means y is x's representative one step up.
-            final java.util.Map<Long, Long> parent = new java.util.HashMap<>();
-            for (Object[] p : pairs) {
-                final long a = ((Long) p[0]).longValue();
-                final long b = ((Long) p[1]).longValue();
-                parent.putIfAbsent(a, a);
-                parent.putIfAbsent(b, b);
-                final long ra = findRoot(parent, a);
-                final long rb = findRoot(parent, b);
-                if (ra != rb)
-                    parent.put(ra, rb);
-            }
-
-            // Re-walk pairs to attribute each to its (now stable) cluster
-            // and accumulate per-cluster max similarity + pair count.
-            final java.util.Map<Long, java.util.Set<Long>> idsByCluster = new java.util.HashMap<>();
-            final java.util.Map<Long, Double>              maxSimByCluster = new java.util.HashMap<>();
-            final java.util.Map<Long, Integer>             pairCountByCluster = new java.util.HashMap<>();
-            for (Object[] p : pairs) {
-                final long a = ((Long) p[0]).longValue();
-                final long b = ((Long) p[1]).longValue();
-                final double sim = ((Double) p[2]).doubleValue();
-                final long root = findRoot(parent, a);
-
-                final java.util.Set<Long> ids = idsByCluster.computeIfAbsent(root, k -> new java.util.LinkedHashSet<>());
-                ids.add(a);
-                ids.add(b);
-                maxSimByCluster.merge(root, sim, Math::max);
-                pairCountByCluster.merge(root, 1, Integer::sum);
-            }
-
-            // Materialize groups, sort strongest-first, cap to maxGroups,
-            // and only then fetch full MemoryRow data --- avoids loading
-            // rows for clusters that won't be returned.
-            final List<Long> roots = new ArrayList<>(idsByCluster.keySet());
-            roots.sort((r1, r2) -> Double.compare(
-                    maxSimByCluster.getOrDefault(r2, 0.0),
-                    maxSimByCluster.getOrDefault(r1, 0.0)));
-            final int kept = Math.min(roots.size(), maxGroups);
-            final List<NearDuplicateGroup> groups = new ArrayList<>(kept);
-            for (int i = 0; i < kept; i++) {
-                final long root = roots.get(i);
-                final List<Long> sortedIds = new ArrayList<>(idsByCluster.get(root));
-                Collections.sort(sortedIds);
-                final List<MemoryRow> rows = new ArrayList<>(sortedIds.size());
-                for (long id : sortedIds) {
-                    final MemoryRow row = repo.findById(db, id);
-                    if (row != null)
-                        rows.add(row);
-                }
-                groups.add(new NearDuplicateGroup(rows, maxSimByCluster.get(root), pairCountByCluster.get(root)));
-            }
-
-            logger.info("findNearDuplicates: threshold={} pairs={} clusters={} returned={}",
-                    threshold, pairs.size(), idsByCluster.size(), kept);
+            final List<NearDuplicateGroup> groups = clusterPairsIntoGroups(db, pairs, maxGroups);
+            logger.info("findNearDuplicates: threshold={} pairs={} returned={}",
+                    threshold, pairs.size(), groups.size());
             success = true;
             return new NearDuplicatesResult(groups, threshold, pairs.size());
         } catch (ServiceException e) {
@@ -1031,6 +1136,119 @@ public final class MemoryService {
                 return cur;
             cur = up;
         }
+    }
+
+    /**
+     * Cluster a list of {@code (idA, idB, similarity)} pairs into groups via
+     * union-find, sort strongest-cluster-first, cap to {@code maxGroups},
+     * and materialize each surviving cluster's full {@link MemoryRow}s.
+     * Shared by {@link #findNearDuplicates} and {@link #findConflicts} ---
+     * both turn a pair list into ranked clusters the same way.
+     */
+    private List<NearDuplicateGroup> clusterPairsIntoGroups(Connection db, List<Object[]> pairs,
+                                                            int maxGroups) throws Exception {
+        // Union-find over the pair ids.  parent[x] = x for a root;
+        // parent[x] = y means y is x's representative one step up.
+        final java.util.Map<Long, Long> parent = new java.util.HashMap<>();
+        for (Object[] p : pairs) {
+            final long a = ((Long) p[0]).longValue();
+            final long b = ((Long) p[1]).longValue();
+            parent.putIfAbsent(a, a);
+            parent.putIfAbsent(b, b);
+            final long ra = findRoot(parent, a);
+            final long rb = findRoot(parent, b);
+            if (ra != rb)
+                parent.put(ra, rb);
+        }
+
+        // Re-walk pairs to attribute each to its (now stable) cluster
+        // and accumulate per-cluster max similarity + pair count.
+        final java.util.Map<Long, java.util.Set<Long>> idsByCluster = new java.util.HashMap<>();
+        final java.util.Map<Long, Double>              maxSimByCluster = new java.util.HashMap<>();
+        final java.util.Map<Long, Integer>             pairCountByCluster = new java.util.HashMap<>();
+        for (Object[] p : pairs) {
+            final long a = ((Long) p[0]).longValue();
+            final long b = ((Long) p[1]).longValue();
+            final double sim = ((Double) p[2]).doubleValue();
+            final long root = findRoot(parent, a);
+
+            final java.util.Set<Long> ids = idsByCluster.computeIfAbsent(root, k -> new java.util.LinkedHashSet<>());
+            ids.add(a);
+            ids.add(b);
+            maxSimByCluster.merge(root, sim, Math::max);
+            pairCountByCluster.merge(root, 1, Integer::sum);
+        }
+
+        // Materialize groups, sort strongest-first, cap to maxGroups, and
+        // only then fetch full MemoryRow data --- avoids loading rows for
+        // clusters that won't be returned.
+        final List<Long> roots = new ArrayList<>(idsByCluster.keySet());
+        roots.sort((r1, r2) -> Double.compare(
+                maxSimByCluster.getOrDefault(r2, 0.0),
+                maxSimByCluster.getOrDefault(r1, 0.0)));
+        final int kept = Math.min(roots.size(), maxGroups);
+        final List<NearDuplicateGroup> groups = new ArrayList<>(kept);
+        for (int i = 0; i < kept; i++) {
+            final long root = roots.get(i);
+            final List<Long> sortedIds = new ArrayList<>(idsByCluster.get(root));
+            Collections.sort(sortedIds);
+            final List<MemoryRow> rows = new ArrayList<>(sortedIds.size());
+            for (long id : sortedIds) {
+                final MemoryRow row = repo.findById(db, id);
+                if (row != null)
+                    rows.add(row);
+            }
+            groups.add(new NearDuplicateGroup(rows, maxSimByCluster.get(root), pairCountByCluster.get(root)));
+        }
+        return groups;
+    }
+
+    // ====================================================================================
+    // find_conflicts
+    // ====================================================================================
+
+    /**
+     * Find clusters of active memories that are both semantically close
+     * (cosine &ge; {@code threshold}) AND share at least one tag --- the
+     * on-demand counterpart of the on-write conflict flag.  Same clustering
+     * and return shape as {@link #findNearDuplicates}; the only differences
+     * are the lower default threshold and the tag gate.
+     *
+     * <p>This surfaces same-topic memories that may disagree so the caller
+     * (or the calling LLM) can decide whether one supersedes another.  The
+     * server does not judge contradiction itself (invariant #1).  Read-only.
+     */
+    public NearDuplicatesResult findConflicts(Double rawThreshold, Integer rawMaxGroups) {
+        final double threshold = validateConflictThreshold(rawThreshold);
+        final int    maxGroups = validateMaxGroups(rawMaxGroups);
+
+        final Connection db = MainServlet.openNewConnection();
+        boolean success = false;
+        try {
+            final List<Object[]> pairs = repo.findConflictPairs(db, userId, threshold, CONFLICT_PAIR_TOP_K);
+            final List<NearDuplicateGroup> groups = clusterPairsIntoGroups(db, pairs, maxGroups);
+            logger.info("findConflicts: threshold={} pairs={} returned={}",
+                    threshold, pairs.size(), groups.size());
+            success = true;
+            return new NearDuplicatesResult(groups, threshold, pairs.size());
+        } catch (ServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap(e, "findConflicts failed");
+        } finally {
+            MainServlet.closeConnection(db, success);
+        }
+    }
+
+    /** Package-private for unit tests. */
+    static double validateConflictThreshold(Double raw) {
+        if (raw == null)
+            return DEFAULT_CONFLICT_THRESHOLD;
+        final double t = raw.doubleValue();
+        if (Double.isNaN(t) || t < MIN_CONFLICT_THRESHOLD || t > 1.0)
+            throw new ServiceException(ServiceException.INVALID_INPUT,
+                    "threshold must be between " + MIN_CONFLICT_THRESHOLD + " and 1.0 (got " + t + ")");
+        return t;
     }
 
     /** Package-private for unit tests. */
@@ -1280,6 +1498,7 @@ public final class MemoryService {
             ins.recordVersion        = RecordUpgraderRegistry.CURRENT_RECORD_VERSION;
             ins.expiresAt            = expiresAt;
             ins.lastConfirmedAt      = lastConfirmedAt;
+            ins.salience             = imp;   // new rows start at importance
 
             long id;
             try {
@@ -1522,6 +1741,89 @@ public final class MemoryService {
             logger.warn("tombstone dedup check failed: {}", e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Carry out an explicit {@code supersedes} correction: for each id the
+     * caller asked to retire in favor of {@code survivingId}, soft-delete it
+     * with a tombstone linking {@code replaced_by_id = survivingId}.  This
+     * is the "auto-supersede on correction flag" path --- deletion happens
+     * only because the caller explicitly named the id, never automatically.
+     *
+     * <p>{@code keep='Y'} rows are never touched: they're reported as
+     * {@code protected} and left intact (invariant #9).  Unknown ids are
+     * reported as {@code not_found}.  The surviving id and duplicates are
+     * skipped so a caller can't accidentally retire the row it just stored.
+     * Runs in the caller's transaction, so a DB failure rolls back the whole
+     * remember (a correction that can't complete shouldn't half-apply).
+     */
+    private List<RememberResult.SupersedeOutcome> processSupersedes(Connection db, Long[] supersedes,
+                                                                    long survivingId) throws Exception {
+        if (supersedes == null || supersedes.length == 0)
+            return Collections.emptyList();
+        final List<RememberResult.SupersedeOutcome> out = new ArrayList<>();
+        final Set<Long> seen = new LinkedHashSet<>();
+        for (Long sid : supersedes) {
+            if (sid == null || sid.longValue() == survivingId || !seen.add(sid))
+                continue;
+            final MemoryRow existing = repo.findById(db, sid);
+            if (existing == null) {
+                out.add(new RememberResult.SupersedeOutcome(sid, RememberResult.SupersedeOutcome.NOT_FOUND));
+                continue;
+            }
+            if ("Y".equals(existing.keep)) {
+                out.add(new RememberResult.SupersedeOutcome(sid, RememberResult.SupersedeOutcome.PROTECTED));
+                continue;
+            }
+            repo.softDelete(db, sid, "superseded by memory " + survivingId, survivingId);
+            out.add(new RememberResult.SupersedeOutcome(sid, RememberResult.SupersedeOutcome.SUPERSEDED));
+        }
+        return out;
+    }
+
+    /**
+     * On-write conflict heuristic: active rows that are semantically close
+     * (cosine &ge; {@link #CONFLICT_THRESHOLD}) to the new memory AND share
+     * at least one of its tags, excluding rows already surfaced as dedup
+     * {@code candidates}.  Empty when the new memory has no tags (nothing to
+     * gate on) or on any DB error (logged, never fails the insert).  The
+     * server only surfaces these --- it does not judge whether they truly
+     * contradict (invariant #1).
+     */
+    private List<MemoryRow> findPotentialConflicts(Connection db, float[] vec, String[] newTags,
+                                                   List<MemoryRow> candidates) {
+        if (newTags == null || newTags.length == 0)
+            return Collections.emptyList();
+        final Set<String> tagSet = new java.util.HashSet<>(java.util.Arrays.asList(newTags));
+        final Set<Long> excluded = new java.util.HashSet<>();
+        for (MemoryRow c : candidates)
+            excluded.add(c.id);
+        try {
+            final List<MemoryRow> hits = repo.findSimilar(db, userId, vec, CONFLICT_TOPK, null);
+            final List<MemoryRow> out = new ArrayList<>();
+            for (MemoryRow r : hits) {
+                if (r.score < CONFLICT_THRESHOLD)
+                    continue;
+                if (excluded.contains(r.id))
+                    continue;
+                if (!sharesTag(r.tags, tagSet))
+                    continue;
+                out.add(r);
+            }
+            return out;
+        } catch (Exception e) {
+            logger.warn("conflict check failed: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private static boolean sharesTag(String[] tags, Set<String> tagSet) {
+        if (tags == null)
+            return false;
+        for (String t : tags)
+            if (tagSet.contains(t))
+                return true;
+        return false;
     }
 
     /**
