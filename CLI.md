@@ -42,6 +42,8 @@ LLM-driven cleanup workflows rather than terminal use):
 | `list`     | `list_memories`        | List most-recent memories |
 | `update`   | `update_memory`        | Replace a memory's text/tags/etc |
 | `confirm`  | `confirm`              | Mark a memory as still-current |
+| `reinforce`| `reinforce`            | Feedback: raise/lower a memory's learned salience |
+| `conflicts`| `find_conflicts`       | Surface memories that may contradict each other |
 | `forget`   | `forget`               | Soft- or hard-delete a memory |
 | `prompt`   | `build_context_prompt` | Build an LLM prompt with relevant facts |
 | `import`   | `remember_batch`       | Bulk-load facts from a file |
@@ -278,6 +280,8 @@ ownsona search "<substring>"               substring search
 ownsona list                               recent memories
 ownsona update <id> "<new text>"           replace a memory
 ownsona confirm <id>                       refresh last_confirmed_at
+ownsona reinforce <id>... [--delta N]      feedback: adjust learned salience
+ownsona conflicts [--threshold N]          surface possibly-contradicting memories
 ownsona forget <id>                        soft-delete (--hard to drop)
 ownsona prompt "<user prompt>"             build an LLM-ready prompt
 ownsona import FILE                        bulk-load JSON or one-per-line
@@ -451,6 +455,38 @@ Forgotten (id=42)
 A future `add` of "Coco is my dog's name" will now show up with a
 `previously_corrected` block, warning that this fact was already
 forgotten.
+
+### Reinforce the memories that helped
+
+```
+$ ownsona query "where do I live"
+1 match
+  [17] score=0.842  Blake lives in Austin.
+
+$ ownsona reinforce 17
+reinforced 1 memory
+  [17] salience=0.775  use_count=1
+```
+
+A negative delta demotes a memory that proved unhelpful:
+`ownsona reinforce 17 --delta=-1`. Reinforcement never edits text and
+never deletes; it only nudges the learned ranking weight.
+
+### Find memories that may contradict each other
+
+```
+$ ownsona conflicts --threshold 0.85
+1 conflict group
+  group (max_similarity=0.913, pairs=1):
+    [42] score=0.913  Blake lives in Dallas.
+    [17] score=0.913  Blake lives in Austin.
+```
+
+`conflicts` only surfaces same-topic candidates (semantically close and
+sharing a tag) — it does not judge which is right. Resolve by confirming
+the correct one, or by re-stating the fact with `add` on a client that
+passes `supersedes` (the old fact is wrong) or `downweights` (merely
+outdated).
 
 ---
 

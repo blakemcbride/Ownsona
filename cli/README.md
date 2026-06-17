@@ -38,6 +38,8 @@ After that:
 ownsona --help
 ownsona add "fact"            # store a memory (alias: remember, new)
 ownsona query "question"      # semantic recall
+ownsona reinforce 17          # feedback: rank a useful memory higher
+ownsona conflicts             # surface memories that may contradict
 ownsona display 5-9,12        # show id, keep, text for selected memories
 ownsona enumerate -k U        # walk unspecified-keep memories and curate them
 ownsona change 12 "new text"  # replace one memory's text

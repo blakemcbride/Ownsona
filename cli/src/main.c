@@ -145,6 +145,49 @@ void ownsona_print_human(cJSON *result) {
         return;
     }
 
+    /* reinforce: { ok, reinforced: [{id, salience, use_count}], skipped?: [...] } */
+    cJSON *reinforced = cJSON_GetObjectItemCaseSensitive(result, "reinforced");
+    if (cJSON_IsArray(reinforced)) {
+        const int n = cJSON_GetArraySize(reinforced);
+        printf("reinforced %d memor%s\n", n, n == 1 ? "y" : "ies");
+        cJSON *r;
+        cJSON_ArrayForEach(r, reinforced)
+            printf("  [%ld] salience=%.3f  use_count=%ld\n",
+                   opt_long(r, "id", -1),
+                   opt_number(r, "salience", 0.0),
+                   opt_long(r, "use_count", 0));
+        cJSON *skipped = cJSON_GetObjectItemCaseSensitive(result, "skipped");
+        if (cJSON_IsArray(skipped) && cJSON_GetArraySize(skipped) > 0) {
+            fputs("  skipped (unknown or already deleted):", stdout);
+            cJSON *s;
+            cJSON_ArrayForEach(s, skipped)
+                if (cJSON_IsNumber(s))
+                    printf(" %ld", (long) s->valuedouble);
+            fputc('\n', stdout);
+        }
+        return;
+    }
+
+    /* find_conflicts: { ok, threshold, groups: [{ids, max_similarity, pair_count, memories}], summary } */
+    cJSON *groups = cJSON_GetObjectItemCaseSensitive(result, "groups");
+    if (cJSON_IsArray(groups)) {
+        const int n = cJSON_GetArraySize(groups);
+        printf("%d conflict group%s\n", n, n == 1 ? "" : "s");
+        cJSON *g;
+        cJSON_ArrayForEach(g, groups) {
+            printf("  group (max_similarity=%.3f, pairs=%ld):\n",
+                   opt_number(g, "max_similarity", 0.0),
+                   opt_long(g, "pair_count", 0));
+            cJSON *mems = cJSON_GetObjectItemCaseSensitive(g, "memories");
+            if (cJSON_IsArray(mems)) {
+                cJSON *m;
+                cJSON_ArrayForEach(m, mems)
+                    print_one_memory(m, /*show_score=*/true);
+            }
+        }
+        return;
+    }
+
     /* build_context_prompt: { ok, prompt: "..." } */
     const char *prompt = opt_string(result, "prompt");
     if (prompt != NULL) {
@@ -235,6 +278,8 @@ static const char USAGE_TOP[] =
 "  list       list recent memories\n"
 "  update     replace text/tags/etc on an existing memory\n"
 "  confirm    mark a memory as still-current (refresh last_confirmed_at)\n"
+"  reinforce  record feedback that raises/lowers a memory's learned salience\n"
+"  conflicts  surface memories that may contradict each other\n"
 "  forget     delete a memory (soft by default, hard with --hard)\n"
 "  prompt     build an LLM prompt augmented with relevant facts\n"
 "  import     bulk-load facts from a file (remember_batch)\n"
@@ -292,6 +337,9 @@ static const cmd_entry_t COMMANDS[] = {
     { "restore",   cmd_restore   },
     { "update",    cmd_update    },
     { "confirm",   cmd_confirm   },
+    { "reinforce", cmd_reinforce },
+    { "conflicts", cmd_conflicts },
+    { "find-conflicts", cmd_conflicts },   /* alias of conflicts */
     { "forget",    cmd_forget    },
     { "prompt",    cmd_prompt    },
     { "import",    cmd_import    },
