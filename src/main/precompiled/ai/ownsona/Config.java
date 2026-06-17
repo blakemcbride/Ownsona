@@ -102,17 +102,35 @@ public final class Config {
     // gate and tune what a fired run does.
     // ------------------------------------------------------------------
 
-    /** Runtime switch for the consolidation job.  Default false. */
+    /**
+     * Runtime switch for the consolidation (merge / dedup) pass.  Default
+     * false.  Merges near-identical clusters into one canonical fact.
+     */
     public static final boolean CONSOLIDATION_ENABLED;
 
     /**
-     * Cosine cutoff for the near-duplicate clusters the consolidation job
+     * Cosine cutoff for the near-duplicate clusters the consolidation pass
      * will merge.  Deliberately high (default 0.95): the unattended job
      * should only merge near-identical rows.
      */
     public static final double CONSOLIDATION_THRESHOLD;
 
-    /** Max clusters merged per run, to bound LLM cost.  Default 25. */
+    /**
+     * Runtime switch for the conflict-resolution pass.  Default false ---
+     * a SEPARATE opt-in from {@link #CONSOLIDATION_ENABLED} because
+     * auto-picking a winner among contradictory facts is higher-stakes
+     * than merging duplicates.  Same job, independently gated.
+     */
+    public static final boolean CONFLICT_RESOLUTION_ENABLED;
+
+    /**
+     * Cosine cutoff (tag-gated) for the conflict-resolution pass.  Default
+     * 0.80 --- lower than the merge threshold, so it catches same-topic
+     * rows whose content may actually differ.
+     */
+    public static final double CONFLICT_RESOLUTION_THRESHOLD;
+
+    /** Max clusters processed per pass, to bound LLM cost.  Default 25. */
     public static final int CONSOLIDATION_MAX_GROUPS;
 
     static {
@@ -136,9 +154,11 @@ public final class Config {
         LLM_PROVIDER  = optional("LLM_PROVIDER", "openai");
         LLM_ENABLED   = LLM_API_KEY != null && !LLM_API_KEY.isEmpty();
 
-        CONSOLIDATION_ENABLED    = parseBool("CONSOLIDATION_ENABLED", false);
-        CONSOLIDATION_THRESHOLD  = parseDouble("CONSOLIDATION_THRESHOLD", 0.95);
-        CONSOLIDATION_MAX_GROUPS = parseInt("CONSOLIDATION_MAX_GROUPS", 25);
+        CONSOLIDATION_ENABLED         = parseBool("CONSOLIDATION_ENABLED", false);
+        CONSOLIDATION_THRESHOLD       = parseDouble("CONSOLIDATION_THRESHOLD", 0.95);
+        CONFLICT_RESOLUTION_ENABLED   = parseBool("CONFLICT_RESOLUTION_ENABLED", false);
+        CONFLICT_RESOLUTION_THRESHOLD = parseDouble("CONFLICT_RESOLUTION_THRESHOLD", 0.80);
+        CONSOLIDATION_MAX_GROUPS      = parseInt("CONSOLIDATION_MAX_GROUPS", 25);
     }
 
     private static String required(String name) {

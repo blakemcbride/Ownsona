@@ -46,18 +46,23 @@
 # Uncomment the following line to run the EveryMinute.groovy file
 #* * * * * EveryMinute
 
-# Tier 3 memory consolidation ("sleep") job --- OFF by default.
-# When enabled it clusters near-duplicate memories, asks the configured
-# LLM to merge each cluster into one canonical fact, and supersedes the
-# originals (recoverable soft-delete).
+# Tier 3 memory maintenance ("sleep") job --- OFF by default.
+# Two independently-gated passes, both using the configured LLM:
+#   - consolidation/dedup (CONSOLIDATION_ENABLED): merge near-identical
+#     memories into one canonical fact, supersede the copies.
+#   - conflict resolution (CONFLICT_RESOLUTION_ENABLED): among same-topic
+#     memories that contradict, keep the current one, supersede the stale.
+# Both only soft-delete (recoverable), and skip any cluster holding a
+# keep=Y memory.
 #
-# Cost: each run makes AT MOST CONSOLIDATION_MAX_GROUPS (default 25) small
-# LLM calls, and ZERO calls when there are no near-duplicate clusters
-# (the steady state once the store is tidy).  You choose the model via
+# Cost: each enabled pass makes AT MOST CONSOLIDATION_MAX_GROUPS (default
+# 25) small LLM calls, and ZERO calls when there are no clusters to act on
+# (the steady state once the store is tidy).  Choose the model via
 # LLM_MODEL --- point it at a cheap one.
 #
 # To enable: (1) uncomment the line below (runs nightly at 03:00 --- adjust
-# as you like), (2) set CONSOLIDATION_ENABLED=true and the LLM_* keys in
-# application.ini.  Any one of those left unset keeps it off.
+# as you like), (2) set the LLM_* keys plus CONSOLIDATION_ENABLED=true
+# and/or CONFLICT_RESOLUTION_ENABLED=true in application.ini.  With the
+# LLM unset, or both passes disabled, the fired job is a cheap no-op.
 #0 3 * * * Consolidate
 

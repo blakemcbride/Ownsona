@@ -12,24 +12,43 @@ import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.config.Configurator;
+import org.kissweb.json.JSONArray;
 import org.kissweb.json.JSONObject;
 
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 /**
- * Tier 3 consolidation ("sleep") job: periodically cluster near-duplicate
- * memories, ask the configured generative model to merge each cluster
- * into one canonical fact, store the canonical, and supersede the raw
- * originals (soft-delete + {@code replaced_by_id} link).
+ * Tier 3 maintenance ("sleep") job, with two independently-gated passes:
+ *
+ * <ul>
+ *   <li><strong>Consolidation / dedup</strong> ({@link #runConsolidationPass()}):
+ *       cluster near-identical memories, ask the generative model to merge
+ *       each cluster into one canonical fact, store it, and supersede the
+ *       raw originals. Merging the copies is the dedup.</li>
+ *   <li><strong>Conflict resolution</strong> ({@link #runConflictPass()}):
+ *       cluster same-topic (tag-gated) memories that may contradict, ask
+ *       the model whether they genuinely conflict and which member is
+ *       current, and supersede the stale members in favor of that existing
+ *       survivor. Its own opt-in, run after the merge pass.</li>
+ * </ul>
+ *
+ * <p>Both passes only ever <em>supersede</em> (recoverable soft-delete +
+ * {@code replaced_by_id}), never hard-delete.
  *
  * <p><strong>Scheduling lives in Kiss Cron</strong>
  * ({@code backend/CronTasks/crontab} &rarr; {@code Consolidate.groovy}
  * &rarr; {@link #runScheduled()}).  This class holds only the pass logic,
- * not a timer.  It is gated three ways and does nothing unless all hold:
- * {@code CONSOLIDATION_ENABLED=true}, a generative provider is configured
- * ({@code LLM_API_KEY}), and near-duplicate clusters actually exist.
+ * not a timer.  The job does nothing unless a generative provider is
+ * configured ({@code LLM_API_KEY}) AND at least one pass is enabled
+ * ({@code CONSOLIDATION_ENABLED} / {@code CONFLICT_RESOLUTION_ENABLED});
+ * each pass also no-ops when its clusters don't exist.
  *
  * <p>Safety:
  * <ul>
@@ -63,6 +82,18 @@ public final class ConsolidationJob {
             "Reply with ONLY a JSON object: {\"merge\": true, \"text\": \"<canonical fact>\"} " +
             "to merge, or {\"merge\": false} to leave them alone. No prose, no markdown.";
 
+    static final String CONFLICT_SYSTEM_PROMPT =
+            "You resolve conflicts among personal-memory facts about the same topic. You are given " +
+            "several statements, each with an id and dates. Decide whether they actually CONFLICT --- " +
+            "i.e. assert incompatible things about the same subject, so they cannot all be currently " +
+            "true (e.g. two different current home cities). If they conflict, pick the SINGLE id that " +
+            "is the current/correct fact --- prefer the most recently confirmed, then most recently " +
+            "created, unless the wording clearly indicates otherwise --- and list the ids it " +
+            "supersedes. If they do NOT conflict (they are compatible, complementary, or merely " +
+            "similar), supersede nothing. Reply with ONLY a JSON object: " +
+            "{\"conflict\": true, \"keep_id\": <id>, \"supersede_ids\": [<id>, ...]} to resolve, or " +
+            "{\"conflict\": false} to leave them alone. No prose, no markdown.";
+
     private final MemoryService service;
     private final GenerativeProvider llm;
 
@@ -84,12 +115,15 @@ public final class ConsolidationJob {
         // ERROR after startup.  This is the operator's audit trail.
         Configurator.setLevel("ai.ownsona.llm", Level.INFO);
 
-        if (!Config.CONSOLIDATION_ENABLED) {
-            logger.info("consolidation: CONSOLIDATION_ENABLED is false; skipping");
+        final boolean doConsolidate = Config.CONSOLIDATION_ENABLED;
+        final boolean doConflicts   = Config.CONFLICT_RESOLUTION_ENABLED;
+        if (!doConsolidate && !doConflicts) {
+            logger.info("maintenance: CONSOLIDATION_ENABLED and CONFLICT_RESOLUTION_ENABLED " +
+                    "both false; skipping");
             return 0;
         }
         if (!Config.LLM_ENABLED) {
-            logger.warn("consolidation: enabled but no generative provider configured " +
+            logger.warn("maintenance: enabled but no generative provider configured " +
                     "(LLM_API_KEY unset); skipping");
             return 0;
         }
@@ -101,17 +135,26 @@ public final class ConsolidationJob {
             final MemoryService service = new MemoryService(repo, embedder);
             final GenerativeProvider llm = new OpenAIGenerativeProvider(
                     Config.LLM_API_KEY, Config.LLM_MODEL, Config.LLM_ENDPOINT);
-            return new ConsolidationJob(service, llm).runOnce();
+            final ConsolidationJob job = new ConsolidationJob(service, llm);
+            int actions = 0;
+            // Consolidate (merge / dedup) first, so the conflict pass runs
+            // on the already-deduplicated active set.
+            if (doConsolidate)
+                actions += job.runConsolidationPass();
+            if (doConflicts)
+                actions += job.runConflictPass();
+            return actions;
         } catch (Exception e) {
-            logger.error("consolidation: run failed to start: {}", e.getMessage(), e);
+            logger.error("maintenance: run failed to start: {}", e.getMessage(), e);
             return 0;
         }
     }
 
     /**
-     * Run one consolidation pass.  Returns the number of clusters merged.
+     * Run the consolidation (merge / dedup) pass.  Returns the number of
+     * clusters merged.
      */
-    public int runOnce() {
+    public int runConsolidationPass() {
         final long t0 = System.currentTimeMillis();
         logger.info("consolidation: starting threshold={} max_groups={} model={}",
                 Config.CONSOLIDATION_THRESHOLD, Config.CONSOLIDATION_MAX_GROUPS, llm.modelName());
@@ -170,6 +213,70 @@ public final class ConsolidationJob {
         return merged;
     }
 
+    /**
+     * Run the conflict-resolution pass.  Finds tag-gated, same-topic
+     * clusters (which, unlike the merge pass, may hold contradictory
+     * content), asks the model whether they genuinely conflict and which
+     * single member is current, and supersedes the stale members in favor
+     * of that survivor --- a recoverable soft-delete + {@code replaced_by_id}
+     * link via the existing {@code forget} path.  No new text is
+     * synthesized (safer unattended); the survivor is an existing memory.
+     * Returns the number of clusters resolved.
+     */
+    public int runConflictPass() {
+        final long t0 = System.currentTimeMillis();
+        logger.info("conflict-resolution: starting threshold={} max_groups={} model={}",
+                Config.CONFLICT_RESOLUTION_THRESHOLD, Config.CONSOLIDATION_MAX_GROUPS, llm.modelName());
+
+        final NearDuplicatesResult conflicts =
+                service.findConflicts(Config.CONFLICT_RESOLUTION_THRESHOLD, Config.CONSOLIDATION_MAX_GROUPS);
+
+        int resolved = 0, skipped = 0, failed = 0;
+        for (NearDuplicateGroup group : conflicts.groups) {
+            final List<MemoryRow> members = group.memories;
+            try {
+                if (members == null || members.size() < 2) {
+                    skipped++;
+                    continue;
+                }
+                if (hasProtectedMember(members)) {
+                    logger.info("conflict-resolution: skipping cluster {} (contains a protected memory)",
+                            idsOf(members));
+                    skipped++;
+                    continue;
+                }
+
+                final String reply = llm.complete(CONFLICT_SYSTEM_PROMPT, buildConflictUserMessage(members));
+                final ConflictDecision d = parseConflictDecision(reply);
+                if (!isValidConflictResolution(d, members)) {
+                    logger.info("conflict-resolution: no actionable conflict in cluster {}", idsOf(members));
+                    skipped++;
+                    continue;
+                }
+
+                // Supersede each stale member in favor of the survivor.
+                // forget() is a recoverable soft-delete and re-asserts the
+                // keep='Y' guard (a no-op here since we skip protected
+                // clusters, but defense in depth).
+                for (Long staleId : d.supersedeIds) {
+                    service.forget(staleId, false,
+                            "superseded by memory " + d.keepId + " (conflict resolution)",
+                            d.keepId, false);
+                }
+                logger.warn("conflict-resolution: cluster {} -> kept {} superseded {}",
+                        idsOf(members), d.keepId, d.supersedeIds);
+                resolved++;
+            } catch (Exception e) {
+                logger.error("conflict-resolution: cluster {} failed: {}", idsOf(members), e.getMessage(), e);
+                failed++;
+            }
+        }
+
+        logger.warn("conflict-resolution: done resolved={} skipped={} failed={} clusters={} ms={}",
+                resolved, skipped, failed, conflicts.groups.size(), System.currentTimeMillis() - t0);
+        return resolved;
+    }
+
     // ====================================================================================
     // pure helpers (package-private for unit tests)
     // ====================================================================================
@@ -216,6 +323,83 @@ public final class ConsolidationJob {
         } catch (Exception e) {
             return new MergeDecision(false, null);
         }
+    }
+
+    /** Result of parsing the model's conflict-resolution reply. */
+    static final class ConflictDecision {
+        final boolean    conflict;
+        final Long       keepId;
+        final List<Long> supersedeIds;
+        ConflictDecision(boolean conflict, Long keepId, List<Long> supersedeIds) {
+            this.conflict     = conflict;
+            this.keepId       = keepId;
+            this.supersedeIds = supersedeIds;
+        }
+    }
+
+    /** Build the conflict user message: id + dates + text per member. */
+    static String buildConflictUserMessage(List<MemoryRow> members) {
+        final StringBuilder sb = new StringBuilder();
+        sb.append("Statements about the same topic:\n");
+        for (MemoryRow m : members) {
+            sb.append("- id ").append(m.id)
+              .append(" | created ").append(fmtDate(m.createdAt))
+              .append(" | confirmed ").append(fmtDate(m.lastConfirmedAt))
+              .append(" | \"").append(m.text == null ? "" : m.text).append("\"\n");
+        }
+        return sb.toString();
+    }
+
+    private static String fmtDate(Date d) {
+        return d == null ? "never" : Instant.ofEpochMilli(d.getTime()).toString();
+    }
+
+    /**
+     * Parse the model's conflict reply.  Any parse failure (or a non-conflict
+     * verdict) yields a no-op decision --- the conservative default that
+     * supersedes nothing on a garbled reply.
+     */
+    static ConflictDecision parseConflictDecision(String reply) {
+        final String json = extractJsonObject(reply);
+        if (json == null)
+            return new ConflictDecision(false, null, Collections.emptyList());
+        try {
+            final JSONObject o = new JSONObject(json);
+            final boolean conflict = o.has("conflict") && o.getBoolean("conflict");
+            if (!conflict)
+                return new ConflictDecision(false, null, Collections.emptyList());
+            final Long keepId = o.has("keep_id") ? o.getLong("keep_id") : null;
+            final List<Long> sup = new ArrayList<>();
+            final JSONArray arr = o.getJSONArray("supersede_ids", false);
+            if (arr != null)
+                for (int i = 0; i < arr.length(); i++)
+                    sup.add(arr.getLong(i));
+            return new ConflictDecision(true, keepId, sup);
+        } catch (Exception e) {
+            return new ConflictDecision(false, null, Collections.emptyList());
+        }
+    }
+
+    /**
+     * Validate a conflict decision against the cluster it came from: must be
+     * a real conflict, name a survivor that is a cluster member, and list at
+     * least one distinct superseded member that is also in the cluster.
+     * Rejects anything that names ids outside the cluster (a model slip that
+     * could otherwise delete an unrelated memory).
+     */
+    static boolean isValidConflictResolution(ConflictDecision d, List<MemoryRow> members) {
+        if (d == null || !d.conflict || d.keepId == null
+                || d.supersedeIds == null || d.supersedeIds.isEmpty())
+            return false;
+        final Set<Long> ids = new HashSet<>();
+        for (MemoryRow m : members)
+            ids.add(m.id);
+        if (!ids.contains(d.keepId))
+            return false;
+        for (Long s : d.supersedeIds)
+            if (s == null || s.equals(d.keepId) || !ids.contains(s))
+                return false;
+        return true;
     }
 
     /** Extract the first balanced {@code {...}} JSON object substring, or null. */

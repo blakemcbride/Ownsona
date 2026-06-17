@@ -1425,26 +1425,38 @@ consolidation job — and never on the synchronous recall/remember path
 (see design invariant #1). When `LLM_API_KEY` is unset the seam is not
 constructed and every generative feature stays off.
 
-### 11.5 Consolidation ("sleep") job (Tier 3)
+### 11.5 Maintenance ("sleep") job (Tier 3)
 
 A periodic background job (`ai.ownsona.llm.ConsolidationJob`, scheduled by
-Kiss Cron through `backend/CronTasks/Consolidate.groovy`) clusters
-near-duplicate memories, asks the `GenerativeProvider` to merge each
-cluster into one canonical fact, stores the canonical, and **supersedes**
-the originals (recoverable soft-delete + `replaced_by_id`). It is **not**
-an MCP tool. Config:
+Kiss Cron through `backend/CronTasks/Consolidate.groovy`) with two
+independently-gated passes that use the `GenerativeProvider`. It is **not**
+an MCP tool. Both passes only **supersede** (recoverable soft-delete +
+`replaced_by_id`), never hard-delete, and skip any cluster containing a
+`keep='Y'` memory.
+
+- **Consolidation / dedup pass** — clusters near-identical memories
+  (`find_near_duplicates`), asks the LLM to merge each into one canonical
+  fact, stores it, and supersedes the originals. (Merging the copies is
+  the dedup.)
+- **Conflict-resolution pass** — clusters same-topic, tag-sharing
+  memories (`find_conflicts`) that may contradict, asks the LLM whether
+  they genuinely conflict and which member is current, and supersedes the
+  stale members in favor of that existing survivor (no synthesized text).
+  Decisions naming ids outside the cluster are rejected. Runs after the
+  merge pass.
 
 ```text
-CONSOLIDATION_ENABLED      runtime on/off (default false)
-CONSOLIDATION_THRESHOLD    near-duplicate cosine cutoff (default 0.95)
-CONSOLIDATION_MAX_GROUPS   max clusters merged per run (default 25)
+CONSOLIDATION_ENABLED          merge/dedup pass on/off (default false)
+CONSOLIDATION_THRESHOLD        near-duplicate cosine cutoff (default 0.95)
+CONFLICT_RESOLUTION_ENABLED    conflict pass on/off (default false)
+CONFLICT_RESOLUTION_THRESHOLD  conflict cosine cutoff, tag-gated (default 0.80)
+CONSOLIDATION_MAX_GROUPS       max clusters processed per pass (default 25)
 ```
 
-Off by default three independent ways (crontab line commented,
-`CONSOLIDATION_ENABLED=false`, no `LLM_API_KEY`). Skips any cluster
-containing a `keep='Y'` memory. Cost is bounded: at most
-`CONSOLIDATION_MAX_GROUPS` small LLM calls per run, and zero when there
-are no near-duplicate clusters.
+Off by default multiple independent ways (crontab line commented, both
+`*_ENABLED` flags false, no `LLM_API_KEY`). Cost is bounded: each enabled
+pass makes at most `CONSOLIDATION_MAX_GROUPS` small LLM calls per run, and
+zero when there are no clusters to act on.
 
 ---
 

@@ -63,7 +63,7 @@ src/main/precompiled/ai/ownsona/
         GenerativeProvider.java          # optional generative seam (LLM_* config)
         OpenAIGenerativeProvider.java
         MockGenerativeProvider.java
-        ConsolidationJob.java            # Tier 3 "sleep" job (cluster -> LLM merge -> supersede)
+        ConsolidationJob.java            # Tier 3 "sleep" job: merge/dedup + conflict-resolution passes
     memory/
         MemoryService.java               # the MCP tools' business logic
         MemoryRepository.java            # SQL layer
@@ -299,28 +299,44 @@ sql/
     favor of another must not override protection; general thumbs-up/down
     feedback may. The user can also always resolve manually with `forget`.
 
-15. **Consolidation (Tier 3) is a gated, recoverable, cost-bounded
-    background job.** The "sleep" job (`ai.ownsona.llm.ConsolidationJob`,
-    driven by Kiss Cron via `backend/CronTasks/Consolidate.groovy`)
-    clusters near-duplicates, asks the `GenerativeProvider` to merge each
-    cluster into one canonical fact, stores it, and supersedes the
-    originals. Non-negotiable properties:
-    - **Off by default, three ways:** the crontab line ships commented
-      out, `CONSOLIDATION_ENABLED` defaults false, and it no-ops without
-      `LLM_API_KEY`. Any one keeps it (and all LLM spend) off.
-    - **Recoverable, never destructive:** originals are *superseded*
+15. **The Tier 3 maintenance job is a gated, recoverable, cost-bounded
+    background job with two independently-gated passes.**
+    `ai.ownsona.llm.ConsolidationJob`, driven by Kiss Cron via
+    `backend/CronTasks/Consolidate.groovy`, runs whichever passes are
+    enabled:
+    - **Consolidation / dedup pass** (`CONSOLIDATION_ENABLED`,
+      `CONSOLIDATION_THRESHOLD` default 0.95): clusters near-identical
+      rows, asks the LLM to merge each into one canonical fact, stores it
+      (`dedup_policy=insert`), and supersedes the originals. Merging the
+      copies *is* the dedup.
+    - **Conflict-resolution pass** (`CONFLICT_RESOLUTION_ENABLED`,
+      `CONFLICT_RESOLUTION_THRESHOLD` default 0.80, tag-gated): clusters
+      same-topic rows that may contradict, asks the LLM whether they
+      genuinely conflict and which member is current, and supersedes the
+      stale members in favor of that **existing** survivor (no synthesized
+      text — safer unattended) via the recoverable `forget(...,
+      replaced_by_id, ...)` path. Its own opt-in, separate from the merge
+      pass, because auto-picking a winner among contradictions is
+      higher-stakes. The merge pass runs first so conflicts are judged on
+      the deduplicated set.
+
+    Non-negotiable properties for both passes:
+    - **Off by default, multiple ways:** the crontab line ships commented
+      out, both `*_ENABLED` flags default false, and the job no-ops
+      without `LLM_API_KEY`. Any one keeps it (and all LLM spend) off.
+    - **Recoverable, never destructive:** losers are *superseded*
       (soft-delete + `replaced_by_id`), never hard-deleted.
     - **Respects `keep='Y'`:** a cluster containing any protected memory
-      is skipped entirely — the job never touches anything around a
-      locked memory.
-    - **Cost-bounded:** at most `CONSOLIDATION_MAX_GROUPS` (default 25)
-      LLM calls per run, and zero calls when no near-duplicate clusters
-      exist. Threshold defaults high (0.95) so only near-identical rows
-      merge. A garbled/declined model reply is treated as "do not merge"
-      (never supersede on a bad reply).
-    - **Auditable:** each merge and the run summary log at WARN (visible
-      under the `ai.ownsona` ERROR floor) with the superseded ids, so any
-      merge can be reviewed and undone.
+      is skipped entirely.
+    - **Validated against the cluster:** the conflict pass rejects any
+      `keep_id`/`supersede_ids` not drawn from the cluster, so a model
+      slip can never act on an unrelated memory. A garbled/declined reply
+      means "do nothing" (never supersede on a bad reply).
+    - **Cost-bounded:** each pass makes at most `CONSOLIDATION_MAX_GROUPS`
+      (default 25) LLM calls, and zero when no clusters exist.
+    - **Auditable:** every merge/resolution and each run summary log at
+      WARN (visible under the `ai.ownsona` ERROR floor) with the affected
+      ids, so any action can be reviewed and undone.
     Don't move this onto the synchronous path or make it hard-delete.
 
 ---

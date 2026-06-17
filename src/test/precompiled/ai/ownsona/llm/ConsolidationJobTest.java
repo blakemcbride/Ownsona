@@ -139,4 +139,81 @@ class ConsolidationJobTest {
         assertFalse(ConsolidationJob.hasProtectedMember(Arrays.asList(
                 row(1, "x", "U", 0.5), row(2, "y", "N", 0.5))));
     }
+
+    // -------------------------------------------------------------------
+    // parseConflictDecision
+    // -------------------------------------------------------------------
+
+    @Test
+    void parsesConflictResolution() {
+        final ConsolidationJob.ConflictDecision d = ConsolidationJob.parseConflictDecision(
+                "{\"conflict\": true, \"keep_id\": 17, \"supersede_ids\": [42, 43]}");
+        assertTrue(d.conflict);
+        assertEquals(Long.valueOf(17), d.keepId);
+        assertEquals(Arrays.asList(42L, 43L), d.supersedeIds);
+    }
+
+    @Test
+    void parsesNoConflict() {
+        final ConsolidationJob.ConflictDecision d =
+                ConsolidationJob.parseConflictDecision("{\"conflict\": false}");
+        assertFalse(d.conflict);
+        assertTrue(d.supersedeIds.isEmpty());
+    }
+
+    @Test
+    void garbledConflictReplyIsNoOp() {
+        assertFalse(ConsolidationJob.parseConflictDecision("not json").conflict);
+        assertFalse(ConsolidationJob.parseConflictDecision(null).conflict);
+    }
+
+    // -------------------------------------------------------------------
+    // isValidConflictResolution --- guards against ids outside the cluster
+    // -------------------------------------------------------------------
+
+    @Test
+    void validResolutionAccepted() {
+        final List<MemoryRow> members = Arrays.asList(
+                row(17, "Austin", "U", 0.5), row(42, "Dallas", "U", 0.5));
+        final ConsolidationJob.ConflictDecision d =
+                new ConsolidationJob.ConflictDecision(true, 17L, Arrays.asList(42L));
+        assertTrue(ConsolidationJob.isValidConflictResolution(d, members));
+    }
+
+    @Test
+    void rejectsKeepIdOutsideCluster() {
+        final List<MemoryRow> members = Arrays.asList(
+                row(17, "Austin", "U", 0.5), row(42, "Dallas", "U", 0.5));
+        // keep_id 99 is not a member --- must be rejected so we never act on
+        // a hallucinated id.
+        final ConsolidationJob.ConflictDecision d =
+                new ConsolidationJob.ConflictDecision(true, 99L, Arrays.asList(42L));
+        assertFalse(ConsolidationJob.isValidConflictResolution(d, members));
+    }
+
+    @Test
+    void rejectsSupersedeIdOutsideClusterOrEqualToKeep() {
+        final List<MemoryRow> members = Arrays.asList(
+                row(17, "Austin", "U", 0.5), row(42, "Dallas", "U", 0.5));
+        // supersede id 99 not in cluster.
+        assertFalse(ConsolidationJob.isValidConflictResolution(
+                new ConsolidationJob.ConflictDecision(true, 17L, Arrays.asList(99L)), members));
+        // supersede id equals keep id.
+        assertFalse(ConsolidationJob.isValidConflictResolution(
+                new ConsolidationJob.ConflictDecision(true, 17L, Arrays.asList(17L)), members));
+        // empty supersede list.
+        assertFalse(ConsolidationJob.isValidConflictResolution(
+                new ConsolidationJob.ConflictDecision(true, 17L, Arrays.asList()), members));
+    }
+
+    @Test
+    void conflictUserMessageIncludesIds() {
+        final List<MemoryRow> members = Arrays.asList(
+                row(17, "Blake lives in Austin.", "U", 0.5),
+                row(42, "Blake lives in Dallas.", "U", 0.5));
+        final String msg = ConsolidationJob.buildConflictUserMessage(members);
+        assertTrue(msg.contains("id 17"));
+        assertTrue(msg.contains("id 42"));
+        assertTrue(msg.contains("Austin"));
+    }
 }
