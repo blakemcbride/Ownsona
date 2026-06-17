@@ -22,12 +22,17 @@ place.
 |---|---|
 | Core spec tools: `remember`, `recall`, `build_context_prompt`, `list_memories`, `update_memory`, `forget`, `text_search` | done |
 | Post-spec extensions: `remember_batch`, `update_memory_batch`, `forget_batch`, `find_near_duplicates`, `confirm`, `get_memory`, `count_memories`, `memory_stats`, `list_tags`, `export_memories` | done |
+| Learning-memory tools (Tiers 1–4): `reinforce` (salience + per-query contextual ranking), `find_conflicts`, `query_relations` (multi-hop graph) | done |
 | OAuth 2.1 (RFC 6750 RS + RFC 7591/8414 AS) on every request | done |
 | Secret rejection (OpenAI/AWS/GitHub/Slack/JWT/PEM) | done |
 | Duplicate detection by normalized text + unique partial index | done |
 | Soft delete by default; `hard_delete: true` opt-in; `dry_run` preview on `forget` / `forget_batch` | done |
 | Per-memory `keep` protection flag (`Y`/`N`/`U`, default `U`); `keep='Y'` blocks update/forget for every client; flag changed only via the CLI-only, secret-gated, unadvertised `set_keep` tool (Migration005, `CURRENT_DB_VERSION = 5`) | done |
 | pgvector cosine similarity search | done |
+| Learned salience + reinforcement (no time decay), recall ranks by `cosine·(1+w·salience+w·context)`; per-query contextual centroid (Migrations 006/007) | done |
+| Conflict handling: surfaced on write + `find_conflicts`; resolved via `remember(supersedes/downweights)` or the background pass | done |
+| Background maintenance (Tier 3) + relation-graph extraction (Tier 4, Migration008) via the optional generative seam; off by default, Kiss-Cron-driven | done |
+| Generative-LLM seam (`ai.ownsona.llm.GenerativeProvider`, `LLM_*` config) — separate from embeddings, optional, background-only | done |
 | Embedding-provider abstraction (OpenAI + mock) | done |
 | Per-user `user_id` plumbing | done |
 | Unit + integration tests | passing via `sql/run_tests.sh` (DB-gated integration tests skip without `OWNSONA_TEST_DATABASE_URL`) |
@@ -120,6 +125,35 @@ Optional with sensible defaults:
 | `MAX_TEXT_CHARS`        | `16000` |
 | `MAX_BATCH_SIZE`        | `200` |
 | `OwnsonaAdminSecret`    | unset → the CLI-only `set_keep` fails closed (the `keep` flag can't be changed by anyone). Set it (and the matching `admin_secret` in the CLI config) to manage `keep`. |
+| `REEMBED_ON_STARTUP`    | `false` (re-embed every row under a new model on next startup; auto-flips back — see `REEMBED.md`) |
+
+**Generative LLM seam (optional — powers the background intelligence
+features; configured separately from embeddings).** Leave `LLM_API_KEY`
+unset and the server runs purely on embeddings + deterministic heuristics,
+with every generative feature off:
+
+| Key | Default |
+|---|---|
+| `LLM_API_KEY`  | unset → generative seam disabled (no consolidation, conflict-resolution, or relation extraction) |
+| `LLM_MODEL`    | required iff `LLM_API_KEY` set (e.g. an OpenAI-compatible chat model) |
+| `LLM_ENDPOINT` | required iff `LLM_API_KEY` set (OpenAI-compatible `/v1/chat/completions` URL) |
+| `LLM_PROVIDER` | `openai` (label, for logging) |
+
+**Background maintenance + graph (all off by default; need the LLM seam
+AND their flag, plus the matching crontab line in
+`backend/CronTasks/crontab` uncommented):**
+
+| Key | Default |
+|---|---|
+| `CONSOLIDATION_ENABLED`         | `false` (merge/dedup near-identical clusters) |
+| `CONSOLIDATION_THRESHOLD`       | `0.95` |
+| `CONFLICT_RESOLUTION_ENABLED`   | `false` (auto-resolve same-topic contradictions) |
+| `CONFLICT_RESOLUTION_THRESHOLD` | `0.80` |
+| `CONSOLIDATION_MAX_GROUPS`      | `25` (per-pass LLM-call cap) |
+| `GRAPH_EXTRACTION_ENABLED`      | `false` (extract relation triples) |
+| `GRAPH_EXTRACTION_MAX_MEMORIES` | `25` (per-run LLM-call cap) |
+| `GRAPH_MAX_HOPS`                | `2` (default/cap hops for `query_relations`, hard cap 5) |
+| `GRAPH_MAX_RELATIONS`           | `200` (cap on relations returned per `query_relations`) |
 
 The live `application.ini` lives in the source tree at
 `src/main/backend/` (gitignored). The `bld` build copies it into the

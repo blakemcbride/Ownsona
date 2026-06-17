@@ -87,6 +87,50 @@ MAX_BATCH_SIZE = 200
 # subsequent restart doesn't re-trigger.
 REEMBED_ON_STARTUP = false
 
+# ===== GENERATIVE LLM SEAM (OPTIONAL) =====
+# A SECOND vendor seam, separate from embeddings above.  It powers the
+# "intelligent" background features: automatic consolidation/dedup,
+# automatic conflict resolution, and relation-graph extraction.  Leave
+# LLM_API_KEY unset and the server runs purely on embeddings + deterministic
+# heuristics --- every generative feature stays off and nothing breaks.
+# Generative calls are background/maintenance only; they never sit on the
+# synchronous recall/remember path.  Point these at any OpenAI-compatible
+# chat endpoint (OpenAI, OpenRouter, a local Ollama, etc.) --- it can be a
+# different vendor (and a cheaper model) than your embeddings provider.
+# LLM_API_KEY  = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+# LLM_MODEL    = gpt-4o-mini
+# LLM_ENDPOINT = https://api.openai.com/v1/chat/completions
+# LLM_PROVIDER = openai
+
+# ===== BACKGROUND MAINTENANCE + GRAPH (OPTIONAL, OFF BY DEFAULT) =====
+# These jobs are scheduled by Kiss Cron (backend/CronTasks/crontab).  To
+# enable any of them you must do THREE things: (1) set LLM_* above, (2) set
+# the relevant *_ENABLED flag here, and (3) uncomment the matching crontab
+# line (Consolidate / ExtractRelations).  Any one left undone keeps the job
+# off.  Cost is bounded: each pass makes at most *_MAX_* small LLM calls per
+# run, and zero when there is nothing to do.
+#
+# Consolidation ("sleep") job --- merge near-duplicate memories into one
+# canonical fact and supersede the copies (recoverable soft-delete):
+# CONSOLIDATION_ENABLED   = false
+# CONSOLIDATION_THRESHOLD = 0.95
+#
+# Conflict-resolution pass (same job) --- among same-topic contradictory
+# facts, keep the current one and supersede the stale.  Higher-stakes than
+# dedup, so it has its own switch:
+# CONFLICT_RESOLUTION_ENABLED   = false
+# CONFLICT_RESOLUTION_THRESHOLD = 0.80
+#
+# Per-pass cap on clusters processed (bounds LLM cost):
+# CONSOLIDATION_MAX_GROUPS = 25
+#
+# Relation-graph extraction --- pull (subject, predicate, object) triples
+# from memories so query_relations can answer multi-hop questions:
+# GRAPH_EXTRACTION_ENABLED      = false
+# GRAPH_EXTRACTION_MAX_MEMORIES = 25
+# GRAPH_MAX_HOPS                = 2
+# GRAPH_MAX_RELATIONS           = 200
+
 # ===== OAUTH 2.1 SETTINGS =====
 # OwnSona runs both an OAuth 2.1 resource server (validates tokens on
 # every /mcp request) and an embedded authorization server (issues

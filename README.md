@@ -2,7 +2,10 @@
 
 > **Teach any LLM about you, once.** Ownsona is a personal-memory
 > server that turns one knowledge base into a shared brain across
-> ChatGPT, Claude, Gemini, Grok, and any other MCP-capable assistant.
+> ChatGPT, Claude, Gemini, Grok, and any other MCP-capable assistant —
+> and it doesn't just store facts, it **learns**: it figures out which
+> memories matter, resolves contradictions, consolidates duplicates, and
+> builds a knowledge graph you can ask multi-hop questions of.
 
 [![License: BSD 2-Clause](https://img.shields.io/badge/License-BSD_2--Clause-blue.svg)](LICENSE.txt)
 [![Java: 17+](https://img.shields.io/badge/Java-17%2B-orange)](https://adoptium.net)
@@ -10,30 +13,6 @@
 [![Built on: Kiss](https://img.shields.io/badge/Built%20on-Kiss-brightgreen)](https://kissweb.org)
 
 The main home for this code is <https://github.com/blakemcbride/Ownsona>.
-
----
-
-> ### ⚠️ Existing installs: one-time database prep required
->
-> If your Ownsona database was created before the auto-migration
-> framework landed, you must run a one-time privilege-fixup script
-> **once, as the postgres superuser**, before deploying any release
-> that includes the auto-migrator. The server will refuse to start
-> without it.
->
-> ```bash
-> cat sql/migrator_prep.sql | sudo -u postgres psql -d ownsona
-> ```
->
-> The script grants the `ownsona` application role `CREATE` on
-> schema `public` and transfers ownership of `memories` to it, so
-> the auto-migrator can manage future schema changes without
-> needing the postgres superuser at runtime. It is idempotent —
-> safe to re-run.
->
-> **Fresh installs do not need this**: `sql/setup_db.sh` already
-> includes everything `migrator_prep.sql` does. See
-> [INSTALL.md](INSTALL.md) section 15 for the full walkthrough.
 
 ---
 
@@ -58,6 +37,56 @@ served through the [Model Context Protocol](https://modelcontextprotocol.io),
 the open standard for letting LLMs call external tools. Any
 MCP-capable client can be pointed at it.
 
+## Not just storage — a memory that learns
+
+Most "AI memory" is a passive notes file: it stores what you write and
+hands it back on a keyword or vector match. Ownsona goes further. It
+treats your memory as something that **improves with use** — getting
+better at surfacing the right fact, keeping itself consistent, and
+understanding how your facts connect.
+
+- **It learns what matters (reinforcement).** Every recalled memory can
+  be given feedback — *this helped*, *this was wrong* — via the
+  `reinforce` tool (and a `confirm` counts as positive). That feedback
+  moves a learned **salience** weight, and recall ranks by it. Genuinely
+  useful facts rise; noise sinks. There is **no time-based decay**:
+  nothing is ever forgotten or down-ranked merely for being old — only
+  feedback and explicit correction change a memory's standing.
+
+- **It learns *context* (per-query ranking).** Beyond a single global
+  weight, each memory learns *which kinds of questions* it helps answer.
+  Reinforce a memory along with the query it answered, and Ownsona nudges
+  that memory's learned context so the next similar question surfaces it
+  first — even over facts that are merely text-similar.
+
+- **It keeps itself consistent (conflict handling).** When you store a
+  fact that looks like it contradicts an existing one (same topic, shared
+  tags), Ownsona flags the conflict — on write and via an on-demand
+  `find_conflicts` scan. You (or the assistant) resolve it explicitly:
+  `supersedes` retires a now-wrong fact, `downweights` demotes a merely
+  outdated one — the "un-learn the stale answer" behavior plain retrieval
+  can't do.
+
+- **It tidies itself up (consolidation).** A background "sleep" job
+  clusters near-duplicate memories and merges each cluster into one clean
+  canonical fact, superseding the redundant copies — and can resolve
+  contradictions on its own when you let it.
+
+- **It understands how facts connect (knowledge graph).** A background
+  pass extracts `(subject, predicate, object)` relationships from your
+  memories into a graph, and the `query_relations` tool traverses it to
+  answer **multi-hop** questions ("who is my manager's spouse?") that a
+  flat similarity search can't.
+
+The always-on parts (salience, contextual ranking, conflict *surfacing*)
+are pure math — no extra dependency, nothing to enable. The
+generative-powered parts (automatic consolidation, automatic conflict
+*resolution*, relation extraction) use a **separate, optional LLM**
+configured independently of the embedding provider, run **in the
+background** (never on the request path), and ship **off by default** —
+turn them on when you want them. Everything destructive is recoverable
+(soft-delete) and **respects the `keep` lock** described below.
+
 ## MCP Tools
 
 | Tool | Purpose |
@@ -69,10 +98,13 @@ MCP-capable client can be pointed at it.
 | `list_memories` | Paginated listing with cleanup filters (untagged-only, char-length bounds, not-confirmed-since) |
 | `update_memory` | Edit any subset of fields; re-embeds only when `text` is supplied |
 | `update_memory_batch` | Bulk update (up to 200 items) in one call |
-| `confirm` | Refresh `last_confirmed_at` without rebuilding the embedding |
+| `confirm` | Refresh `last_confirmed_at` (counts as positive reinforcement) without rebuilding the embedding |
+| `reinforce` | Record feedback (helpful / unhelpful, optionally per-query) that adjusts a memory's learned salience and context ranking |
 | `forget` | Soft delete (default) or hard delete; `dry_run` supported |
 | `forget_batch` | Bulk soft-delete (up to 200 ids) in one call |
 | `find_near_duplicates` | Cluster active memories by cosine similarity (cleanup diagnostic) |
+| `find_conflicts` | Surface same-topic memories that may contradict each other (tag-gated) |
+| `query_relations` | Multi-hop traversal of the extracted relationship graph |
 | `text_search` | Trigram text match for known phrases |
 | `get_memory` | Fetch a single memory by id (including tombstones) |
 | `count_memories` | Cheap `COUNT(*)` with the same cleanup filters as `list_memories` |
@@ -121,6 +153,9 @@ ownsona search "<substring>"      # text_search
 ownsona list                      # list_memories
 ownsona update <id> "<text>"      # update_memory
 ownsona confirm <id>              # confirm
+ownsona reinforce <id>... [--query "..."]  # feedback: learned ranking
+ownsona conflicts                 # find_conflicts
+ownsona relations "<entity>"      # query_relations (multi-hop graph)
 ownsona forget <id>               # forget
 ownsona prompt "<user prompt>"    # build_context_prompt
 ownsona import FILE               # remember_batch (JSON or lines)
