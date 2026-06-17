@@ -64,6 +64,9 @@ src/main/precompiled/ai/ownsona/
         OpenAIGenerativeProvider.java
         MockGenerativeProvider.java
         ConsolidationJob.java            # Tier 3 "sleep" job: merge/dedup + conflict-resolution passes
+        GraphExtractionJob.java          # Tier 4 phase 2: extract relation triples (background)
+    memory/
+        ...                              # (+ RelationRepository, RelationService, MemoryRelation --- Tier 4 graph)
     memory/
         MemoryService.java               # the MCP tools' business logic
         MemoryRepository.java            # SQL layer
@@ -362,6 +365,32 @@ sql/
     `context_count` is; the vector is referenced directly in `findRanked`
     and read for update in `reinforce`. A future embedding-dimension change
     must resize `context_vector` alongside `embedding`.
+
+17. **The relation graph (Tier 4 phase 2) splits a gated LLM extraction
+    pass from a read-only, LLM-free query.** `Migration008` adds the
+    `memory_relations` table (`subject`/`predicate`/`object`/
+    `source_memory_id` with `ON DELETE CASCADE`) and a
+    `relations_extracted` flag on `memories` (`CURRENT_DB_VERSION` 8).
+    - **Extraction** (`ai.ownsona.llm.GraphExtractionJob`, Kiss Cron via
+      `ExtractRelations.groovy`) uses the generative seam to pull triples
+      from each memory. Off by default (crontab commented,
+      `GRAPH_EXTRACTION_ENABLED=false`, no-op without `LLM_API_KEY`).
+      Cost-bounded: each memory is extracted **at most once** (the flag),
+      ≤ `GRAPH_EXTRACTION_MAX_MEMORIES` (default 25) LLM calls per run,
+      zero once the store is fully extracted. A garbled reply extracts
+      nothing.
+    - **Query** (`RelationService.queryRelations` → `query_relations`
+      tool) is pure BFS over the graph — **no LLM** — so it's safe on the
+      synchronous request path. Edges are undirected for reachability;
+      soft-deleted source memories are filtered out (join to active rows);
+      results capped at `GRAPH_MAX_RELATIONS`, hops at `MAX_HOPS_CAP` (5).
+    - **Known limitation:** a memory edited after extraction keeps its
+      original triples (flag stays set). The traversal returns the
+      memory's *current* text, so a stale edge is at worst a navigational
+      hint, never wrong displayed content. Re-extraction-on-edit is a
+      future enhancement — don't bolt it onto the hot path.
+    The graph table is owned by the `ownsona` role (the migrator creates
+    it), so it needs no extra GRANTs.
 
 ---
 

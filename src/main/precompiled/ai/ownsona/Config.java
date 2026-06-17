@@ -133,6 +133,24 @@ public final class Config {
     /** Max clusters processed per pass, to bound LLM cost.  Default 25. */
     public static final int CONSOLIDATION_MAX_GROUPS;
 
+    // ------------------------------------------------------------------
+    // Relation/concept graph (Tier 4 phase 2).  Extraction is an LLM
+    // background pass (off by default, like consolidation); the multi-hop
+    // query is read-only and always available once relations exist.
+    // ------------------------------------------------------------------
+
+    /** Runtime switch for the relation-extraction background pass.  Default false. */
+    public static final boolean GRAPH_EXTRACTION_ENABLED;
+
+    /** Max memories the extraction pass processes per run (one LLM call each).  Default 25. */
+    public static final int GRAPH_EXTRACTION_MAX_MEMORIES;
+
+    /** Default / cap on hops for {@code query_relations}.  Default 2, cap 5. */
+    public static final int GRAPH_MAX_HOPS;
+
+    /** Hard cap on relations returned by one {@code query_relations} call.  Default 200. */
+    public static final int GRAPH_MAX_RELATIONS;
+
     static {
         EMBEDDING_API_KEY        = required("EMBEDDING_API_KEY");
         OWNSONA_LOGIN_USERNAME = required("OWNSONA_LOGIN_USERNAME");
@@ -159,6 +177,11 @@ public final class Config {
         CONFLICT_RESOLUTION_ENABLED   = parseBool("CONFLICT_RESOLUTION_ENABLED", false);
         CONFLICT_RESOLUTION_THRESHOLD = parseDouble("CONFLICT_RESOLUTION_THRESHOLD", 0.80);
         CONSOLIDATION_MAX_GROUPS      = parseInt("CONSOLIDATION_MAX_GROUPS", 25);
+
+        GRAPH_EXTRACTION_ENABLED      = parseBool("GRAPH_EXTRACTION_ENABLED", false);
+        GRAPH_EXTRACTION_MAX_MEMORIES = parseInt("GRAPH_EXTRACTION_MAX_MEMORIES", 25);
+        GRAPH_MAX_HOPS                = parseInt("GRAPH_MAX_HOPS", 2);
+        GRAPH_MAX_RELATIONS           = parseInt("GRAPH_MAX_RELATIONS", 200);
     }
 
     private static String required(String name) {

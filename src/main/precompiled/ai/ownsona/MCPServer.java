@@ -10,9 +10,12 @@ import ai.ownsona.memory.BatchUpdateItem;
 import ai.ownsona.memory.BatchUpdateResult;
 import ai.ownsona.memory.ForgetResult;
 import ai.ownsona.memory.MemoryFilter;
+import ai.ownsona.memory.MemoryRelation;
 import ai.ownsona.memory.MemoryRepository;
 import ai.ownsona.memory.MemoryRow;
 import ai.ownsona.memory.MemoryService;
+import ai.ownsona.memory.RelationRepository;
+import ai.ownsona.memory.RelationService;
 import ai.ownsona.memory.NearDuplicateGroup;
 import ai.ownsona.memory.NearDuplicatesResult;
 import ai.ownsona.memory.RecordMigrator;
@@ -54,6 +57,7 @@ import java.util.List;
  *   <li>{@code forget_batch} -- soft-delete many memories in one call; supports dry_run</li>
  *   <li>{@code find_near_duplicates} -- diagnostic: cluster active memories by cosine similarity</li>
  *   <li>{@code find_conflicts} -- diagnostic: cluster same-tag, semantically close memories that may disagree</li>
+ *   <li>{@code query_relations} -- multi-hop traversal of the extracted relation graph</li>
  *   <li>{@code text_search} -- substring search</li>
  *   <li>{@code get_memory} -- fetch a single memory by id</li>
  *   <li>{@code count_memories} -- COUNT(*) with optional tag / provider filters</li>
@@ -90,6 +94,7 @@ public class MCPServer extends MCPServerBase {
     private static final String SERVER_VERSION = "1.0.0";
 
     private static final MemoryService SERVICE;
+    private static final RelationService RELATION_SERVICE;
 
     static {
         // Log level strategy: keep startup-time logging at INFO (so the
@@ -109,6 +114,7 @@ public class MCPServer extends MCPServerBase {
                 Config.EMBEDDING_MODEL,
                 Config.EMBEDDING_DIMENSIONS);
         SERVICE = new MemoryService(repo, provider);
+        RELATION_SERVICE = new RelationService(new RelationRepository());
         logger.info("Ownsona MCP server class loaded; server={} version={} model={} dims={}",
                 SERVER_NAME, SERVER_VERSION, Config.EMBEDDING_MODEL, Config.EMBEDDING_DIMENSIONS);
         try {
@@ -176,6 +182,7 @@ public class MCPServer extends MCPServerBase {
         tools.put(forgetBatchDescriptor());
         tools.put(findNearDuplicatesDescriptor());
         tools.put(findConflictsDescriptor());
+        tools.put(queryRelationsDescriptor());
         tools.put(textSearchDescriptor());
         tools.put(getMemoryDescriptor());
         tools.put(countMemoriesDescriptor());
@@ -708,6 +715,26 @@ public class MCPServer extends MCPServerBase {
                 props, new String[]{});
     }
 
+    private static JSONObject queryRelationsDescriptor() {
+        final JSONObject props = new JSONObject();
+        props.put("entity", scalarProp("string",
+                "The entity to start from --- a person, place, organization, thing, or 'the user'. " +
+                "Matched case-insensitively against the subjects and objects of stored relations."));
+        props.put("max_hops", scalarProp("integer",
+                "How many relationship hops to follow outward from the entity. Default 2, hard cap " +
+                "5. Use 1 for direct relations only; higher values answer multi-hop questions " +
+                "(e.g. 'my manager's spouse')."));
+        return tool("query_relations",
+                "Traverse the relationship graph built from your memories to answer connected / " +
+                "multi-hop questions --- e.g. who is related to whom, or facts reachable by " +
+                "following a chain of relations from a starting entity. Returns the " +
+                "(subject, predicate, object) edges reached within max_hops, each with the source " +
+                "memory it came from. Read-only. The graph is populated by a background extraction " +
+                "job; if it returns nothing, relation extraction may not be enabled yet --- fall " +
+                "back to recall / search_memory.",
+                props, new String[]{"entity"});
+    }
+
     private static JSONObject textSearchDescriptor() {
         final JSONObject props = new JSONObject();
         props.put("text", scalarProp("string",
@@ -742,6 +769,7 @@ public class MCPServer extends MCPServerBase {
                 case "forget_batch":         return doForgetBatch(arguments);
                 case "find_near_duplicates": return doFindNearDuplicates(arguments);
                 case "find_conflicts":       return doFindConflicts(arguments);
+                case "query_relations":      return doQueryRelations(arguments);
                 case "text_search":          return doTextSearch(arguments);
                 case "get_memory":           return doGetMemory(arguments);
                 case "count_memories":       return doCountMemories(arguments);
@@ -1298,6 +1326,34 @@ public class MCPServer extends MCPServerBase {
         out.put("ok", true);
         out.put("threshold", res.threshold);
         out.put("groups", groupsJson);
+        out.put("summary", summary);
+        return successResult(out);
+    }
+
+    private static JSONObject doQueryRelations(JSONObject args) {
+        final String  entity  = args.getString("entity", null);
+        final Integer maxHops = args.has("max_hops") ? args.getInt("max_hops") : null;
+
+        final List<MemoryRelation> rels = RELATION_SERVICE.queryRelations(entity, maxHops);
+
+        final JSONArray arr = new JSONArray();
+        for (MemoryRelation r : rels) {
+            final JSONObject o = new JSONObject();
+            o.put("subject", r.subject);
+            o.put("predicate", r.predicate);
+            o.put("object", r.object);
+            o.put("source_memory_id", r.sourceMemoryId);
+            if (r.sourceText != null)
+                o.put("source_text", r.sourceText);
+            arr.put(o);
+        }
+
+        final JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("entity", entity);
+        out.put("relations", arr);
+        final JSONObject summary = new JSONObject();
+        summary.put("count", rels.size());
         out.put("summary", summary);
         return successResult(out);
     }

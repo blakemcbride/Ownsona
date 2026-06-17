@@ -583,6 +583,28 @@ public final class MemoryRepository {
     }
 
     /**
+     * Fetch up to {@code limit} active (non-deleted) memory ids that have
+     * not yet had relations extracted (Tier 4 phase 2), with id &gt;
+     * {@code lastId} for pagination.  Used by the graph-extraction job.
+     */
+    public List<Long> findUnextractedMemoryIds(Connection db, long lastId, int limit) throws Exception {
+        final List<Record> rows = db.fetchAll(
+                "SELECT id FROM memories " +
+                "WHERE relations_extracted = false AND deleted_at IS NULL AND id > ? " +
+                "ORDER BY id LIMIT ?",
+                lastId, limit);
+        final List<Long> ids = new ArrayList<>(rows.size());
+        for (Record r : rows)
+            ids.add(r.getLong("id"));
+        return ids;
+    }
+
+    /** Mark a memory as having had relation extraction attempted (even if 0 triples). */
+    public void markRelationsExtracted(Connection db, long id) throws Exception {
+        db.execute("UPDATE memories SET relations_extracted = true WHERE id = ?", id);
+    }
+
+    /**
      * Convenience: fetch id+text for a list of ids, preserving id order.
      * Returns a list of {@code String[]{idAsString, text}} pairs because
      * Kiss's Record API doesn't expose a typed pair; callers parse the id

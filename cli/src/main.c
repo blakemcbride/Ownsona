@@ -188,6 +188,23 @@ void ownsona_print_human(cJSON *result) {
         return;
     }
 
+    /* query_relations: { ok, entity, relations: [{subject,predicate,object,source_memory_id,source_text}] } */
+    cJSON *relations = cJSON_GetObjectItemCaseSensitive(result, "relations");
+    if (cJSON_IsArray(relations)) {
+        const int n = cJSON_GetArraySize(relations);
+        printf("%d relation%s\n", n, n == 1 ? "" : "s");
+        cJSON *r;
+        cJSON_ArrayForEach(r, relations) {
+            const char *s  = opt_string(r, "subject");
+            const char *p  = opt_string(r, "predicate");
+            const char *o  = opt_string(r, "object");
+            printf("  %s --[%s]--> %s  (from memory [%ld])\n",
+                   s ? s : "?", p ? p : "?", o ? o : "?",
+                   opt_long(r, "source_memory_id", -1));
+        }
+        return;
+    }
+
     /* build_context_prompt: { ok, prompt: "..." } */
     const char *prompt = opt_string(result, "prompt");
     if (prompt != NULL) {
@@ -280,6 +297,7 @@ static const char USAGE_TOP[] =
 "  confirm    mark a memory as still-current (refresh last_confirmed_at)\n"
 "  reinforce  record feedback that raises/lowers a memory's learned salience\n"
 "  conflicts  surface memories that may contradict each other\n"
+"  relations  traverse the relationship graph (multi-hop)\n"
 "  forget     delete a memory (soft by default, hard with --hard)\n"
 "  prompt     build an LLM prompt augmented with relevant facts\n"
 "  import     bulk-load facts from a file (remember_batch)\n"
@@ -340,6 +358,7 @@ static const cmd_entry_t COMMANDS[] = {
     { "reinforce", cmd_reinforce },
     { "conflicts", cmd_conflicts },
     { "find-conflicts", cmd_conflicts },   /* alias of conflicts */
+    { "relations", cmd_relations },
     { "forget",    cmd_forget    },
     { "prompt",    cmd_prompt    },
     { "import",    cmd_import    },

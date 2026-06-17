@@ -181,6 +181,7 @@ int cmd_update   (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_confirm  (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_reinforce(int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_conflicts(int argc, char **argv, const ownsona_global_opts_t *gopt);
+int cmd_relations(int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_forget   (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_prompt   (int argc, char **argv, const ownsona_global_opts_t *gopt);
 int cmd_import   (int argc, char **argv, const ownsona_global_opts_t *gopt);

@@ -25,7 +25,7 @@ public final class MigrationRegistry {
      * The database version this build of the application expects.
      * Bump when you add a new {@link Migration} below.
      */
-    public static final int CURRENT_DB_VERSION = 7;
+    public static final int CURRENT_DB_VERSION = 8;
 
     private static final List<Migration> MIGRATIONS;
     static {
@@ -36,6 +36,7 @@ public final class MigrationRegistry {
         m.add(new Migration005AddKeep());
         m.add(new Migration006AddSalience());
         m.add(new Migration007AddContextVector());
+        m.add(new Migration008AddRelations());
         MIGRATIONS = Collections.unmodifiableList(m);
     }
 

@@ -66,3 +66,14 @@
 # LLM unset, or both passes disabled, the fired job is a cheap no-op.
 #0 3 * * * Consolidate
 
+# Tier 4 phase 2 relation-graph extraction --- OFF by default.
+# When enabled it asks the LLM to extract (subject, predicate, object)
+# triples from memories into the relation graph that 'query_relations'
+# traverses.  Each memory is extracted at most once; a run makes AT MOST
+# GRAPH_EXTRACTION_MAX_MEMORIES (default 25) small LLM calls and ZERO once
+# the store is fully extracted.
+#
+# To enable: (1) uncomment the line below (runs nightly at 03:30), (2) set
+# GRAPH_EXTRACTION_ENABLED=true and the LLM_* keys in application.ini.
+#30 3 * * * ExtractRelations
+

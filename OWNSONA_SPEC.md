@@ -1191,6 +1191,52 @@ Identical shape to `find_near_duplicates` (`groups` of `ids` /
 differences are the lower default threshold and the requirement that
 clustered rows share a tag.
 
+### 8.17 `query_relations`
+
+Read-only multi-hop traversal of the relation graph built from memories
+(Tier 4 phase 2). Follows `(subject, predicate, object)` edges outward
+from a starting entity to answer connected / multi-hop questions. No LLM
+at query time — pure breadth-first search.
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "entity": {
+      "type": "string",
+      "description": "Entity to start from (person, place, org, thing, or 'the user'). Matched case-insensitively against relation subjects/objects."
+    },
+    "max_hops": {
+      "type": "integer",
+      "description": "Hops to follow outward. Default 2, hard cap 5. 1 = direct relations only."
+    }
+  },
+  "required": ["entity"]
+}
+```
+
+#### Output Schema
+
+```json
+{
+  "ok": true,
+  "entity": "my manager",
+  "relations": [
+    { "subject": "Dana", "predicate": "manages", "object": "the user",
+      "source_memory_id": 12, "source_text": "Dana is my manager." }
+  ],
+  "summary": { "count": 1 }
+}
+```
+
+Edges are undirected for reachability. Soft-deleted source memories are
+excluded, and each edge carries the source memory's current text. Returns
+an empty list when the entity isn't in the graph — which also happens when
+relation extraction hasn't been enabled/run yet (`GRAPH_EXTRACTION_ENABLED`
++ the `LLM_*` keys); fall back to `recall` in that case.
+
 ### The `keep` field on read outputs
 
 Every memory object returned by `recall`, `list_memories`, `get_memory`,
@@ -1304,6 +1350,30 @@ context_count  INTEGER NOT NULL DEFAULT 0 -- number of context-bearing reinforce
 per-row scalar during re-ranking). A NULL centroid contributes no boost,
 so the feature is dormant until used. Its dimension must match
 `embedding`.
+
+The relation graph (DB version 8) supports Tier 4 phase 2 multi-hop
+retrieval — a separate table plus a flag on `memories`:
+
+```sql
+CREATE TABLE memory_relations (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL DEFAULT 'default',
+    subject TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    object TEXT NOT NULL,
+    source_memory_id BIGINT REFERENCES memories(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- subject/object indexes are on lower(...) (case-insensitive traversal)
+
+ALTER TABLE memories
+    ADD COLUMN relations_extracted BOOLEAN NOT NULL DEFAULT false;
+```
+
+The background extraction job processes each memory once
+(`relations_extracted`); `query_relations` traverses the graph, joining to
+active memories so soft-deleted sources drop out. The migrator (running as
+the app role) owns the table, so no extra GRANTs are needed.
 
 ### 9.3 Indexes
 
@@ -1485,6 +1555,28 @@ Off by default multiple independent ways (crontab line commented, both
 `*_ENABLED` flags false, no `LLM_API_KEY`). Cost is bounded: each enabled
 pass makes at most `CONSOLIDATION_MAX_GROUPS` small LLM calls per run, and
 zero when there are no clusters to act on.
+
+### 11.6 Relation-extraction job (Tier 4 phase 2)
+
+A separate background job (`ai.ownsona.llm.GraphExtractionJob`, Kiss Cron
+via `backend/CronTasks/ExtractRelations.groovy`) uses the
+`GenerativeProvider` to extract `(subject, predicate, object)` triples
+from memories into `memory_relations`, which `query_relations` (§8.17)
+traverses. Config:
+
+```text
+GRAPH_EXTRACTION_ENABLED        on/off (default false)
+GRAPH_EXTRACTION_MAX_MEMORIES   memories processed per run (default 25)
+GRAPH_MAX_HOPS                  default/cap hops for query_relations (default 2, cap 5)
+GRAPH_MAX_RELATIONS             cap on relations returned per query (default 200)
+```
+
+Off by default (crontab line commented, `GRAPH_EXTRACTION_ENABLED=false`,
+no `LLM_API_KEY`). Cost-bounded: each memory is extracted at most once,
+≤ `GRAPH_EXTRACTION_MAX_MEMORIES` LLM calls per run, zero once the store
+is fully extracted. The `query_relations` traversal itself makes no LLM
+call. (Phase 2 limitation: a memory edited after extraction keeps its
+original triples; the traversal still shows the memory's current text.)
 
 ---
 

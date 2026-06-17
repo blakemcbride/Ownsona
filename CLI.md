@@ -44,6 +44,7 @@ LLM-driven cleanup workflows rather than terminal use):
 | `confirm`  | `confirm`              | Mark a memory as still-current |
 | `reinforce`| `reinforce`            | Feedback: raise/lower a memory's learned salience |
 | `conflicts`| `find_conflicts`       | Surface memories that may contradict each other |
+| `relations`| `query_relations`      | Multi-hop traversal of the relation graph |
 | `forget`   | `forget`               | Soft- or hard-delete a memory |
 | `prompt`   | `build_context_prompt` | Build an LLM prompt with relevant facts |
 | `import`   | `remember_batch`       | Bulk-load facts from a file |
@@ -282,6 +283,7 @@ ownsona update <id> "<new text>"           replace a memory
 ownsona confirm <id>                       refresh last_confirmed_at
 ownsona reinforce <id>... [--delta N] [--query "..."]  feedback: adjust learned salience (+ contextual ranking)
 ownsona conflicts [--threshold N]          surface possibly-contradicting memories
+ownsona relations "<entity>" [--max-hops N]  traverse the relation graph (multi-hop)
 ownsona forget <id>                        soft-delete (--hard to drop)
 ownsona prompt "<user prompt>"             build an LLM-ready prompt
 ownsona import FILE                        bulk-load JSON or one-per-line
@@ -482,6 +484,20 @@ reinforced 1 memory
 ```
 
 Future recalls similar to "where do I live" will rank memory 17 higher.
+
+### Traverse the relationship graph (multi-hop)
+
+```
+$ ownsona relations "my manager" --max-hops 2
+2 relations
+  Dana --[manages]--> the user  (from memory [12])
+  Dana --[is married to]--> Sam  (from memory [40])
+```
+
+The graph is populated by a background extraction job (off by default; set
+`GRAPH_EXTRACTION_ENABLED=true` and the `LLM_*` keys, and uncomment the
+`ExtractRelations` crontab line). With no relations extracted yet,
+`relations` returns nothing — fall back to `query`.
 
 ### Find memories that may contradict each other
 
