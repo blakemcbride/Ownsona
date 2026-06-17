@@ -285,6 +285,17 @@ phase (not in the migration class).
   what was done when from memory or from this file.
 - **Original enhancement suggestions**: `OwnSona-enhancement.md`
   (frozen, do not edit).
+- **Learning-memory enhancement roadmap** (salience/decay,
+  feedback-driven reinforcement, contradiction supersession,
+  consolidation — turning the static RAG store into a memory that
+  *learns*): `OwnSona.md`. Distilled from the ArtificialIntelligence
+  project's experiments; **read this first** when working on making
+  OwnSona learn. Ordered by evidence, with concrete Postgres/pgvector
+  schema and a `reinforce` MCP tool.
+- **The full reasoning chain** behind that roadmap (backprop vs.
+  Hebbian, why trained nets can't learn, bootstrapping from a
+  pretrained model, the controller-vs-RAG head-to-head):
+  `SystemAnalysis.md`.
 - **Fresh-install walkthrough**: `INSTALL.md`.
 - **Upgrade walkthrough for existing installs**: `INSTALL.md`
   section 15 ("Upgrading an existing install").
