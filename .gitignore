@@ -160,3 +160,6 @@ src/main/frontend/lib/jquery*
 
 /build/
 manual/asciidoc/
+
+# Code-RAG local index files (written by bld; machine-local, not part of the project)
+CLAUDE.local.md
