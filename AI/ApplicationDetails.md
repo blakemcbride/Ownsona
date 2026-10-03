@@ -17,8 +17,10 @@ durable facts about the user in PostgreSQL with pgvector embeddings and
 exposes them as MCP tools so any cloud LLM client (Claude, ChatGPT,
 Gemini, …) can write to and read from the same memory store.
 
-Deployed on a small Linux VPS, supervised by systemd, behind Tomcat
-terminating TLS directly on :443. Single user (Blake).
+Deployed on a small Linux VPS, behind Tomcat terminating TLS directly
+on :443. Single user (Blake). **Tomcat is started manually** (as root,
+`/home/ownsona/tomcat/bin/startup.sh`) — the `ownsona.service` systemd
+unit exists but is deliberately not used; Blake wants manual starts.
 
 Read `OWNSONA_SPEC.md` for the protocol and per-tool wire format. Read
 `MCPServer.md` for server design notes. Read `INSTALL.md` for fresh
@@ -474,6 +476,20 @@ phase (not in the migration class).
 
 ## Things that bit me before, watch out
 
+- **The certbot deploy hook can get Tomcat SIGKILLed.** The server's
+  `/etc/letsencrypt/renewal-hooks/deploy/tomcat-restart.sh` restarts
+  Tomcat after a renewal. When the *scheduled* renewal runs
+  (`snap.certbot.renew.service`), that restarted Tomcat is a child of
+  the certbot service's cgroup — when certbot exits (success or
+  failure), systemd kills the cgroup and Tomcat dies silently,
+  mid-startup, with nothing in `catalina.out`. It also races: domain
+  A's post-renewal restart takes port 80 down while domain B's
+  webroot challenge is being fetched, failing B's renewal. Fix: have
+  the deploy hook only touch a flag; do the restart in a *post* hook
+  (after all renewals) and launch `startup.sh` via `at now` so it
+  escapes certbot's cgroup (`setsid`/`nohup` do NOT escape a cgroup
+  kill). Symptom seen: catalina.out ends abruptly right after
+  "Initializing ProtocolHandler [https-jsse-nio-443]".
 - **`Record.getInt()` returns boxed `Integer`** (nullable). Check for
   null before unboxing.
 - **`MemoryRow` is a transport object** with public fields. Don't add
