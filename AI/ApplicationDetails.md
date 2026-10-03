@@ -476,20 +476,27 @@ phase (not in the migration class).
 
 ## Things that bit me before, watch out
 
-- **The certbot deploy hook can get Tomcat SIGKILLed.** The server's
-  `/etc/letsencrypt/renewal-hooks/deploy/tomcat-restart.sh` restarts
-  Tomcat after a renewal. When the *scheduled* renewal runs
-  (`snap.certbot.renew.service`), that restarted Tomcat is a child of
-  the certbot service's cgroup — when certbot exits (success or
-  failure), systemd kills the cgroup and Tomcat dies silently,
-  mid-startup, with nothing in `catalina.out`. It also races: domain
-  A's post-renewal restart takes port 80 down while domain B's
-  webroot challenge is being fetched, failing B's renewal. Fix: have
-  the deploy hook only touch a flag; do the restart in a *post* hook
-  (after all renewals) and launch `startup.sh` via `at now` so it
-  escapes certbot's cgroup (`setsid`/`nohup` do NOT escape a cgroup
-  kill). Symptom seen: catalina.out ends abruptly right after
-  "Initializing ProtocolHandler [https-jsse-nio-443]".
+- **Never restart Tomcat from inside certbot's cgroup.** A Tomcat
+  started by a certbot *deploy* hook is a child of certbot's cgroup
+  and dies when that cgroup is torn down. Two variants, both seen in
+  production: the scheduled `snap.certbot.renew.service` kills its
+  cgroup when certbot exits — success or failure — and Tomcat dies
+  silently mid-startup (catalina.out ends abruptly right after
+  "Initializing ProtocolHandler [https-jsse-nio-443]"); a manual
+  `sudo certbot renew` from an SSH session puts the restarted Tomcat
+  in that login session's scope, and it is SIGTERMed when the session
+  logs out (catalina.out shows a clean but unexplained shutdown
+  minutes after a successful start). `setsid`/`nohup` do NOT escape a
+  cgroup kill; `at(1)` does. A per-lineage restart also races
+  multi-domain renewals (domain A's restart takes port 80 down during
+  domain B's webroot challenge). The production setup therefore
+  splits the work: the deploy hook
+  (`renewal-hooks/deploy/tomcat-restart-flag.sh`) only touches a
+  flag; the post hook (`renewal-hooks/post/tomcat-restart-post.sh`)
+  runs once after all renewals and schedules
+  `/usr/local/sbin/tomcat-restart.sh` via `at now`. Masters for all
+  three scripts live in `sql/`; INSTALL.md §7.1 covers installation.
+  Don't "simplify" this back to a direct restart in the deploy hook.
 - **`Record.getInt()` returns boxed `Integer`** (nullable). Check for
   null before unboxing.
 - **`MemoryRow` is a transport object** with public fields. Don't add

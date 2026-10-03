@@ -238,18 +238,17 @@ Edit `/home/ownsona/tomcat/conf/server.xml` and make four changes:
               maxThreads="150" SSLEnabled="true">
        <UpgradeProtocol className="org.apache.coyote.http2.Http2Protocol" />
        <SSLHostConfig hostName="<your-host>">
-           <Certificate certificateKeystoreFile="conf/tomcat.p12"
-                        certificateKeystoreType="PKCS12"
-                        certificateKeystorePassword="<keystore-pw>"
-                        type="RSA" />
+           <Certificate certificateFile="/etc/letsencrypt/live/<your-host>/cert.pem"
+                certificateKeyFile="/etc/letsencrypt/live/<your-host>/privkey.pem"
+                certificateChainFile="/etc/letsencrypt/live/<your-host>/chain.pem" />
        </SSLHostConfig>
    </Connector>
    ```
 
    `hostName` is the bare hostname only (e.g. `example.com`), no
-   scheme, no path. `<keystore-pw>` is a password string you choose
-   (e.g. `s3cret-keystore-pw`); §7 below uses the same value when
-   generating the keystore.
+   scheme, no path. Tomcat 11 reads the Let's Encrypt PEM files
+   directly — no keystore conversion is needed. §7 below obtains
+   the certificates.
 
    (Add additional `SSLHostConfig` blocks if you serve multiple
    hostnames from the same VM.)
@@ -287,51 +286,73 @@ sudo chown -R ownsona:ownsona /home/ownsona/tomcat
 
 ## 7. TLS certificates
 
-Tomcat reads PKCS12 keystores. The simplest production path is Let's
-Encrypt via certbot, then a one-time conversion. Substitute your
-bare hostname (e.g. `example.com`) for `<your-host>` and any
-keystore password you choose (e.g. `s3cret-keystore-pw`) for
-`<keystore-pw>`:
+Tomcat 11 reads the Let's Encrypt PEM files directly from
+`/etc/letsencrypt/live/<your-host>/` (see the `SSLHostConfig` block
+in step 6.3), so no keystore conversion is needed. Substitute your
+bare hostname (e.g. `example.com`) for `<your-host>`.
+
+Obtain the initial certificate before Tomcat is running:
 
 ```bash
 sudo apt install -y certbot
 sudo certbot certonly --standalone -d <your-host>
-# certbot writes /etc/letsencrypt/live/<your-host>/{fullchain,privkey}.pem
-
-sudo openssl pkcs12 -export \
-    -in  /etc/letsencrypt/live/<your-host>/fullchain.pem \
-    -inkey /etc/letsencrypt/live/<your-host>/privkey.pem \
-    -out /home/ownsona/tomcat/conf/tomcat.p12 \
-    -name tomcat \
-    -password pass:<keystore-pw>
-
-sudo chown ownsona:ownsona /home/ownsona/tomcat/conf/tomcat.p12
-sudo chmod 600 /home/ownsona/tomcat/conf/tomcat.p12
+# certbot writes /etc/letsencrypt/live/<your-host>/{cert,privkey,chain,fullchain}.pem
 ```
 
-Use the same `<keystore-pw>` you put in the `SSLHostConfig` block in step 6.3.
-
-Set up a renewal hook so each renewal regenerates the keystore and
-restarts Tomcat. As an example,
-`/etc/letsencrypt/renewal-hooks/deploy/ownsona-tomcat`:
+Once Tomcat is up and serving port 80, switch renewals to the
+webroot authenticator so they work without stopping Tomcat:
 
 ```bash
-#!/bin/sh
-set -e
-openssl pkcs12 -export \
-    -in   "$RENEWED_LINEAGE/fullchain.pem" \
-    -inkey "$RENEWED_LINEAGE/privkey.pem" \
-    -out  /home/ownsona/tomcat/conf/tomcat.p12 \
-    -name tomcat \
-    -password pass:<keystore-pw>
-chown ownsona:ownsona /home/ownsona/tomcat/conf/tomcat.p12
-chmod 600              /home/ownsona/tomcat/conf/tomcat.p12
-systemctl restart ownsona.service
+sudo certbot certonly --webroot -w /home/ownsona/tomcat/webapps/ROOT \
+    -d <your-host> --keep-until-expiring
 ```
 
+### 7.1 Renewal hooks — restart Tomcat *outside* certbot's cgroup
+
+After a renewal, Tomcat must be restarted to pick up the new
+certificate. **Do not restart Tomcat directly from a deploy hook.**
+The hook runs inside certbot's cgroup, and a Tomcat started there is
+killed when that cgroup is torn down — silently, with nothing in
+`catalina.out`. This bites in two ways:
+
+- the scheduled `snap.certbot.renew.service` kills its cgroup when
+  certbot exits (success or failure), taking the restarted Tomcat
+  with it;
+- a manual `sudo certbot renew` from an SSH session places the
+  restarted Tomcat in that login session's scope, and it is
+  SIGTERMed when you log out.
+
+`setsid` and `nohup` do **not** escape a cgroup kill; handing the
+job to `atd` does. A per-lineage restart also races multi-domain
+renewals (restarting for domain A takes port 80 down mid-challenge
+for domain B), so the restart belongs in a *post* hook, which runs
+once after all renewal attempts.
+
+Three scripts implement this; the masters are in `sql/` in this
+repository:
+
 ```bash
-sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/ownsona-tomcat
+sudo apt install -y at     # provides atd
+
+sudo cp sql/tomcat-restart-flag.sh /etc/letsencrypt/renewal-hooks/deploy/
+sudo cp sql/tomcat-restart-post.sh /etc/letsencrypt/renewal-hooks/post/
+sudo cp sql/tomcat-restart.sh      /usr/local/sbin/
+sudo chmod 700 /etc/letsencrypt/renewal-hooks/deploy/tomcat-restart-flag.sh \
+               /etc/letsencrypt/renewal-hooks/post/tomcat-restart-post.sh \
+               /usr/local/sbin/tomcat-restart.sh
 ```
+
+- `tomcat-restart-flag.sh` (deploy hook) — only touches a flag
+  file; runs once per successfully renewed lineage.
+- `tomcat-restart-post.sh` (post hook) — if the flag is set,
+  schedules the restart through `at now`.
+- `tomcat-restart.sh` (in `/usr/local/sbin`) — the actual
+  stop/wait/start logic, running in atd's cgroup. Also safe to run
+  by hand as root.
+
+All three log to `/var/log/tomcat-restart.log`. If a script needs
+changing, change the copy in `sql/` first and re-copy it into place
+— the repository is the source of truth.
 
 ---
 
